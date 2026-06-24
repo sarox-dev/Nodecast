@@ -3,20 +3,69 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Recollect</title>
+    <title>Recollect — your memory layer</title>
     <link rel="stylesheet" href="/static/css/base.css" />
     <link rel="stylesheet" href="/static/css/theme-default.css" />
     <link rel="stylesheet" href="/static/css/settings.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </head>
   <body>
     <div class="page-shell">
       <header class="page-header">
-        <h1>Recollect</h1>
-        <p>Search the web with SearXNG</p>
+        <div class="logo-area">
+          <h1>Recollect</h1>
+          <span class="tagline">your memory layer</span>
+        </div>
       </header>
       <main class="search-panel">
-        {% include 'search.html' %}
+        <form id="search-form" class="search-form" autocomplete="off">
+          <div class="search-bar-wrapper">
+            <input
+              id="query"
+              name="q"
+              type="search"
+              placeholder="Search the web or your saved knowledge..."
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button type="submit" class="search-submit">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+              </svg>
+            </button>
+          </div>
+        </form>
+        <div id="filter-bar" class="filter-bar" hidden>
+          <button data-mode="all" class="filter-btn active">All</button>
+          <button data-mode="web" class="filter-btn">Web</button>
+          <button data-mode="saved" class="filter-btn">Saved</button>
+          <div class="filter-spacer"></div>
+          <button id="settings-button" class="settings-icon-btn" type="button" aria-label="Open settings">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+            </svg>
+          </button>
+        </div>
+        <div id="status-bar" class="status-bar" hidden>
+          <span id="result-count"></span>
+          <button id="browse-btn" class="browse-btn">Browse all saved</button>
+        </div>
       </main>
+      <div class="results-area">
+        <div id="results-container" class="results-layout"></div>
+        <div id="results-sentinel" class="sentinel" hidden></div>
+        <div id="empty-state" class="empty-state" hidden>
+          <div class="empty-icon">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+          </div>
+          <h3>Nothing saved yet</h3>
+          <p>Use the Recollect browser extension to save content from the web.</p>
+        </div>
+      </div>
     </div>
     {% include 'settings.html' %}
     <script src="/static/js/app.js"></script>

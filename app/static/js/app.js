@@ -1,11 +1,26 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // ─── DOM refs ────────────────────────────────────────────────
     const form = document.getElementById('search-form');
     const queryInput = document.getElementById('query');
-    const resultsNode = document.getElementById('results');
-    const webResultsNode = document.getElementById('web-results');
-    const imageResultsNode = document.getElementById('image-results');
+    const resultsContainer = document.getElementById('results-container');
     const sentinel = document.getElementById('results-sentinel');
+    const emptyState = document.getElementById('empty-state');
+    const statusBar = document.getElementById('status-bar');
+    const resultCount = document.getElementById('result-count');
+    const browseBtn = document.getElementById('browse-btn');
+    const filterBar = document.getElementById('filter-bar');
     const settingsButton = document.getElementById('settings-button');
+
+    // ─── State ──────────────────────────────────────────────────
+    let currentMode = 'all';         // 'all' | 'web' | 'saved'
+    let currentQuery = '';
+    let currentPage = 1;
+    let loading = false;
+    let hasMore = false;
+    let allResults = [];             // full merged result set for current query
+    let browseMode = false;          // true when showing all saved (no search)
+
+    // ─── Settings overlay (ported from original) ────────────────
     const settingsOverlay = document.getElementById('settings-overlay');
     const settingsClose = document.getElementById('settings-close');
     const settingsList = document.getElementById('settings-list');
@@ -25,7 +40,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     ],
                     default: 'default'
                 },
-
             ]
         },
         {
@@ -64,379 +78,338 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const settingsState = {};
 
-    const STORAGE_KEY = 'selectedCategory'
-
-    let activeCategory = localStorage.getItem(STORAGE_KEY) || settingsSchema[0].category
-
     function getValue(item) {
-        const persisted = localStorage.getItem(item.key)
-
-        if (persisted === null) return item.default
-
-        if (item.type === 'checkbox') return persisted === 'true'
-        if (item.type === 'number') return Number(persisted)
-
+        const persisted = localStorage.getItem(item.key);
+        if (persisted === null) return item.default;
+        if (item.type === 'checkbox') return persisted === 'true';
+        if (item.type === 'number') return Number(persisted);
         if (item.type === 'checkbox-group') {
-            try {
-                return JSON.parse(persisted)
-            } catch {
-                return item.default
-            }
+            try { return JSON.parse(persisted); } catch { return item.default; }
         }
-
-        return persisted
+        return persisted;
     }
 
     function setValue(key, value) {
-        settingsState[key] = value
-
-        if (Array.isArray(value)) {
-            localStorage.setItem(key, JSON.stringify(value))
-        } else {
-            localStorage.setItem(key, String(value))
-        }
+        settingsState[key] = value;
+        if (Array.isArray(value)) localStorage.setItem(key, JSON.stringify(value));
+        else localStorage.setItem(key, String(value));
     }
 
     function createField(item) {
-        const value = getValue(item)
-        settingsState[item.key] = value
-
+        const value = getValue(item);
+        settingsState[item.key] = value;
         if (item.type === 'select') {
-            return `
-        <label class="settings-field">
-            <span>${item.label}</span>
-            <select data-key="${item.key}">
-            ${item.options.map(o =>
-                `<option value="${o.value}" ${o.value === value ? 'selected' : ''}>${o.label}</option>`
-            ).join('')}
-            </select>
-        </label>
-        `
+            return `<label class="settings-field"><span>${item.label}</span><select data-key="${item.key}">${item.options.map(o => `<option value="${o.value}" ${o.value === value ? 'selected' : ''}>${o.label}</option>`).join('')}</select></label>`;
         }
-
         if (item.type === 'checkbox') {
-            return `
-        <label class="settings-field checkbox-field">
-            <span>${item.label}</span>
-            <input type="checkbox" data-key="${item.key}" ${value ? 'checked' : ''} />
-        </label>
-        `
+            return `<label class="settings-field checkbox-field"><span>${item.label}</span><input type="checkbox" data-key="${item.key}" ${value ? 'checked' : ''} /></label>`;
         }
-
         if (item.type === 'checkbox-group') {
-            const value = getValue(item)
-
-            return `
-                <div class="settings-field">
-                <span>${item.label}</span>
-                <div class="checkbox-group">
-                    ${item.options.map(opt => `
-                    <label class="checkbox-option">
-                        <input 
-                        type="checkbox" 
-                        data-key="${item.key}" 
-                        value="${opt.value}" 
-                        ${value.includes(opt.value) ? 'checked' : ''}
-                        />
-                        <span>${opt.label}</span>
-                    </label>
-                    `).join('')}
-                </div>
-                </div>
-            `
+            return `<div class="settings-field"><span>${item.label}</span><div class="checkbox-group">${item.options.map(opt => `<label class="checkbox-option"><input type="checkbox" data-key="${item.key}" value="${opt.value}" ${value.includes(opt.value) ? 'checked' : ''} /><span>${opt.label}</span></label>`).join('')}</div></div>`;
         }
-
-        return `
-        <label class="settings-field">
-        <span>${item.label}</span>
-        <input type="${item.type}" data-key="${item.key}" value="${value}" min="${item.min || ''}" max="${item.max || ''}" />
-        </label>
-    `
-    }
-
-    function renderCategories() {
-        const node = document.getElementById('settings-categories')
-
-        node.innerHTML = settingsSchema.map(cat => `
-    <li>
-      <button 
-        class="settings-category-button ${cat.category === activeCategory ? 'active' : ''}" 
-        data-category="${cat.category}">
-        ${cat.category}
-      </button>
-    </li>
-  `).join('')
-
-        bindCategoryEvents()
-    }
-
-    function bindCategoryEvents() {
-        document.querySelectorAll('.settings-category-button').forEach(btn => {
-            btn.addEventListener('click', () => {
-                activeCategory = btn.dataset.category
-                localStorage.setItem(STORAGE_KEY, activeCategory)
-
-                renderCategories()
-                renderSettings()
-                updateHeader()
-            })
-        })
+        return `<label class="settings-field"><span>${item.label}</span><input type="${item.type}" data-key="${item.key}" value="${value}" min="${item.min || ''}" max="${item.max || ''}" /></label>`;
     }
 
     function renderSettings() {
-        const category = settingsSchema.find(c => c.category === activeCategory)
-        if (!category) return
-
-        settingsList.innerHTML = category.items.map(createField).join('')
+        settingsList.innerHTML = settingsSchema.map(cat => cat.items.map(createField).join('')).join('');
     }
 
     function readSettings() {
-        settingsSchema.forEach(category => {
-            category.items.forEach(item => {
+        settingsSchema.forEach(cat => {
+            cat.items.forEach(item => {
                 if (item.type === 'checkbox-group') {
-                    const inputs = settingsList.querySelectorAll(
-                        `input[data-key="${item.key}"]`
-                    )
-
-                    const values = [...inputs]
-                        .filter(i => i.checked)
-                        .map(i => i.value)
-
-                    setValue(item.key, values)
-                    return
+                    const inputs = settingsList.querySelectorAll(`input[data-key="${item.key}"]`);
+                    setValue(item.key, [...inputs].filter(i => i.checked).map(i => i.value));
+                    return;
                 }
-
-                const input = settingsList.querySelector(`[data-key="${item.key}"]`)
-                if (!input) return
-
-                let value
-
-                if (item.type === 'checkbox') value = input.checked
-                else if (item.type === 'number') value = Number(input.value) || item.default
-                else value = input.value
-
-                setValue(item.key, value)
-            })
-        })
-    }
-
-    function applySettings() {
-        document.documentElement.dataset.theme = settingsState.theme
+                const input = settingsList.querySelector(`[data-key="${item.key}"]`);
+                if (!input) return;
+                let value;
+                if (item.type === 'checkbox') value = input.checked;
+                else if (item.type === 'number') value = Number(input.value) || item.default;
+                else value = input.value;
+                setValue(item.key, value);
+            });
+        });
     }
 
     function openSettings() {
-        renderCategories()
-        renderSettings()
-        updateHeader()
-
-        settingsOverlay.hidden = false
-        settingsOverlay.inert = false
-
-        const firstInput = settingsOverlay.querySelector('input, select, button')
-        firstInput?.focus()
+        renderSettings();
+        settingsOverlay.hidden = false;
+        settingsOverlay.inert = false;
     }
 
     function closeSettings() {
-        document.activeElement?.blur()
-        settingsOverlay.inert = true
-        settingsOverlay.hidden = true
+        document.activeElement?.blur();
+        settingsOverlay.inert = true;
+        settingsOverlay.hidden = true;
     }
 
     settingsButton.addEventListener('click', openSettings);
     settingsClose.addEventListener('click', closeSettings);
-    settingsOverlay.addEventListener('click', (event) => {
-        if (event.target === settingsOverlay) {
-            closeSettings();
-        }
-    });
+    settingsOverlay.addEventListener('click', (e) => { if (e.target === settingsOverlay) closeSettings(); });
+    settingsSave.addEventListener('click', () => { readSettings(); applyTheme(); closeSettings(); });
 
-    settingsSave.addEventListener('click', () => {
-        readSettings();
-        applySettings();
-        closeSettings();
-    });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !settingsOverlay.hidden) closeSettings(); });
 
-    document.addEventListener('keydown', (event) => {
-        if (event.key === 'Escape' && !settingsOverlay.hidden) {
-            closeSettings();
-        }
-    });
-
-    function sanitizeCategory() {
-        const exists = settingsSchema.some(c => c.category === activeCategory)
-
-        if (!exists) {
-            activeCategory = settingsSchema[0].category
-            localStorage.setItem(STORAGE_KEY, activeCategory)
-        }
+    function initSettings() {
+        settingsSchema.forEach(cat => cat.items.forEach(item => { settingsState[item.key] = getValue(item); }));
     }
+    initSettings();
 
-    function initSettingsState() {
-        settingsSchema.forEach(category => {
-            category.items.forEach(item => {
-                settingsState[item.key] = getValue(item)
-            })
-        })
+    function applyTheme() {
+        if (settingsState.theme === 'dark') document.documentElement.dataset.theme = 'dark';
+        else document.documentElement.dataset.theme = '';
     }
-
-    sanitizeCategory()
-    initSettingsState()
+    applyTheme();
 
     function getEngines() {
-        const engines = settingsState.engines
-        return Array.isArray(engines) ? engines.join(',') : 'duckduckgo'
+        const e = settingsState.engines;
+        return Array.isArray(e) ? e.join(',') : 'duckduckgo';
     }
-
-    function updateHeader() {
-        const category = settingsSchema.find(c => c.category === activeCategory)
-        document.getElementById('settings-category-title').textContent = category.category
-    }
-    updateHeader();
-
-    renderCategories();
-    renderSettings();
-    applySettings();
-
-
-    let activeTab = 'web';
-
-    function setActiveTab(tab) {
-        activeTab = tab;
-
-        webResultsNode.style.display = 'none';
-        imageResultsNode.style.display = 'none';
-
-        if (tab === 'web') webResultsNode.style.display = 'block';
-        if (tab === 'images') imageResultsNode.style.display = 'grid';
-    }
-    setActiveTab(activeTab);
-
-    document.querySelectorAll('[data-tab]').forEach(btn => {
-        btn.addEventListener('click', () => {
-            setActiveTab(btn.dataset.tab);
-        })
-    })
-
-    function formatSource(url) {
-        try {
-            const hostname = new URL(url).hostname.replace('www.', '');
-
-            const map = {
-                'wikipedia.org': 'Wikipedia',
-                'github.com': 'GitHub',
-                'google.com': 'Google',
-                'bing.com': 'Bing',
-                'duckduckgo.com': 'DuckDuckGo',
-                'facebook.com': 'Facebook',
-            };
-
-            return map[hostname] || hostname;
-        } catch {
-            return '';
-        }
-    }
-
-
-    let currentQuery = '';
-    let currentPage = 1;
-    let loading = false;
-    let hasMore = false;
 
     function getPageSize() {
         return Number(settingsState.resultsPerPage) || 10;
     }
 
-    function renderWeb(data) {
-        webResultsNode.insertAdjacentHTML(
-            'beforeend',
-            data.map(item => `
-            <article class="web-card">
-                <div class="web-meta">${item.source?.join(', ') || ''}</div>
-                <a class="web-title" href="${item.url}" target="_blank">${item.title || item.url}</a>
-                <div class="web-url">${item.url}</div>
-                <p class="web-content">${item.content || ''}</p>
-            </article>
-        `).join('')
-        );
+    // ─── Filter tabs ─────────────────────────────────────────────
+    function renderFilterTabs(mode) {
+        filterBar.hidden = false;
+        filterBar.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.mode === mode);
+        });
     }
 
-    function renderImages(data) {
-        imageResultsNode.insertAdjacentHTML(
-            'beforeend',
-            data.map(item => `
-            <a href="${item.url}" target="_blank" class="image-card">
-                <img src="${item.thumbnail || item.url}" alt="${item.title || ''}" loading="lazy" />
-                <div class="image-title">${item.title || ''}</div>
-                <div class="image-url">${formatSource(item.url)}</div>
-            </a>
-        `).join('')
-        );
+    function setFilter(mode) {
+        currentMode = mode;
+        renderFilterTabs(mode);
+        renderResults();
     }
 
-    async function loadResults(page) {
-        if (loading || !currentQuery || (!hasMore && page > 1)) return;
+    filterBar.addEventListener('click', (e) => {
+        const btn = e.target.closest('.filter-btn');
+        if (btn) setFilter(btn.dataset.mode);
+    });
 
+    // ─── Rendering ────────────────────────────────────────────────
+    function formatTime(isoStr) {
+        if (!isoStr) return '';
+        try {
+            const d = new Date(isoStr);
+            const days = Math.floor((Date.now() - d) / (1000 * 60 * 60 * 24));
+            if (days === 0) return 'today';
+            if (days === 1) return 'yesterday';
+            if (days < 7) return `${days} days ago`;
+            return d.toLocaleDateString();
+        } catch { return ''; }
+    }
+
+    function highlightText(text, query) {
+        if (!query || !text) return text;
+        const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const words = escaped.split(/\s+/).filter(Boolean);
+        if (!words.length) return text;
+        const pattern = new RegExp(`(${words.join('|')})`, 'gi');
+        return text.replace(pattern, '<mark>$1</mark>');
+    }
+
+    function createCard(item) {
+        const isSaved = item._type === 'saved';
+        const ts = formatTime(item.saved_at);
+        const title = item.title || item.url || 'Untitled';
+        const content = item.content || '';
+        const highlightedTitle = highlightText(title, currentQuery);
+        const highlightedContent = highlightText(content.slice(0, 250), currentQuery);
+
+        let metaBadge = isSaved
+            ? `<span class="badge-saved">★ Saved</span>`
+            : `<span class="badge-web">Web</span>`;
+
+        let metaTime = isSaved && ts ? `<span class="card-time">${ts}</span>` : '';
+
+        let sourceName = item.site_name || '';
+        if (!sourceName && item.url) {
+            try { sourceName = new URL(item.url).hostname.replace('www.', ''); } catch {}
+        }
+
+        let urlDisplay = item.url || '';
+
+        return `
+<article class="result-card ${isSaved ? 'card-saved' : 'card-web'}">
+  <div class="card-header">
+    ${metaBadge}
+    ${metaTime}
+  </div>
+  <a class="card-title" href="${item.url || '#'}" target="_blank" rel="noopener">${highlightedTitle}</a>
+  ${urlDisplay ? `<div class="card-url">${urlDisplay}</div>` : ''}
+  ${sourceName ? `<div class="card-source">${sourceName}</div>` : ''}
+  ${content ? `<p class="card-content">${highlightedContent}</p>` : ''}
+</article>`;
+    }
+
+    function renderResults() {
+        let items = allResults;
+        if (currentMode === 'web') items = allResults.filter(r => r._type === 'web');
+        else if (currentMode === 'saved') items = allResults.filter(r => r._type === 'saved');
+
+        resultsContainer.innerHTML = items.map(createCard).join('');
+
+        // Status
+        statusBar.hidden = false;
+        const total = allResults.length;
+        const shown = items.length;
+        if (browseMode) {
+            resultCount.textContent = `${total} saved item${total !== 1 ? 's' : ''}`;
+        } else if (currentQuery) {
+            if (currentMode === 'all') {
+                resultCount.textContent = `${total} result${total !== 1 ? 's' : ''} (${allResults.filter(r => r._type === 'saved').length} saved)`;
+            } else if (currentMode === 'saved') {
+                resultCount.textContent = `${shown} saved result${shown !== 1 ? 's' : ''}`;
+            } else {
+                resultCount.textContent = `${shown} web result${shown !== 1 ? 's' : ''}`;
+            }
+        } else {
+            statusBar.hidden = true;
+        }
+
+        // Empty state
+        if (total === 0 && currentQuery) {
+            emptyState.hidden = false;
+            emptyState.innerHTML = `
+                <div class="empty-icon">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+                    </svg>
+                </div>
+                <h3>No results for "${currentQuery}"</h3>
+                ${currentMode !== 'web' ? '<p>Try different keywords, or switch to All to include web results.</p>' : ''}
+            `;
+        } else {
+            emptyState.hidden = true;
+        }
+
+        // Sentinel for infinite scroll (only for web mode with pagination)
+        if (hasMore && !browseMode) {
+            sentinel.hidden = false;
+        } else {
+            sentinel.hidden = true;
+        }
+    }
+
+    // ─── Fetching ────────────────────────────────────────────────
+    async function doSearch(query, page) {
+        if (loading) return;
         loading = true;
 
         const pageSize = getPageSize();
+        const url = `/search?q=${encodeURIComponent(query)}&page=${page}&count=${pageSize}&mode=all&engines=${getEngines()}`;
 
-        const response = await fetch(
-            `/search?q=${encodeURIComponent(currentQuery)}&page=${page}&count=${pageSize}&type=${activeTab}&engines=${getEngines()}`
-        );
+        try {
+            const resp = await fetch(url);
+            const data = await resp.json();
 
-        const data = await response.json();
+            if (!Array.isArray(data)) {
+                loading = false;
+                return;
+            }
 
-        if (!response.ok || data.error) {
-            loading = false;
-            hasMore = false;
-            return;
+            if (page === 1) {
+                allResults = data;
+            } else {
+                // Append web results (local results are already all returned page 1)
+                const existingUrls = new Set(allResults.map(r => r.url));
+                const newWeb = data.filter(r => r._type === 'web' && !existingUrls.has(r.url));
+                allResults = allResults.concat(newWeb);
+            }
+
+            // Determine if there might be more web results
+            hasMore = data.length >= pageSize;
+            currentPage = page;
+
+            renderResults();
+        } catch (err) {
+            console.error('Search failed:', err);
+            resultsContainer.innerHTML = `<div class="message error">Search request failed. Is the server running?</div>`;
         }
 
-        if (!Array.isArray(data) || data.length === 0) {
-            hasMore = false;
-            loading = false;
-            return;
-        }
-
-        if (page === 1) {
-            webResultsNode.innerHTML = '';
-            imageResultsNode.innerHTML = '';
-        }
-
-        if (activeTab === 'images') {
-            renderImages(data);
-        } else {
-            renderWeb(data);
-        }
-
-        hasMore = data.length >= pageSize;
-        currentPage = page;
         loading = false;
     }
 
-    const observer = new IntersectionObserver(
-        (entries) => {
-            if (entries[0].isIntersecting && !loading && hasMore && settingsState.autoLoad) {
-                loadResults(currentPage + 1);
-            }
-        },
-        {
-            rootMargin: '200px',
-        }
-    );
-    observer.observe(sentinel);
+    async function loadBrowse() {
+        loading = true;
+        browseMode = true;
+        currentQuery = '';
 
-    form.addEventListener('submit', async (event) => {
-        event.preventDefault();
-        currentQuery = queryInput.value.trim();
+        try {
+            const resp = await fetch('/search?q=&mode=all');
+            const data = await resp.json();
+
+            if (!Array.isArray(data)) {
+                allResults = [];
+            } else {
+                // Only keep saved items for browse
+                allResults = data.filter(r => r._type === 'saved');
+            }
+
+            hasMore = false;
+            currentPage = 1;
+            renderResults();
+
+            if (allResults.length === 0) {
+                emptyState.hidden = false;
+                emptyState.innerHTML = `
+                    <div class="empty-icon">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                    </div>
+                    <h3>Nothing saved yet</h3>
+                    <p>Use the Recollect browser extension to save content from the web.</p>
+                `;
+            }
+        } catch (err) {
+            console.error('Browse failed:', err);
+            resultsContainer.innerHTML = `<div class="message error">Could not load saved content.</div>`;
+        }
+
+        loading = false;
+    }
+
+    // ─── Search submit ────────────────────────────────────────────
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const query = queryInput.value.trim();
+        if (!query) return;
+
+        browseMode = false;
+        currentQuery = query;
         currentPage = 1;
         hasMore = true;
-        webResultsNode.innerHTML = '';
-        imageResultsNode.innerHTML = '';
-        if (!currentQuery) {
-            resultsNode.textContent = 'Please enter a search term.';
-            return;
-        }
-        await loadResults(1);
+        allResults = [];
+        filterBar.hidden = false;
+        renderFilterTabs('all');
+
+        await doSearch(query, 1);
+        queryInput.blur();
     });
+
+    // ─── Browse button ────────────────────────────────────────────
+    browseBtn.addEventListener('click', () => {
+        queryInput.value = '';
+        currentQuery = '';
+        currentMode = 'all';
+        filterBar.hidden = true;
+        loadBrowse();
+    });
+
+    // ─── Infinite scroll (observer) ──────────────────────────────
+    const observer = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting && !loading && hasMore && currentQuery && settingsState.autoLoad) {
+            doSearch(currentQuery, currentPage + 1);
+        }
+    }, { rootMargin: '300px' });
+    observer.observe(sentinel);
+
+    // ─── Init: show browse on load ───────────────────────────────
+    loadBrowse();
 });

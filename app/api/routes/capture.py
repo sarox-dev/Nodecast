@@ -109,3 +109,56 @@ def list_captures():
             pass
 
     return {"captures": captures}
+
+import re
+
+
+@router.get("/local/search")
+def local_search(q: str = ""):
+    """Full-text search over saved captures. Simple grep-based, no index needed for MVP."""
+    if not q:
+        return []
+
+    if not CONTENTS_DIR.exists():
+        return []
+
+    query_lower = q.lower().strip()
+    terms = [t for t in query_lower.split() if t]
+    if not terms:
+        return []
+
+    files = sorted(CONTENTS_DIR.glob("*.json"), reverse=True)
+    results = []
+
+    for f in files:
+        try:
+            with open(f, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+
+            # Build searchable text from all fields
+            searchable = (
+                (data.get("content", "") or "") + " " +
+                (data.get("source", {}).get("title", "") or "") + " " +
+                (data.get("source", {}).get("site_name", "") or "") + " " +
+                (data.get("source", {}).get("url", "") or "") + " " +
+                (data.get("context", {}).get("before", "") or "") + " " +
+                (data.get("context", {}).get("after", "") or "")
+            ).lower()
+
+            if all(t in searchable for t in terms):
+                results.append({
+                    "id": data.get("id"),
+                    "type": "saved",
+                    "title": data.get("source", {}).get("title", ""),
+                    "url": data.get("source", {}).get("url", ""),
+                    "content": data.get("content", "")[:300],
+                    "site_name": data.get("source", {}).get("site_name", ""),
+                    "saved_at": data.get("saved_at", ""),
+                    "capture_id": data.get("id"),
+                    "_type": "saved",
+                })
+
+        except Exception:
+            pass
+
+    return results
