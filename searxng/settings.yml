@@ -490,6 +490,7 @@ engines:
     engine: ask
     shortcut: ask
     disabled: true
+    inactive: true
 
   - name: azure
     engine: azure
@@ -1689,6 +1690,7 @@ engines:
   - name: podcastindex
     engine: podcastindex
     shortcut: podcast
+    inactive: true
 
   # Required dependency: psychopg2
   #  - name: postgresql
@@ -1707,6 +1709,8 @@ engines:
     shortcut: ps
     timeout: 4.0
     disabled: true
+    inactive: true
+    inactive: true
 
   - name: presearch images
     engine: presearch
@@ -1716,6 +1720,7 @@ engines:
     timeout: 4.0
     shortcut: psimg
     disabled: true
+    inactive: true
 
   - name: presearch videos
     engine: presearch
@@ -1725,6 +1730,7 @@ engines:
     timeout: 4.0
     shortcut: psvid
     disabled: true
+    inactive: true
 
   - name: presearch news
     engine: presearch
@@ -1734,6 +1740,7 @@ engines:
     timeout: 4.0
     shortcut: psnews
     disabled: true
+    inactive: true
 
   - name: pub.dev
     engine: xpath
@@ -2554,6 +2561,7 @@ engines:
     shortcut: ls
     categories: videos
     disabled: true
+    inactive: true
     timeout: 5.0
 
   - name: wordnik
@@ -2586,6 +2594,7 @@ engines:
     categories: news
     seekr_category: news
     disabled: true
+    inactive: true
 
   - name: seekr images
     engine: seekr
@@ -2594,6 +2603,7 @@ engines:
     categories: images
     seekr_category: images
     disabled: true
+    inactive: true
 
   - name: seekr videos
     engine: seekr
@@ -2602,17 +2612,20 @@ engines:
     categories: videos
     seekr_category: videos
     disabled: true
+    inactive: true
 
   - name: stract
     engine: stract
     shortcut: str
     disabled: true
+    inactive: true
 
   - name: svgrepo
     engine: svgrepo
     shortcut: svg
     timeout: 10.0
     disabled: true
+    inactive: true
 
   - name: tootfinder
     engine: tootfinder

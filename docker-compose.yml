@@ -18,6 +18,8 @@ services:
       dockerfile: Dockerfile
     ports:
       - "${APP_PORT}:5000"
+    volumes:
+      - ./contents:/app/contents
     depends_on:
       - searxng
     environment:
