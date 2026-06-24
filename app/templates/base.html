@@ -12,9 +12,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </head>
   <body>
-    <div class="page-shell">
-      <header class="page-header">
-        <div class="logo-area">
+    <div class="page-shell" id="page-shell">
+      <header class="page-header" id="page-header">
+        <div class="logo-area" id="logo-area">
           <h1>Recollect</h1>
           <span class="tagline">your memory layer</span>
           <button id="settings-button" class="settings-icon-btn" type="button" aria-label="Open settings">
@@ -26,7 +26,7 @@
       </header>
       <main class="search-panel">
         <form id="search-form" class="search-form" autocomplete="off">
-          <div class="search-bar-wrapper">
+          <div class="search-bar-wrapper" id="search-bar-wrapper">
             <input
               id="query"
               name="q"
@@ -42,6 +42,10 @@
             </button>
           </div>
         </form>
+        <div id="loading-indicator" class="loading-indicator" hidden>
+          <div class="spinner"></div>
+          <span>Searching the web and your saved knowledge...</span>
+        </div>
         <div id="filter-bar" class="filter-bar" hidden>
           <button data-mode="all" class="filter-btn active">All</button>
           <button data-mode="web" class="filter-btn">Web</button>

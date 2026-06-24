@@ -41,18 +41,35 @@ body {
   max-width: 1000px;
   margin: 0 auto;
   padding: 2rem 1.5rem;
+  transition: padding 0.4s ease;
+}
+
+.page-shell.search-active {
+  padding-top: 1rem;
 }
 
 /* ─── Header ─────────────────────────────────────────────────── */
 
 .page-header {
   margin-bottom: 2rem;
+  transition: all 0.4s ease;
+}
+
+.page-header.search-active {
+  margin-bottom: 1rem;
+  transform: translateY(-0.5rem);
+}
+
+.page-header.search-active .logo-area h1,
+.page-header.search-active .tagline {
+  opacity: 0.3;
 }
 
 .logo-area {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  transition: opacity 0.3s ease;
 }
 
 .logo-area h1 {
@@ -60,6 +77,7 @@ body {
   font-size: 1.75rem;
   font-weight: 700;
   letter-spacing: -0.02em;
+  transition: opacity 0.3s ease;
 }
 
 .tagline {
@@ -67,6 +85,7 @@ body {
   color: var(--text-secondary);
   font-weight: 400;
   flex: 1;
+  transition: opacity 0.3s ease;
 }
 
 /* Settings icon in header - always visible */
@@ -94,6 +113,7 @@ body {
 
 .search-form {
   margin-bottom: 1rem;
+  transition: margin 0.3s ease;
 }
 
 .search-bar-wrapper {
@@ -103,7 +123,7 @@ body {
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.3s ease;
   overflow: hidden;
 }
 
@@ -144,6 +164,31 @@ body {
   color: var(--accent);
 }
 
+/* ─── Loading spinner ─────────────────────────────────────────── */
+
+.loading-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 2rem 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 /* ─── Filter bar ──────────────────────────────────────────────── */
 
 .filter-bar {
@@ -153,6 +198,7 @@ body {
   margin-bottom: 1rem;
   padding-bottom: 0.75rem;
   border-bottom: 1px solid var(--border);
+  transition: opacity 0.3s ease;
 }
 
 .filter-btn {
@@ -209,6 +255,7 @@ body {
 
 .results-area {
   margin-top: 0.5rem;
+  min-height: 100px;
 }
 
 .results-layout {
@@ -216,20 +263,39 @@ body {
   gap: 0.75rem;
 }
 
-/* ─── Result cards ────────────────────────────────────────────── */
+/* ─── Result cards with staggered animation ───────────────────── */
 
 .result-card {
   padding: 1.1rem 1.25rem;
   border-radius: var(--radius-lg);
   border: 1px solid var(--border);
   background: var(--bg-card);
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color 0.15s, background 0.15s, opacity 0.4s ease, transform 0.4s ease;
+  opacity: 0;
+  transform: translateY(12px);
+}
+
+.result-card.visible {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .result-card:hover {
   border-color: var(--border-hover);
   background: var(--bg-hover);
 }
+
+/* Delay each card for staggered reveal */
+.result-card:nth-child(1) { transition-delay: 0.02s; }
+.result-card:nth-child(2) { transition-delay: 0.06s; }
+.result-card:nth-child(3) { transition-delay: 0.10s; }
+.result-card:nth-child(4) { transition-delay: 0.14s; }
+.result-card:nth-child(5) { transition-delay: 0.18s; }
+.result-card:nth-child(6) { transition-delay: 0.22s; }
+.result-card:nth-child(7) { transition-delay: 0.26s; }
+.result-card:nth-child(8) { transition-delay: 0.30s; }
+.result-card:nth-child(9) { transition-delay: 0.34s; }
+.result-card:nth-child(10) { transition-delay: 0.38s; }
 
 .card-saved {
   border-left: 3px solid var(--saved-accent);

@@ -1,5 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     // ─── DOM refs ────────────────────────────────────────────────
+    const pageShell = document.getElementById('page-shell');
+    const pageHeader = document.getElementById('page-header');
     const form = document.getElementById('search-form');
     const queryInput = document.getElementById('query');
     const resultsContainer = document.getElementById('results-container');
@@ -10,17 +12,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const browseBtn = document.getElementById('browse-btn');
     const filterBar = document.getElementById('filter-bar');
     const settingsButton = document.getElementById('settings-button');
+    const loadingIndicator = document.getElementById('loading-indicator');
 
     // ─── State ──────────────────────────────────────────────────
-    let currentMode = 'all';         // 'all' | 'web' | 'saved'
+    let currentMode = 'all';
     let currentQuery = '';
     let currentPage = 1;
     let loading = false;
     let hasMore = false;
-    let allResults = [];             // full merged result set for current query
-    let browseMode = false;          // true when showing all saved (no search)
+    let allResults = [];
+    let browseMode = false;
+    let searchActive = false;    // track if search has been performed
 
-    // ─── Settings overlay (ported from original) ────────────────
+    // ─── Settings overlay ───────────────────────────────────────
     const settingsOverlay = document.getElementById('settings-overlay');
     const settingsClose = document.getElementById('settings-close');
     const settingsList = document.getElementById('settings-list');
@@ -30,48 +34,25 @@ document.addEventListener('DOMContentLoaded', () => {
         {
             category: 'General',
             items: [
-                {
-                    key: 'theme',
-                    label: 'Theme',
-                    type: 'select',
-                    options: [
-                        { value: 'default', label: 'Default' },
-                        { value: 'dark', label: 'Dark' }
-                    ],
-                    default: 'default'
-                },
+                { key: 'theme', label: 'Theme', type: 'select',
+                  options: [{ value: 'default', label: 'Default' }, { value: 'dark', label: 'Dark' }],
+                  default: 'default' },
             ]
         },
         {
             category: 'Search Behavior',
             items: [
-                {
-                    key: 'resultsPerPage',
-                    label: 'Results per page',
-                    type: 'number',
-                    min: 1,
-                    max: 50,
-                    default: 10
-                },
-                {
-                    key: 'engines',
-                    label: 'Search engines',
-                    type: 'checkbox-group',
-                    options: [
-                        { value: 'duckduckgo', label: 'DuckDuckGo' },
-                        { value: 'bing', label: 'Bing' },
-                        { value: 'google', label: 'Google' },
-                        { value: 'wikipedia', label: 'Wikipedia' },
-                        { value: 'github', label: 'GitHub' }
-                    ],
-                    default: ['duckduckgo']
-                },
-                {
-                    key: 'autoLoad',
-                    label: 'Auto load more results on scroll',
-                    type: 'checkbox',
-                    default: true
-                }
+                { key: 'resultsPerPage', label: 'Results per page', type: 'number', min: 1, max: 50, default: 10 },
+                { key: 'engines', label: 'Search engines', type: 'checkbox-group',
+                  options: [
+                    { value: 'duckduckgo', label: 'DuckDuckGo' },
+                    { value: 'bing', label: 'Bing' },
+                    { value: 'google', label: 'Google' },
+                    { value: 'wikipedia', label: 'Wikipedia' },
+                    { value: 'github', label: 'GitHub' }
+                  ],
+                  default: ['duckduckgo'] },
+                { key: 'autoLoad', label: 'Auto load more results on scroll', type: 'checkbox', default: true }
             ]
         }
     ];
@@ -79,14 +60,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const settingsState = {};
 
     function getValue(item) {
-        const persisted = localStorage.getItem(item.key);
-        if (persisted === null) return item.default;
-        if (item.type === 'checkbox') return persisted === 'true';
-        if (item.type === 'number') return Number(persisted);
-        if (item.type === 'checkbox-group') {
-            try { return JSON.parse(persisted); } catch { return item.default; }
-        }
-        return persisted;
+        const p = localStorage.getItem(item.key);
+        if (p === null) return item.default;
+        if (item.type === 'checkbox') return p === 'true';
+        if (item.type === 'number') return Number(p);
+        if (item.type === 'checkbox-group') { try { return JSON.parse(p); } catch { return item.default; } }
+        return p;
     }
 
     function setValue(key, value) {
@@ -133,23 +112,13 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    function openSettings() {
-        renderSettings();
-        settingsOverlay.hidden = false;
-        settingsOverlay.inert = false;
-    }
-
-    function closeSettings() {
-        document.activeElement?.blur();
-        settingsOverlay.inert = true;
-        settingsOverlay.hidden = true;
-    }
+    function openSettings() { renderSettings(); settingsOverlay.hidden = false; settingsOverlay.inert = false; }
+    function closeSettings() { document.activeElement?.blur(); settingsOverlay.inert = true; settingsOverlay.hidden = true; }
 
     settingsButton.addEventListener('click', openSettings);
     settingsClose.addEventListener('click', closeSettings);
     settingsOverlay.addEventListener('click', (e) => { if (e.target === settingsOverlay) closeSettings(); });
     settingsSave.addEventListener('click', () => { readSettings(); applyTheme(); closeSettings(); });
-
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !settingsOverlay.hidden) closeSettings(); });
 
     function initSettings() {
@@ -168,8 +137,18 @@ document.addEventListener('DOMContentLoaded', () => {
         return Array.isArray(e) ? e.join(',') : 'duckduckgo';
     }
 
-    function getPageSize() {
-        return Number(settingsState.resultsPerPage) || 10;
+    function getPageSize() { return Number(settingsState.resultsPerPage) || 10; }
+
+    // ─── Search active state (animations) ───────────────────────
+    function setSearchActive(active) {
+        searchActive = active;
+        pageShell.classList.toggle('search-active', active);
+        pageHeader.classList.toggle('search-active', active);
+    }
+
+    // ─── Loading state ──────────────────────────────────────────
+    function showLoading(show) {
+        loadingIndicator.hidden = !show;
     }
 
     // ─── Filter tabs ─────────────────────────────────────────────
@@ -190,6 +169,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const btn = e.target.closest('.filter-btn');
         if (btn) setFilter(btn.dataset.mode);
     });
+
+    // ─── Staggered card reveal ──────────────────────────────────
+    function animateCards() {
+        const cards = resultsContainer.querySelectorAll('.result-card');
+        cards.forEach((card, i) => {
+            const delay = 30 + (i * 40);
+            setTimeout(() => {
+                card.classList.add('visible');
+            }, delay);
+        });
+    }
 
     // ─── Rendering ────────────────────────────────────────────────
     function formatTime(isoStr) {
@@ -221,18 +211,18 @@ document.addEventListener('DOMContentLoaded', () => {
         const highlightedTitle = highlightText(title, currentQuery);
         const highlightedContent = highlightText(content.slice(0, 250), currentQuery);
 
-        let metaBadge = isSaved
+        const metaBadge = isSaved
             ? `<span class="badge-saved">★ Saved</span>`
             : `<span class="badge-web">Web</span>`;
 
-        let metaTime = isSaved && ts ? `<span class="card-time">${ts}</span>` : '';
+        const metaTime = isSaved && ts ? `<span class="card-time">${ts}</span>` : '';
 
         let sourceName = item.site_name || '';
         if (!sourceName && item.url) {
             try { sourceName = new URL(item.url).hostname.replace('www.', ''); } catch {}
         }
 
-        let urlDisplay = item.url || '';
+        const urlDisplay = item.url || '';
 
         return `
 <article class="result-card ${isSaved ? 'card-saved' : 'card-web'}">
@@ -254,15 +244,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
         resultsContainer.innerHTML = items.map(createCard).join('');
 
-        // Status
+        // Staggered reveal animation
+        if (items.length > 0) {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    animateCards();
+                });
+            });
+        }
+
+        // Status bar
         statusBar.hidden = false;
         const total = allResults.length;
         const shown = items.length;
         if (browseMode) {
             resultCount.textContent = `${total} saved item${total !== 1 ? 's' : ''}`;
         } else if (currentQuery) {
+            const savedCount = allResults.filter(r => r._type === 'saved').length;
             if (currentMode === 'all') {
-                resultCount.textContent = `${total} result${total !== 1 ? 's' : ''} (${allResults.filter(r => r._type === 'saved').length} saved)`;
+                resultCount.textContent = `${total} result${total !== 1 ? 's' : ''} (${savedCount} saved)`;
             } else if (currentMode === 'saved') {
                 resultCount.textContent = `${shown} saved result${shown !== 1 ? 's' : ''}`;
             } else {
@@ -282,24 +282,21 @@ document.addEventListener('DOMContentLoaded', () => {
                     </svg>
                 </div>
                 <h3>No results for "${currentQuery}"</h3>
-                ${currentMode !== 'web' ? '<p>Try different keywords, or switch to All to include web results.</p>' : ''}
+                <p>Try different keywords. Saved content is searched alongside web results.</p>
             `;
         } else {
             emptyState.hidden = true;
         }
 
-        // Sentinel for infinite scroll (only for web mode with pagination)
-        if (hasMore && !browseMode) {
-            sentinel.hidden = false;
-        } else {
-            sentinel.hidden = true;
-        }
+        // Sentinel for infinite scroll
+        sentinel.hidden = !(hasMore && !browseMode);
     }
 
     // ─── Fetching ────────────────────────────────────────────────
     async function doSearch(query, page) {
         if (loading) return;
         loading = true;
+        showLoading(true);
 
         const pageSize = getPageSize();
         const url = `/search?q=${encodeURIComponent(query)}&page=${page}&count=${pageSize}&mode=all&engines=${getEngines()}`;
@@ -309,6 +306,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await resp.json();
 
             if (!Array.isArray(data)) {
+                showLoading(false);
                 loading = false;
                 return;
             }
@@ -316,19 +314,19 @@ document.addEventListener('DOMContentLoaded', () => {
             if (page === 1) {
                 allResults = data;
             } else {
-                // Append web results (local results are already all returned page 1)
                 const existingUrls = new Set(allResults.map(r => r.url));
                 const newWeb = data.filter(r => r._type === 'web' && !existingUrls.has(r.url));
                 allResults = allResults.concat(newWeb);
             }
 
-            // Determine if there might be more web results
             hasMore = data.length >= pageSize;
             currentPage = page;
 
+            showLoading(false);
             renderResults();
         } catch (err) {
             console.error('Search failed:', err);
+            showLoading(false);
             resultsContainer.innerHTML = `<div class="message error">Search request failed. Is the server running?</div>`;
         }
 
@@ -339,6 +337,7 @@ document.addEventListener('DOMContentLoaded', () => {
         loading = true;
         browseMode = true;
         currentQuery = '';
+        setSearchActive(false);
 
         try {
             const resp = await fetch('/search?q=&mode=all');
@@ -347,7 +346,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!Array.isArray(data)) {
                 allResults = [];
             } else {
-                // Only keep saved items for browse
                 allResults = data.filter(r => r._type === 'saved');
             }
 
@@ -386,6 +384,12 @@ document.addEventListener('DOMContentLoaded', () => {
         currentPage = 1;
         hasMore = true;
         allResults = [];
+        emptyState.hidden = true;
+
+        // Animate: title fades, search bar slides up
+        setSearchActive(true);
+
+        // Show filter bar
         filterBar.hidden = false;
         renderFilterTabs('all');
 
@@ -399,10 +403,11 @@ document.addEventListener('DOMContentLoaded', () => {
         currentQuery = '';
         currentMode = 'all';
         filterBar.hidden = true;
+        setSearchActive(false);
         loadBrowse();
     });
 
-    // ─── Infinite scroll (observer) ──────────────────────────────
+    // ─── Infinite scroll ──────────────────────────────────────────
     const observer = new IntersectionObserver((entries) => {
         if (entries[0].isIntersecting && !loading && hasMore && currentQuery && settingsState.autoLoad) {
             doSearch(currentQuery, currentPage + 1);
@@ -410,6 +415,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }, { rootMargin: '300px' });
     observer.observe(sentinel);
 
-    // ─── Init: show browse on load ───────────────────────────────
+    // ─── Init ──────────────────────────────────────────────────────
     loadBrowse();
 });
