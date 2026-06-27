@@ -139,6 +139,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function getPageSize() { return Number(settingsState.resultsPerPage) || 10; }
 
+    // ─── Header scroll effect ───────────────────────────────────
+    function handleScroll() {
+        const scrolled = window.scrollY > 15;
+        pageHeader.classList.toggle('scrolled', scrolled);
+    }
+    window.addEventListener('scroll', handleScroll, { passive: true });
+
     // ─── Search active state (animations) ───────────────────────
     function setSearchActive(active) {
         searchActive = active;
@@ -174,7 +181,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function animateCards() {
         const cards = resultsContainer.querySelectorAll('.result-card');
         cards.forEach((card, i) => {
-            const delay = 30 + (i * 40);
+            const delay = 20 + (i * 35);
             setTimeout(() => {
                 card.classList.add('visible');
             }, delay);
@@ -211,42 +218,55 @@ document.addEventListener('DOMContentLoaded', () => {
         const highlightedTitle = highlightText(title, currentQuery);
         const highlightedContent = highlightText(content.slice(0, 250), currentQuery);
 
-        const metaBadge = isSaved
-            ? `<span class="badge-saved">★ Saved</span>`
-            : `<span class="badge-web">Web</span>`;
-
-        const metaTime = isSaved && ts ? `<span class="card-time">${ts}</span>` : '';
-
-        let sourceName = item.site_name || '';
-        if (!sourceName && item.url) {
-            try { sourceName = new URL(item.url).hostname.replace('www.', ''); } catch {}
+        // Extract domain for favicon and display
+        let domain = '';
+        if (item.url) {
+            try {
+                const u = new URL(item.url);
+                domain = u.hostname.replace('www.', '');
+            } catch {}
         }
 
-        const urlDisplay = item.url || '';
+        const siteName = (item.site_name || '').trim();
+        const displayDomain = domain || siteName || 'web';
+
+        // Favicon
+        let faviconHtml;
+        if (domain) {
+            const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+            faviconHtml = `<img class="card-favicon" src="${faviconUrl}" alt="" loading="lazy" onerror="this.style.display='none'" />`;
+        } else {
+            faviconHtml = `<span class="card-favicon-fallback">${displayDomain.charAt(0).toUpperCase()}</span>`;
+        }
+
+        // Type badge
+        const badgeHtml = isSaved
+            ? `<span class="card-type-badge saved">Saved</span>`
+            : `<span class="card-type-badge web">Web</span>`;
+
+        // Time (saved items only)
+        const timeHtml = isSaved && ts ? `<span class="card-time">${ts}</span>` : '';
 
         return `
-<article class="result-card ${isSaved ? 'card-saved' : 'card-web'}">
-  <div class="card-header">
-    ${metaBadge}
-    ${metaTime}
-  </div>
-  <a class="card-title" href="${item.url || '#'}" target="_blank" rel="noopener">${highlightedTitle}</a>
-  ${urlDisplay ? `<div class="card-url">${urlDisplay}</div>` : ''}
-  ${sourceName ? `<div class="card-source">${sourceName}</div>` : ''}
-  ${content ? `<p class="card-content">${highlightedContent}</p>` : ''}
-</article>`;
+    <article class="result-card ${isSaved ? 'card-saved' : 'card-web'}">
+      <div class="card-meta">
+        ${faviconHtml}
+        <span class="card-domain">${displayDomain}</span>
+        ${badgeHtml}
+        ${timeHtml}
+      </div>
+      <a class="card-title" href="${item.url || '#'}" target="_blank" rel="noopener">${highlightedTitle}</a>
+      ${content ? `<p class="card-content">${highlightedContent}</p>` : ''}
+    </article>`;
     }
 
     function renderResults() {
-        console.log("renderResults");
-        console.log(allResults);
         let items = allResults;
         if (currentMode === 'web') items = allResults.filter(r => r._type === 'web');
         else if (currentMode === 'saved') items = allResults.filter(r => r._type === 'saved');
 
-        console.log(items);
         resultsContainer.innerHTML = items.map(createCard).join('');
-        console.log(resultsContainer.innerHTML);
+
         // Staggered reveal animation
         if (items.length > 0) {
             requestAnimationFrame(() => {
@@ -280,7 +300,7 @@ document.addEventListener('DOMContentLoaded', () => {
             emptyState.hidden = false;
             emptyState.innerHTML = `
                 <div class="empty-icon">
-                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
                     </svg>
                 </div>
@@ -360,7 +380,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 emptyState.hidden = false;
                 emptyState.innerHTML = `
                     <div class="empty-icon">
-                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
                         </svg>
                     </div>

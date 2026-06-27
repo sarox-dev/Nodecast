@@ -1,251 +1,383 @@
-.settings-button {
-    position: fixed;
-    bottom: 1.5rem;
-    left: 1.5rem;
-    z-index: 9998;
-    width: 3.6rem;
-    height: 3.6rem;
-    border: none;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.18);
-    color: var(--text);
-    cursor: pointer;
-    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
-    font-size: 1.3rem;
-    line-height: 1;
-}
+/* ═══════════════════════════════════════════════════════════════
+   Recollect — Settings Panel
+   ═══════════════════════════════════════════════════════════════ */
 
-.settings-button:hover {
-    background: rgba(255, 255, 255, 0.26);
-}
-
+/* ─── Overlay ────────────────────────────────────────────────── */
 .settings-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 9999;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(15, 17, 21, 0.9);
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-overlay);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: settings-fade-in 0.2s ease;
 }
 
 .settings-overlay[hidden] {
-    display: none;
+  display: none;
 }
 
+@keyframes settings-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ─── Panel ──────────────────────────────────────────────────── */
 .settings-panel {
-    width: 920px;
-    height: 720px;
-    display: grid;
-    grid-template-rows: auto 1fr auto;
-    border-radius: 1rem;
-    padding: 1.5rem;
-    background: rgba(18, 21, 27, 0.98);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 28px 90px rgba(0, 0, 0, 0.45);
-    overflow: hidden;
+  width: 880px;
+  height: 680px;
+  max-width: calc(100vw - 2.5rem);
+  max-height: calc(100vh - 2.5rem);
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  border-radius: var(--radius-xl);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  animation: settings-panel-in 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+@keyframes settings-panel-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* ─── Header ─────────────────────────────────────────────────── */
 .settings-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--border);
 }
 
-.settings-header h2 {
-    margin: 0;
-    font-size: 1.35rem;
+.settings-header-left h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .settings-description {
-    margin: 0.35rem 0 0;
-    color: rgba(230, 230, 230, 0.78);
-    font-size: 0.95rem;
+  margin: 0.2rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
 }
 
+.settings-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 1.15rem;
+  line-height: 1;
+  transition: color var(--transition-fast), background var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.settings-close:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+/* ─── Body (sidebar + main) ──────────────────────────────────── */
 .settings-body {
-    display: grid;
-    grid-template-columns: minmax(220px, 260px) minmax(360px, 1fr);
-    gap: 1rem;
-    min-height: 0;
-    align-items: stretch;
-    overflow: hidden;
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
+/* ─── Sidebar ────────────────────────────────────────────────── */
 .settings-sidebar {
-    background: rgba(255, 255, 255, 0.03);
-    border-radius: 1rem;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    padding: 1rem;
-    display: grid;
-    gap: 1rem;
-    min-height: 0;
-    align-content: start;
+  background: var(--surface-settings-sidebar);
+  border-right: 1px solid var(--border);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  overflow-y: auto;
 }
 
 .settings-search {
-    width: 100%;
-    height: 2.6rem;
-    min-height: 2.6rem;
-    max-height: 2.6rem;
+  width: 100%;
+  height: 2.25rem;
+  padding: 0 0.75rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface-search);
+  color: var(--text);
+  font-size: 0.82rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
 
-    padding: 0 0.75rem;
-    border-radius: 0.75rem;
+.settings-search::placeholder {
+  color: var(--text-secondary);
+}
 
-    box-sizing: border-box;
-
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.05);
-    color: var(--text);
-
-    font-size: 0.9rem;
-    line-height: 1;
+.settings-search:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
 }
 
 .settings-category-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: grid;
-    gap: 0.5rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
 }
 
 .settings-category-item {
-    margin: 0;
+  margin: 0;
 }
 
 .settings-category-button {
-    width: 100%;
-    text-align: left;
-    border: none;
-    background: transparent;
-    color: var(--text);
-    padding: 0.85rem 0.95rem;
-    border-radius: 0.95rem;
-    cursor: pointer;
-    transition: background 0.2s ease;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 0.55rem 0.75rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-family: inherit;
+  font-weight: 500;
+  transition: all var(--transition-fast);
 }
 
-.settings-category-button:hover,
+.settings-category-button:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
 .settings-category-button.active {
-    background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  background: var(--accent-subtle);
 }
 
+/* ─── Main content ───────────────────────────────────────────── */
 .settings-main {
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
+  padding: 1.25rem 1.5rem;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .settings-section-header {
-    display: grid;
-    gap: 0.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.settings-section-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
 }
 
 .settings-category-description {
-    margin: 0;
-    color: rgba(230, 230, 230, 0.75);
-    font-size: 0.95rem;
+  margin: 0.2rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
 }
 
 .settings-list {
-    flex: 1;
-    overflow-y: auto;
-    min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 0.25rem;
 }
 
+/* ─── Settings fields ────────────────────────────────────────── */
 .settings-field {
-    display: grid;
-    gap: 0.6rem;
-    padding-bottom: 0.75rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    margin-bottom: 1rem;
+  display: grid;
+  gap: 0.5rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0.85rem;
 }
 
 .settings-field:last-child {
-    border-bottom: none;
+  border-bottom: none;
+  margin-bottom: 0;
 }
 
 .settings-field label {
-    display: grid;
-    gap: 0.45rem;
+  display: grid;
+  gap: 0.35rem;
 }
 
-.settings-field span {
-    font-size: 0.95rem;
-    color: rgba(230, 230, 230, 0.88);
+.settings-field > span,
+.settings-field label > span {
+  font-size: 0.88rem;
+  color: var(--text);
+  font-weight: 500;
 }
 
 .settings-field select,
 .settings-field input[type="text"],
 .settings-field input[type="number"] {
-    width: 100%;
-    min-height: 3rem;
-    padding: 0 0.9rem;
-    border-radius: 0.75rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.05);
-    color: var(--text);
+  width: 100%;
+  min-height: 2.4rem;
+  padding: 0 0.75rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface-search);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.85rem;
+  outline: none;
+  transition: border-color var(--transition-fast);
 }
 
+.settings-field select:focus,
+.settings-field input[type="text"]:focus,
+.settings-field input[type="number"]:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.settings-field select {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a0a5b0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  padding-right: 2rem;
+}
+
+/* Checkbox field (single) */
 .checkbox-field {
-    grid-template-columns: 1fr auto;
-    align-items: center;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 1rem;
 }
 
-.checkbox-field input {
-    width: auto;
+.checkbox-field label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
 }
 
+.checkbox-field label > span {
+  order: 1;
+}
+
+.checkbox-field input[type="checkbox"] {
+  order: 2;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* Checkbox group (multi-select) */
 .checkbox-group {
-    display: grid;
-    gap: 0.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
 }
 
 .checkbox-option {
-    display: flex;
-    align-items: center;
-    border-radius: 0.95rem;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(255, 255, 255, 0.04);
-    padding: 0.5rem 0.75rem;
-    gap: 0.5rem;
-    font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-settings-card);
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
 }
 
-.checkbox-option input {
-    width: auto !important;
-    min-height: auto !important;
-    transform: scale(0.85);
+.checkbox-option:hover {
+  border-color: var(--border-hover);
+  background: var(--surface-hover);
 }
 
+.checkbox-option input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.checkbox-option span {
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+/* ─── Footer actions ─────────────────────────────────────────── */
 .settings-actions {
-    display: flex;
-    justify-content: flex-end;
-    margin-top: 0.5rem;
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.85rem 1.5rem;
+  border-top: 1px solid var(--border);
 }
 
 .settings-actions button {
-    border: none;
-    border-radius: 0.85rem;
-    min-height: 3rem;
-    padding: 0 1.25rem;
-    cursor: pointer;
-    background: var(--accent);
-    color: var(--bg);
+  border: none;
+  border-radius: var(--radius-md);
+  min-height: 2.25rem;
+  padding: 0 1.25rem;
+  cursor: pointer;
+  background: var(--accent);
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: background var(--transition-fast), box-shadow var(--transition-fast);
 }
 
+.settings-actions button:hover {
+  background: var(--accent-hover);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+/* ─── Responsive ─────────────────────────────────────────────── */
 @media (max-width: 800px) {
-    .settings-body {
-        grid-template-columns: 1fr;
-    }
-}
-
-@media (max-width: 960px) {
-    .settings-panel {
-        width: calc(100vw - 2rem);
-        height: calc(100vh - 2rem);
-    }
+  .settings-body {
+    grid-template-columns: 1fr;
+  }
+  .settings-sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding: 0.75rem;
+    max-height: 140px;
+  }
+  .settings-category-list {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+  }
+  .settings-category-button {
+    white-space: nowrap;
+    font-size: 0.8rem;
+    padding: 0.4rem 0.6rem;
+  }
 }
