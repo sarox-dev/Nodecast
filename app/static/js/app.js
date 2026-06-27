@@ -238,12 +238,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderResults() {
+        console.log("renderResults");
+        console.log(allResults);
         let items = allResults;
         if (currentMode === 'web') items = allResults.filter(r => r._type === 'web');
         else if (currentMode === 'saved') items = allResults.filter(r => r._type === 'saved');
 
+        console.log(items);
         resultsContainer.innerHTML = items.map(createCard).join('');
-
+        console.log(resultsContainer.innerHTML);
         // Staggered reveal animation
         if (items.length > 0) {
             requestAnimationFrame(() => {
