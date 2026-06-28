@@ -6,7 +6,9 @@
     <title>Recollect — your memory layer</title>
     <link rel="stylesheet" href="/static/css/base.css" />
     <link rel="stylesheet" href="/static/css/theme-default.css" />
+    <link rel="stylesheet" href="/static/css/theme-light.css" />
     <link rel="stylesheet" href="/static/css/settings.css" />
+    <link rel="stylesheet" href="/static/css/modal.css" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -17,8 +19,8 @@
       <!-- ═══ HEADER ═══════════════════════════════════════════ -->
       <header class="page-header" id="page-header">
         <div class="logo-area" id="logo-area">
+          <img src="/static/logo.png" alt="Recollect" class="recollect-logo" />
           <h1>Recollect</h1>
-          <span class="tagline">your memory layer</span>
         </div>
         <div class="header-actions">
           <button id="settings-button" class="settings-icon-btn" type="button" aria-label="Open settings">
@@ -94,6 +96,155 @@
         </div>
       </div>
 
+    </div>
+
+    <!-- ═══ SNIPPET MODAL ═══════════════════════════════════════ -->
+    <div id="snippet-modal" class="modal-overlay" hidden aria-hidden="true">
+      <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <button id="modal-close" class="modal-close" type="button" aria-label="Close">&times;</button>
+
+        <!-- Header -->
+        <div class="modal-header">
+          <h3 id="modal-title" class="modal-title"></h3>
+        </div>
+
+        <!-- Continuous content block (before + selection + after as one flow) -->
+        <div class="modal-content-area">
+          <div id="modal-content-text" class="modal-content-text"></div>
+        </div>
+
+        <!-- Metadata bar -->
+        <div class="modal-metadata">
+          <div class="modal-meta-left">
+            <span id="modal-time" class="modal-meta-item"></span>
+            <span id="modal-source" class="modal-meta-item modal-meta-source"></span>
+          </div>
+          <span id="modal-relative" class="modal-meta-item modal-meta-relative"></span>
+        </div>
+
+        <!-- Related concepts placeholder -->
+        <div class="modal-related">
+          <span class="modal-related-label">Related concepts</span>
+          <div class="modal-related-placeholder">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2a4 4 0 0 1 4 4c0 2-2 3-2 5v1h-4v-1c0-2-2-3-2-5a4 4 0 0 1 4-4z"/>
+              <line x1="12" y1="17" x2="12" y2="19"/>
+              <path d="M9 22h6"/>
+            </svg>
+            <span>AI-powered related concepts coming soon</span>
+          </div>
+        </div>
+
+        <!-- Action buttons -->
+        <div class="modal-actions">
+          <a id="modal-open-url" class="modal-btn modal-btn-primary" href="#" target="_blank" rel="noopener">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+              <polyline points="15 3 21 3 21 9"/>
+              <line x1="10" y1="14" x2="21" y2="3"/>
+            </svg>
+            Open original
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ EXTENSION BANNER ════════════════════════════════════ -->
+    <div id="extension-banner" class="extension-banner" hidden>
+      <div class="banner-content">
+        <svg class="banner-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20.91 11.12a7.5 7.5 0 0 0-4.03-4.03"/>
+          <path d="M12 2v2"/>
+          <path d="M12 20v2"/>
+          <path d="M4.93 4.93l1.41 1.41"/>
+          <path d="M17.66 17.66l1.41 1.41"/>
+          <path d="M2 12h2"/>
+          <path d="M20 12h2"/>
+          <path d="M6.34 17.66l-1.41 1.41"/>
+          <path d="M19.07 4.93l-1.41 1.41"/>
+          <circle cx="12" cy="12" r="4"/>
+          <line x1="12" y1="8" x2="12" y2="6"/>
+        </svg>
+        <span class="banner-text">
+          <strong>Recollect Extension</strong> not detected —
+          <button id="banner-install-link" class="banner-link">install it</button>
+          to save highlights from any website
+        </span>
+        <button id="banner-close" class="banner-close-btn" aria-label="Dismiss">&times;</button>
+      </div>
+    </div>
+
+    <!-- ═══ INSTALL MODAL ═══════════════════════════════════════ -->
+    <div id="install-modal" class="install-overlay" hidden aria-hidden="true">
+      <div class="install-panel" role="dialog" aria-modal="true" aria-labelledby="install-title">
+        <button id="install-close" class="install-close-btn" type="button" aria-label="Close">&times;</button>
+
+        <div class="install-header">
+          <h2 id="install-title">Install Recollect Extension</h2>
+          <p class="install-subtitle">Save highlights from any website to your local Recollect server.</p>
+        </div>
+
+        <div class="install-steps">
+          <div class="install-step">
+            <span class="step-number">1</span>
+            <div class="step-body">
+              <h3>Clone the extension repository</h3>
+              <p>Open a terminal and run:</p>
+              <div class="step-code">
+                <code>git clone https://github.com/sarox-dev/Recollect-Extension.git</code>
+                <button class="step-copy-btn" data-copy="git clone https://github.com/sarox-dev/Recollect-Extension.git" aria-label="Copy">📋</button>
+              </div>
+              <p class="step-hint">Or <a href="https://github.com/sarox-dev/Recollect-Extension/archive/refs/heads/main.zip" target="_blank">download ZIP</a> and extract it.</p>
+            </div>
+          </div>
+
+          <div class="install-step">
+            <span class="step-number">2</span>
+            <div class="step-body">
+              <h3>Open Chrome Extensions page</h3>
+              <p>Open <code>chrome://extensions/</code> in your browser (any Chromium-based browser: Chrome, Edge, Brave, Opera).</p>
+              <div class="step-info">
+                <span>💡</span>
+                <span>Enable <strong>Developer mode</strong> using the toggle in the top-right corner.</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="install-step">
+            <span class="step-number">3</span>
+            <div class="step-body">
+              <h3>Load unpacked extension</h3>
+              <p>Click <strong>"Load unpacked"</strong> and select the <code>Recollect-Extension</code> folder you just cloned.</p>
+            </div>
+          </div>
+
+          <div class="install-step">
+            <span class="step-number">4</span>
+            <div class="step-body">
+              <h3>Pin the extension (optional)</h3>
+              <p>Click the puzzle piece icon <strong>🧩</strong> in your toolbar, find Recollect, and click the pin icon <strong>📌</strong> to keep it visible.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="install-notes">
+          <h3>Platform notes</h3>
+          <div class="install-note-grid">
+            <div class="install-note">
+              <strong>🐧 Linux</strong>
+              <p>Same steps above. Make sure <code>git</code> is installed (<code>sudo apt install git</code> or equivalent).</p>
+            </div>
+            <div class="install-note">
+              <strong>🪟 Windows</strong>
+              <p>Use <a href="https://git-scm.com/download/win" target="_blank">Git for Windows</a> or download the <a href="https://github.com/sarox-dev/Recollect-Extension/archive/refs/heads/main.zip" target="_blank">ZIP</a> and extract with Explorer.</p>
+            </div>
+            <div class="install-note">
+              <strong>🍎 macOS</strong>
+              <p><code>git</code> is pre-installed or get it via <code>xcode-select --install</code>. Otherwise download the <a href="https://github.com/sarox-dev/Recollect-Extension/archive/refs/heads/main.zip" target="_blank">ZIP</a>.</p>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- ═══ SETTINGS ════════════════════════════════════════════ -->

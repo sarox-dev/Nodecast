@@ -31,6 +31,7 @@ class CaptureRequest(BaseModel):
     content: str
     source: SourceModel
     context: ContextModel | None = None
+    markdown_path: str | None = None
 
 
 class CaptureResponse(BaseModel):
@@ -55,14 +56,14 @@ def capture_item(request: CaptureRequest):
             "url": request.source.url,
             "title": request.source.title or "",
             "site_name": request.source.site_name or "",
-            "captured_at": request.source.captured_at or now.isoformat() + "Z",
+            "captured_at": request.source.captured_at or now.replace(tzinfo=None).isoformat() + "Z",
         },
         "context": {
             "before": request.context.before if request.context else "",
             "after": request.context.after if request.context else "",
             "selection_html": request.context.selection_html if request.context else "",
         },
-        "saved_at": now.isoformat() + "Z",
+        "saved_at": now.replace(tzinfo=None).isoformat() + "Z",
     }
 
     # Save as JSON file
@@ -75,10 +76,56 @@ def capture_item(request: CaptureRequest):
 
         os.chmod(filepath, 0o644)
 
+        # Also save as .md if markdown_path is provided
+        md_written = False
+        md_path = request.markdown_path
+        if md_path and md_path.strip():
+            md_dir = Path(md_path.strip())
+            try:
+                md_dir.mkdir(parents=True, exist_ok=True)
+                md_filename = f"{now.strftime('%Y-%m-%d_%H%M%S')}_{capture_id}.md"
+                md_filepath = md_dir / md_filename
+
+                title = request.source.title or "Untitled"
+                url = request.source.url or ""
+                ctx_before = request.context.before if request.context else ""
+                ctx_after = request.context.after if request.context else ""
+                selection_html = request.context.selection_html if request.context else ""
+                content = request.content or ""
+
+                # Build markdown content
+                md_lines = []
+                md_lines.append(f"# {title}")
+                md_lines.append(f"")
+                md_lines.append(f"**Source:** [{url}]({url})")
+                md_lines.append(f"**Captured:** {now.replace(tzinfo=None).isoformat()}")
+                md_lines.append(f"")
+                md_lines.append(f"---")
+                md_lines.append(f"")
+
+                if ctx_before:
+                    md_lines.append(f"> {ctx_before.replace(chr(10), chr(10) + '> ')}")
+                    md_lines.append(f"")
+
+                md_lines.append(content)
+
+                if ctx_after:
+                    md_lines.append(f"")
+                    md_lines.append(f"> {ctx_after.replace(chr(10), chr(10) + '> ')}")
+
+                md_filepath.write_text("\n".join(md_lines), encoding="utf-8")
+                md_written = True
+            except Exception as md_err:
+                print(f"Recollect: failed to write markdown: {md_err}")
+
+        msg = "Saved to Recollect"
+        if md_written:
+            msg += " (+ markdown)"
+
         return CaptureResponse(
             success=True,
             id=capture_id,
-            message="Saved to Recollect",
+            message=msg,
             path=str(filepath),
         )
     except Exception as e:
@@ -151,7 +198,7 @@ def local_search(q: str = ""):
                     "type": "saved",
                     "title": data.get("source", {}).get("title", ""),
                     "url": data.get("source", {}).get("url", ""),
-                    "content": data.get("content", "")[:300],
+                    "content": data.get("content", ""),
                     "site_name": data.get("source", {}).get("site_name", ""),
                     "saved_at": data.get("saved_at", ""),
                     "capture_id": data.get("id"),

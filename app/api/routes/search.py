@@ -42,7 +42,8 @@ def local_search(q: str):
                     "id": data.get("id"),
                     "title": data.get("source", {}).get("title", ""),
                     "url": data.get("source", {}).get("url", ""),
-                    "content": data.get("content", "")[:300],
+                    "content": data.get("content", ""),
+                    "context": data.get("context", {}),
                     "thumbnail": None,
                     "source": "local",
                     "site_name": data.get("source", {}).get("site_name", ""),
@@ -71,10 +72,13 @@ def search_route(
 
     # Get web results
     categories = "images" if type == "images" else "general"
-    web_results = searxng_search(q, page, count, engines, categories)
+    web_response = searxng_search(q, page, count, engines, categories)
 
-    if web_results is None:
-        web_results = []
+    web_total = 0
+    web_results = []
+    if web_response is not None:
+        web_results = web_response.get("results", [])
+        web_total = web_response.get("total", 0)
 
     # Tag web results
     for r in web_results:
@@ -87,9 +91,16 @@ def search_route(
         # Deduplicate by URL (web won't have a capture_id)
         seen_urls = {r.get("url", "") for r in local_results if r.get("url")}
         web_filtered = [r for r in web_results if r.get("url") not in seen_urls]
-        return local_results + web_filtered
+        total = len(local_results) + web_total
+        return {
+            "results": local_results + web_filtered,
+            "total": total,
+        }
 
-    return web_results
+    return {
+        "results": web_results,
+        "total": web_total,
+    }
 
 
 def list_captures():
@@ -108,7 +119,8 @@ def list_captures():
                 "id": data.get("id"),
                 "title": data.get("source", {}).get("title", ""),
                 "url": data.get("source", {}).get("url", ""),
-                "content": data.get("content", "")[:300],
+                "content": data.get("content", ""),
+                "context": data.get("context", {}),
                 "thumbnail": None,
                 "source": "local",
                 "site_name": data.get("source", {}).get("site_name", ""),

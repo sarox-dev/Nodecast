@@ -1,0 +1,67 @@
+/* ═══════════════════════════════════════════════════════════════
+   Recollect — Light Theme
+   ═══════════════════════════════════════════════════════════════ */
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  /* ─── Background ───────────────────────────────────────────── */
+  --bg: #f5f6f8;
+  --bg-elevated: #ffffff;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f8f9fb;
+  --bg-header: rgba(245, 246, 248, 0.85);
+  --bg-overlay: rgba(0, 0, 0, 0.35);
+
+  /* ─── Surfaces ─────────────────────────────────────────────── */
+  --surface-search: rgba(0, 0, 0, 0.03);
+  --surface-hover: rgba(0, 0, 0, 0.04);
+  --surface-active: rgba(0, 0, 0, 0.06);
+  --surface-settings-sidebar: rgba(0, 0, 0, 0.02);
+  --surface-settings-card: rgba(255, 255, 255, 0.8);
+
+  /* ─── Borders ──────────────────────────────────────────────── */
+  --border: rgba(0, 0, 0, 0.08);
+  --border-hover: rgba(0, 0, 0, 0.14);
+  --border-active: rgba(0, 0, 0, 0.20);
+  --border-card: rgba(0, 0, 0, 0.06);
+
+  /* ─── Text ─────────────────────────────────────────────────── */
+  --text: #1a1d23;
+  --text-secondary: rgba(26, 29, 35, 0.55);
+  --text-tertiary: rgba(26, 29, 35, 0.32);
+
+  /* ─── Accent (indigo) ──────────────────────────────────────── */
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-subtle: rgba(79, 70, 229, 0.08);
+  --accent-glow: rgba(79, 70, 229, 0.15);
+  --accent-text: #3730a3;
+
+  /* ─── Saved accent (blue) ──────────────────────────────────── */
+  --saved-accent: #1d4ed8;
+  --saved-subtle: rgba(29, 78, 216, 0.08);
+  --saved-border: rgba(29, 78, 216, 0.25);
+  --saved-glow: rgba(29, 78, 216, 0.12);
+  --saved-text: #1e40af;
+
+  /* ─── Status colors ────────────────────────────────────────── */
+  --success: #16a34a;
+  --error: #dc2626;
+  --error-bg: rgba(220, 38, 38, 0.06);
+}
+
+/* ─── Light mode scrollbar ─────────────────────────────────────── */
+:root[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+}
+:root[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.20);
+}
+
+/* ─── Light mode mark (highlighted text) ───────────────────────── */
+:root[data-theme="light"] .card-content mark,
+:root[data-theme="light"] .card-title mark {
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--accent-text);
+}

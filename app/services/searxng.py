@@ -23,11 +23,19 @@ def search(query: str, page: int = 1, count: int = 10, engines: str | None = Non
     results = []
 
     for item in data.get("results", []):
+        engine = item.get("engine", "")
+        engines_list = engine.split(",") if engine else []
         results.append({
             "title": item.get("title", ""),
             "url": item.get("url", ""),
             "content": item.get("content", ""),
             "thumbnail": item.get("img_src"),
+            "engines": engines_list,
         })
 
-    return results
+    total = data.get("number_of_results", 0)
+
+    return {
+        "results": results,
+        "total": total,
+    }
