@@ -785,6 +785,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ─── Init ──────────────────────────────────────────────────────
     loadBrowse();
+    loadProjects();
+    
+    // ─── Hook into renderResults for project filter ──────────────
+    const _origRenderResults = renderResults;
+    renderResults = function(append) {
+        _origRenderResults(append);
+        if (activeProject) {
+            setTimeout(() => filterByProject(activeProject), 50);
+        }
+    };
     
     // ─── Extension detection banner ──────────────────────────────
     const extBanner = document.getElementById('extension-banner');
@@ -848,6 +858,147 @@ document.addEventListener('DOMContentLoaded', () => {
     // Check after a small delay to let extension inject sentinel
     setTimeout(checkExtensionInstalled, 300);
     
+    // ─── Sidebar ────────────────────────────────────────────────────
+    const sidebar = document.getElementById('sidebar');
+    const sidebarOverlay = document.getElementById('sidebar-overlay');
+    const sidebarToggle = document.getElementById('sidebar-toggle');
+    let sidebarOpen = false;
+    let activeProject = '';
+
+    function isMobile() { return window.innerWidth <= 768; }
+
+    sidebarToggle.addEventListener('click', () => {
+        sidebarOpen = !sidebarOpen;
+        if (sidebarOpen) {
+            sidebar.hidden = false;
+            document.body.classList.add('sidebar-open');
+            setTimeout(() => { sidebar.style.visibility = ''; }, 10);
+        } else {
+            sidebar.style.visibility = 'hidden';
+            document.body.classList.remove('sidebar-open');
+            setTimeout(() => { sidebar.hidden = true; }, 200);
+        }
+    });
+
+    document.getElementById('sidebar-close-x')?.addEventListener('click', () => {
+        if (sidebarOpen) sidebarToggle.click();
+    });
+
+    function loadProjects() {
+        fetch('/api/tags')
+            .then(r => r.json())
+            .then(data => {
+                const list = document.getElementById('sidebar-projects');
+                const countAll = document.getElementById('count-all');
+                const countUncat = document.getElementById('count-uncat');
+                countAll.textContent = data.total_items || 0;
+                countUncat.textContent = data.uncategorized || 0;
+
+                // Populate sidebar project list
+                list.innerHTML = '';
+                (data.projects || []).forEach(p => {
+                    const btn = document.createElement('button');
+                    btn.className = 'sidebar-item' + (activeProject === p.name ? ' active' : '');
+                    btn.dataset.project = p.name;
+                    btn.innerHTML = `<span class="sidebar-item-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span><span class="sidebar-item-label">${escapeHtml(p.name)}</span><span class="sidebar-item-count">${p.count}</span>`;
+                    btn.addEventListener('click', () => selectProject(p.name));
+                    list.appendChild(btn);
+                });
+
+                // Populate project dropdowns
+                ['note-project', 'edit-project'].forEach(id => {
+                    const sel = document.getElementById(id);
+                    if (!sel) return;
+                    const current = sel.value;
+                    sel.innerHTML = '<option value="">— None —</option>';
+                    (data.projects || []).forEach(p => {
+                        const opt = document.createElement('option');
+                        opt.value = p.name;
+                        opt.textContent = p.name;
+                        if (p.name === current) opt.selected = true;
+                        sel.appendChild(opt);
+                    });
+                });
+
+                // Populate tag suggestions for edit modal
+                const suggContainer = document.getElementById('edit-tags-suggestions');
+                if (suggContainer && data.tags) {
+                    suggContainer.innerHTML = '';
+                    data.tags.forEach(t => {
+                        const btn = document.createElement('button');
+                        btn.className = 'edit-tag-suggestion';
+                        btn.textContent = t;
+                        btn.addEventListener('click', () => addEditTag(t));
+                        suggContainer.appendChild(btn);
+                    });
+                }
+            })
+            .catch(() => {});
+    }
+
+    function selectProject(project) {
+        activeProject = project;
+        // Update active state in sidebar
+        document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
+        const target = project === '__uncategorized__'
+            ? document.querySelector('.sidebar-item-uncat')
+            : document.querySelector(`.sidebar-item[data-project="${project}"]`);
+        if (target) target.classList.add('active');
+        // If "All items" was selected (project empty), find the All items button
+        if (!project) {
+            const allBtn = document.querySelector('.sidebar-item[data-project=""]');
+            if (allBtn) allBtn.classList.add('active');
+        }
+        // Re-render with filter
+        filterByProject(project);
+        // Close sidebar on mobile
+        if (isMobile()) sidebarToggle.click();
+    }
+
+    function filterByProject(project) {
+        const cards = resultsContainer.querySelectorAll('.result-card');
+        cards.forEach(card => {
+            if (!project) {
+                card.style.display = '';
+                return;
+            }
+            const idx = parseInt(card.dataset.index, 10);
+            const item = allResults[idx];
+            if (!item) { card.style.display = 'none'; return; }
+            if (project === '__uncategorized__') {
+                card.style.display = (!item.project || item.project.trim() === '') ? '' : 'none';
+            } else {
+                card.style.display = (item.project === project) ? '' : 'none';
+            }
+        });
+        // Update status bar count
+        const visible = resultsContainer.querySelectorAll('.result-card:not([style*="display: none"])').length;
+        const total = allResults._total || allResults.length;
+        document.getElementById('result-count').textContent = project
+            ? `${visible} result${visible !== 1 ? 's' : ''} (filtered)`
+            : `${total} result${total !== 1 ? 's' : ''}`;
+    }
+
+    // ─── Add project ────────────────────────────────────────────────
+    const sidebarNewProject = document.getElementById('sidebar-new-project');
+    const sidebarAddBtn = document.getElementById('sidebar-add-btn');
+
+    sidebarAddBtn.addEventListener('click', () => {
+        const name = sidebarNewProject.value.trim();
+        if (!name) return;
+        // Add to allResults items later via edit. For now add to dropdowns.
+        // Reload projects from API
+        sidebarNewProject.value = '';
+        // Refresh the project list
+        loadProjects();
+        // Select the new project
+        setTimeout(() => selectProject(name), 200);
+    });
+
+    sidebarNewProject.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') sidebarAddBtn.click();
+    });
+
     // ─── New note modal ───────────────────────────────────────────
     const noteModal = document.getElementById('note-modal');
     const noteClose = document.getElementById('note-close');
@@ -896,6 +1047,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     type: 'manual',
                     content: content,
                     source: { url: '', title: title, site_name: 'Manual' },
+                    project: document.getElementById('note-project').value || '',
                     tags: []
                 })
             });
@@ -1003,4 +1155,130 @@ document.addEventListener('DOMContentLoaded', () => {
             importResult.hidden = false;
         }
     }
+ 
+    // ─── Edit modal ────────────────────────────────────────────────
+    const editModal = document.getElementById('edit-modal');
+    const editClose = document.getElementById('edit-close');
+    const editCancel = document.getElementById('edit-cancel');
+    const editSave = document.getElementById('edit-save');
+    const editProject = document.getElementById('edit-project');
+    const editTagsList = document.getElementById('edit-tags-list');
+    const editTagsInput = document.getElementById('edit-tags-input');
+    const editTagsAdd = document.getElementById('edit-tags-add');
+    const editStatus = document.getElementById('edit-status');
+    const editBtn = document.getElementById('modal-edit-btn');
+    let editingItem = null;
+
+    function openEditModal(item) {
+        editingItem = item;
+        editProject.value = item.project || '';
+        renderEditTags(item.tags || []);
+        editStatus.hidden = true;
+        editModal.hidden = false;
+        editModal.inert = false;
+        loadProjects(); // refresh dropdown
+    }
+
+    function closeEditModal() { editModal.hidden = true; editModal.inert = true; editingItem = null; }
+
+    function renderEditTags(tags) {
+        editTagsList.innerHTML = '';
+        (tags || []).forEach(t => {
+            const chip = document.createElement('span');
+            chip.className = 'edit-tag-chip';
+            chip.innerHTML = `${escapeHtml(t)} <button class="edit-tag-remove" data-tag="${escapeHtml(t)}">&times;</button>`;
+            chip.querySelector('.edit-tag-remove').addEventListener('click', () => {
+                removeEditTag(t);
+            });
+            editTagsList.appendChild(chip);
+        });
+    }
+
+    function getEditTags() {
+        return [...editTagsList.querySelectorAll('.edit-tag-chip')].map(chip => {
+            const btn = chip.querySelector('.edit-tag-remove');
+            return btn ? btn.dataset.tag : '';
+        }).filter(Boolean);
+    }
+
+    function addEditTag(tag) {
+        const t = tag.trim();
+        if (!t) return;
+        const existing = getEditTags();
+        if (existing.includes(t)) return;
+        renderEditTags([...existing, t]);
+        editTagsInput.value = '';
+        editTagsInput.focus();
+    }
+
+    function removeEditTag(tag) {
+        const existing = getEditTags();
+        renderEditTags(existing.filter(t => t !== tag));
+    }
+
+    editClose.addEventListener('click', closeEditModal);
+    editCancel.addEventListener('click', closeEditModal);
+    editModal.addEventListener('click', (e) => { if (e.target === editModal) closeEditModal(); });
+
+    editTagsAdd.addEventListener('click', () => addEditTag(editTagsInput.value));
+    editTagsInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') addEditTag(editTagsInput.value); });
+
+    editSave.addEventListener('click', async () => {
+        if (!editingItem) return;
+        const project = editProject.value || '';
+        const tags = getEditTags();
+        editStatus.textContent = 'Saving...';
+        editStatus.className = 'note-status';
+        editStatus.hidden = false;
+        editSave.disabled = true;
+
+        try {
+            const resp = await fetch(`/api/capture/${editingItem.id || editingItem.capture_id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ project, tags })
+            });
+            const data = await resp.json();
+            if (data.success) {
+                editingItem.project = data.project;
+                editingItem.tags = data.tags;
+                editStatus.textContent = 'Saved ✓';
+                editStatus.className = 'note-status success';
+                // Update the card display
+                const cards = resultsContainer.querySelectorAll('.result-card');
+                const idx = allResults.indexOf(editingItem);
+                if (idx >= 0) {
+                    // Update in-memory
+                    allResults[idx].project = data.project;
+                    allResults[idx].tags = data.tags;
+                }
+                loadProjects();
+                setTimeout(closeEditModal, 600);
+            } else {
+                editStatus.textContent = 'Save failed';
+                editStatus.className = 'note-status error';
+            }
+        } catch (err) {
+            editStatus.textContent = 'Server error';
+            editStatus.className = 'note-status error';
+        }
+        editSave.disabled = false;
+    });
+
+    editBtn.addEventListener('click', () => {
+        // Get the currently open item from the snippet modal
+        // We stored it via the modal item
+        if (editingItem) openEditModal(editingItem);
+    });
+
+    // Override openModal to track the current item for editing
+    const _origOpenModal = openModal;
+    openModal = function(item) {
+        editingItem = item;
+        _origOpenModal(item);
+        // Show edit button only for saved items
+        editBtn.style.display = item && item._type === 'saved' ? '' : 'none';
+    };
+    
+    // Remove duplicate init calls - loadBrowse is already called below
 });
