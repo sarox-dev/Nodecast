@@ -72,12 +72,32 @@
           </span>
           <button id="browse-btn" class="browse-btn">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="3"/>
             </svg>
             Browse all saved
           </button>
         </div>
       </main>
+
+      <!-- ═══ TOOLBAR (always visible) ═══════════════════════════ -->
+      <div class="toolbar" id="toolbar">
+        <div class="toolbar-left">
+          <button id="new-note-btn" class="toolbar-btn" title="New note">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            New note
+          </button>
+        </div>
+        <div class="toolbar-right">
+          <button id="import-btn" class="toolbar-btn" title="Import bookmarks">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            Import
+          </button>
+        </div>
+      </div>
 
       <!-- ═══ RESULTS ═══════════════════════════════════════════ -->
       <div class="results-area">
@@ -222,7 +242,7 @@
             <span class="step-number">4</span>
             <div class="step-body">
               <h3>Pin the extension (optional)</h3>
-              <p>Click the puzzle piece icon <strong>🧩</strong> in your toolbar, find Recollect, and click the pin icon <strong>📌</strong> to keep it visible.</p>
+              <p>Click the puzzle piece icon in your browser toolbar, find Recollect, and pin it for quick access.</p>
             </div>
           </div>
         </div>
@@ -231,18 +251,71 @@
           <h3>Platform notes</h3>
           <div class="install-note-grid">
             <div class="install-note">
-              <strong>🐧 Linux</strong>
-              <p>Same steps above. Make sure <code>git</code> is installed (<code>sudo apt install git</code> or equivalent).</p>
+              <strong>Linux</strong>
+              <p>Ensure <code>git</code> is installed (<code>sudo apt install git</code> for Debian/Ubuntu, <code>sudo dnf install git</code> for Fedora, or your distribution's equivalent command).</p>
             </div>
             <div class="install-note">
-              <strong>🪟 Windows</strong>
-              <p>Use <a href="https://git-scm.com/download/win" target="_blank">Git for Windows</a> or download the <a href="https://github.com/sarox-dev/Recollect-Extension/archive/refs/heads/main.zip" target="_blank">ZIP</a> and extract with Explorer.</p>
+              <strong>Windows</strong>
+              <p>Use <a href="https://git-scm.com/download/win" target="_blank">Git for Windows</a> or download the <a href="https://github.com/sarox-dev/Recollect-Extension/archive/refs/heads/main.zip" target="_blank">ZIP archive</a> and extract it using File Explorer.</p>
             </div>
             <div class="install-note">
-              <strong>🍎 macOS</strong>
-              <p><code>git</code> is pre-installed or get it via <code>xcode-select --install</code>. Otherwise download the <a href="https://github.com/sarox-dev/Recollect-Extension/archive/refs/heads/main.zip" target="_blank">ZIP</a>.</p>
+              <strong>macOS</strong>
+              <p><code>git</code> is pre-installed or available via <code>xcode-select --install</code>. Alternatively, download the <a href="https://github.com/sarox-dev/Recollect-Extension/archive/refs/heads/main.zip" target="_blank">ZIP archive</a>.</p>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ NEW NOTE MODAL ══════════════════════════════════════ -->
+    <div id="note-modal" class="modal-overlay" hidden aria-hidden="true">
+      <div class="modal-panel note-modal-panel" role="dialog" aria-modal="true" aria-labelledby="note-modal-title">
+        <button id="note-close" class="modal-close" type="button" aria-label="Close">&times;</button>
+        <div class="modal-header">
+          <h3 id="note-modal-title" class="modal-title">New note</h3>
+        </div>
+        <div class="note-form-body">
+          <div class="note-field">
+            <label for="note-title">Title <span class="required">*</span></label>
+            <input id="note-title" type="text" placeholder="Note title" autocomplete="off" />
+          </div>
+          <div class="note-field note-field-grow">
+            <label for="note-content">Content <span class="required">*</span></label>
+            <textarea id="note-content" placeholder="Write or paste your content here..." rows="8"></textarea>
+          </div>
+          <div id="note-status" class="note-status" hidden></div>
+        </div>
+        <div class="modal-actions">
+          <button id="note-cancel" class="modal-btn modal-btn-secondary" type="button">Cancel</button>
+          <button id="note-save" class="modal-btn modal-btn-primary" type="button">Save note</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ IMPORT MODAL ════════════════════════════════════════ -->
+    <div id="import-modal" class="modal-overlay" hidden aria-hidden="true">
+      <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="import-modal-title">
+        <button id="import-modal-close" class="modal-close" type="button" aria-label="Close">&times;</button>
+        <div class="modal-header">
+          <h3 id="import-modal-title" class="modal-title">Import bookmarks</h3>
+        </div>
+        <div class="import-body">
+          <p class="import-desc">Export your bookmarks from any browser as an HTML file, then upload it here. Folder structure is preserved as tags.</p>
+          <div class="import-dropzone" id="import-dropzone">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="import-icon">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            <p class="import-drop-text">Drop your <code>.html</code> bookmark file here, or <span class="import-browse-link" id="import-browse-link">browse</span></p>
+            <input type="file" id="import-file-input" accept=".html" hidden />
+          </div>
+          <div id="import-progress" class="import-progress" hidden>
+            <div class="import-spinner"></div>
+            <span id="import-status-text">Importing...</span>
+          </div>
+          <div id="import-result" class="import-result" hidden></div>
+        </div>
+        <div class="modal-actions">
+          <button id="import-done-btn" class="modal-btn modal-btn-primary" type="button" hidden>Done</button>
         </div>
       </div>
     </div>

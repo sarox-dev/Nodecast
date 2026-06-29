@@ -465,3 +465,63 @@
     padding: 0.65rem 1.25rem;
   }
 }
+/* ═══ Note modal ──────────────────────────────────────────── */
+.note-modal-panel { width: 600px; }
+.note-form-body {
+  flex: 1; padding: 1rem 1.5rem; display: flex; flex-direction: column; gap: 0.75rem;
+  min-height: 0; overflow-y: auto;
+}
+.note-field { display: flex; flex-direction: column; gap: 0.35rem; }
+.note-field-grow { flex: 1; min-height: 0; }
+.note-field label { font-size: 0.82rem; font-weight: 500; color: var(--text-secondary); }
+.note-field .required { color: var(--accent); }
+.note-field input, .note-field textarea {
+  width: 100%; padding: 0.6rem 0.75rem; border-radius: var(--radius-md);
+  border: 1px solid var(--border); background: var(--surface-search); color: var(--text);
+  font-family: inherit; font-size: 0.88rem; outline: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  resize: vertical;
+}
+.note-field input:focus, .note-field textarea:focus {
+  border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow);
+}
+.note-field input::placeholder, .note-field textarea::placeholder { color: var(--text-tertiary); }
+.note-field textarea { flex: 1; min-height: 120px; line-height: 1.6; }
+.note-status { font-size: 0.82rem; padding: 0.4rem 0.75rem; border-radius: var(--radius-md); }
+.note-status.error { background: var(--error-bg); color: var(--error); }
+.note-status.success { background: var(--saved-subtle); color: var(--saved-text); }
+
+/* ═══ Import modal ────────────────────────────────────────── */
+.import-body { flex: 1; padding: 1rem 1.5rem; display: flex; flex-direction: column; gap: 0.75rem; min-height: 0; overflow-y: auto; }
+.import-desc { margin: 0; font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5; }
+.import-dropzone {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 0.75rem; padding: 2.5rem 1rem; border: 2px dashed var(--border);
+  border-radius: var(--radius-xl); background: var(--surface-search); cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+.import-dropzone:hover, .import-dropzone.drag-over { border-color: var(--accent); background: var(--accent-subtle); }
+.import-icon { opacity: 0.35; color: var(--text-secondary); }
+.import-drop-text { margin: 0; font-size: 0.85rem; color: var(--text-secondary); text-align: center; line-height: 1.5; }
+.import-drop-text code { background: var(--surface-hover); padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.85em; }
+.import-browse-link { color: var(--accent); cursor: pointer; text-decoration: underline; font-weight: 500; }
+.import-browse-link:hover { color: var(--accent-hover); }
+.import-progress { display: flex; align-items: center; justify-content: center; gap: 0.75rem; padding: 1rem; }
+.import-progress[hidden] { display: none; }
+.import-spinner { width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+.import-status-text { font-size: 0.85rem; color: var(--text-secondary); }
+.import-result { font-size: 0.85rem; line-height: 1.6; }
+.import-result[hidden] { display: none; }
+.import-result.success { color: var(--saved-text); }
+.import-result.error { color: var(--error); }
+
+/* ═══ Action buttons ──────────────────────────────────────── */
+.status-actions-right { display: flex; align-items: center; gap: 0.35rem; margin-left: auto; }
+.action-btn {
+  display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.3rem 0.65rem;
+  border-radius: var(--radius-md); border: 1px solid var(--border); background: transparent;
+  color: var(--text-secondary); cursor: pointer; font-size: 0.76rem; font-family: inherit;
+  font-weight: 500; transition: all var(--transition-fast); white-space: nowrap;
+}
+.action-btn:hover { border-color: var(--border-hover); color: var(--text); background: var(--surface-hover); }
+.action-btn svg { width: 13px; height: 13px; flex-shrink: 0; }

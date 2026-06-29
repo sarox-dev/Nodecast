@@ -129,6 +129,25 @@ document.addEventListener('DOMContentLoaded', () => {
         settingsList.innerHTML = settingsSchema.map(cat => cat.items.map(createField).join('')).join('');
     }
 
+    function filterSettings(query) {
+        const q = query.toLowerCase().trim();
+        const fields = settingsList.querySelectorAll('.settings-field');
+        fields.forEach(field => {
+            const label = field.querySelector('span')?.textContent?.toLowerCase() || '';
+            const cat = field.closest('[data-category]');
+            const catName = cat?.dataset?.category?.toLowerCase() || '';
+            if (!q || label.includes(q) || catName.includes(q)) {
+                field.style.display = '';
+            } else {
+                field.style.display = 'none';
+            }
+        });
+    }
+
+    document.getElementById('settings-search-input')?.addEventListener('input', (e) => {
+        filterSettings(e.target.value);
+    });
+
     function readSettings() {
         settingsSchema.forEach(cat => {
             cat.items.forEach(item => {
@@ -522,9 +541,9 @@ document.addEventListener('DOMContentLoaded', () => {
     </article>`;
     }
 
-    // ─── Attach click handlers to saved cards ────────────────────
+    // ─── Attach click handlers to cards (title opens URL, saved cards open modal) ───
     function attachCardHandlers() {
-        resultsContainer.querySelectorAll('.result-card[data-type="saved"]').forEach((card) => {
+        resultsContainer.querySelectorAll('.result-card').forEach((card) => {
             if (card._modalBound) return;
             card._modalBound = true;
             card.addEventListener('click', (e) => {
@@ -534,10 +553,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (url && url !== '#') window.open(url, '_blank', 'noopener');
                     return;
                 }
-                e.preventDefault();
-                const index = parseInt(card.dataset.index, 10);
-                if (!isNaN(index) && allResults[index]) {
-                    openModal(allResults[index]);
+                // Only saved cards can open modal on body click
+                if (card.dataset.type === 'saved') {
+                    e.preventDefault();
+                    const index = parseInt(card.dataset.index, 10);
+                    if (!isNaN(index) && allResults[index]) {
+                        openModal(allResults[index]);
+                    }
                 }
             });
         });
@@ -825,4 +847,160 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Check after a small delay to let extension inject sentinel
     setTimeout(checkExtensionInstalled, 300);
+    
+    // ─── New note modal ───────────────────────────────────────────
+    const noteModal = document.getElementById('note-modal');
+    const noteClose = document.getElementById('note-close');
+    const noteCancel = document.getElementById('note-cancel');
+    const noteSave = document.getElementById('note-save');
+    const noteTitle = document.getElementById('note-title');
+    const noteContent = document.getElementById('note-content');
+    const noteStatus = document.getElementById('note-status');
+    const newNoteBtn = document.getElementById('new-note-btn');
+
+    function openNoteModal() {
+        noteTitle.value = '';
+        noteContent.value = '';
+        noteStatus.hidden = true;
+        noteModal.hidden = false;
+        noteModal.inert = false;
+        setTimeout(() => noteTitle.focus(), 150);
+    }
+
+    function closeNoteModal() {
+        noteModal.hidden = true;
+        noteModal.inert = true;
+    }
+
+    newNoteBtn.addEventListener('click', openNoteModal);
+    noteClose.addEventListener('click', closeNoteModal);
+    noteCancel.addEventListener('click', closeNoteModal);
+    noteModal.addEventListener('click', (e) => { if (e.target === noteModal) closeNoteModal(); });
+
+    noteSave.addEventListener('click', async () => {
+        const title = noteTitle.value.trim();
+        const content = noteContent.value.trim();
+        if (!title) { noteStatus.textContent = 'Title is required'; noteStatus.className = 'note-status error'; noteStatus.hidden = false; return; }
+        if (!content) { noteStatus.textContent = 'Content is required'; noteStatus.className = 'note-status error'; noteStatus.hidden = false; return; }
+
+        noteStatus.textContent = 'Saving...';
+        noteStatus.className = 'note-status';
+        noteStatus.hidden = false;
+        noteSave.disabled = true;
+
+        try {
+            const resp = await fetch('/api/capture', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    type: 'manual',
+                    content: content,
+                    source: { url: '', title: title, site_name: 'Manual' },
+                    tags: []
+                })
+            });
+            const data = await resp.json();
+            if (data.success) {
+                noteStatus.textContent = 'Saved ✓';
+                noteStatus.className = 'note-status success';
+                setTimeout(() => { closeNoteModal(); loadBrowse(); }, 800);
+            } else {
+                noteStatus.textContent = 'Save failed';
+                noteStatus.className = 'note-status error';
+            }
+        } catch (err) {
+            noteStatus.textContent = 'Server error';
+            noteStatus.className = 'note-status error';
+        }
+        noteSave.disabled = false;
+    });
+
+    // ─── Bookmark import ──────────────────────────────────────────
+    const importModal = document.getElementById('import-modal');
+    const importModalClose = document.getElementById('import-modal-close');
+    const importDropzone = document.getElementById('import-dropzone');
+    const importFileInput = document.getElementById('import-file-input');
+    const importBrowseLink = document.getElementById('import-browse-link');
+    const importProgress = document.getElementById('import-progress');
+    const importStatusText = document.getElementById('import-status-text');
+    const importResult = document.getElementById('import-result');
+    const importDoneBtn = document.getElementById('import-done-btn');
+    const importBtn = document.getElementById('import-btn');
+
+    importBtn.addEventListener('click', () => {
+        importResult.hidden = true;
+        importProgress.hidden = true;
+        importDoneBtn.hidden = true;
+        importModal.hidden = false;
+        importModal.inert = false;
+    });
+
+    function closeImportModal() { importModal.hidden = true; importModal.inert = true; }
+    importModalClose.addEventListener('click', closeImportModal);
+    importModal.addEventListener('click', (e) => { if (e.target === importModal) closeImportModal(); });
+    importDoneBtn.addEventListener('click', closeImportModal);
+
+    importBrowseLink.addEventListener('click', () => importFileInput.click());
+    importDropzone.addEventListener('click', () => importFileInput.click());
+
+    importDropzone.addEventListener('dragover', (e) => { e.preventDefault(); importDropzone.classList.add('drag-over'); });
+    importDropzone.addEventListener('dragleave', () => importDropzone.classList.remove('drag-over'));
+    importDropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        importDropzone.classList.remove('drag-over');
+        if (e.dataTransfer.files.length > 0) handleImportFile(e.dataTransfer.files[0]);
+    });
+
+    importFileInput.addEventListener('change', () => {
+        if (importFileInput.files.length > 0) handleImportFile(importFileInput.files[0]);
+    });
+
+    async function handleImportFile(file) {
+        if (!file.name.endsWith('.html')) {
+            importResult.textContent = 'Please select an .html bookmark file.';
+            importResult.className = 'import-result error';
+            importResult.hidden = false;
+            return;
+        }
+
+        importProgress.hidden = false;
+        importResult.hidden = true;
+        importDoneBtn.hidden = true;
+        importStatusText.textContent = `Importing ${file.name}...`;
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const resp = await fetch('/api/import/bookmarks', { method: 'POST', body: formData });
+            const data = await resp.json();
+            importProgress.hidden = true;
+
+            if (data.success) {
+                const preview = data.items.slice(0, 5);
+                let html = `<div class="import-result success"><strong>${data.saved} / ${data.total}</strong> bookmarks imported</div>`;
+                if (data.errors > 0) html += `<div class="import-result error">${data.errors} failed</div>`;
+                if (preview.length > 0) {
+                    html += '<div style="margin-top:0.5rem;font-size:0.8rem;color:var(--text-secondary)">Preview:</div><ul style="margin:0.25rem 0;padding-left:1.25rem;font-size:0.8rem">';
+                    preview.forEach(b => { html += `<li>${b.tags.length > 0 ? '[' + b.tags.join('/') + '] ' : ''}${b.title}</li>`; });
+                    html += '</ul>';
+                    if (data.total > 5) html += `<div style="font-size:0.78rem;color:var(--text-tertiary)">... and ${data.total - 5} more</div>`;
+                }
+                importResult.innerHTML = html;
+                importResult.className = 'import-result';
+                importResult.hidden = false;
+                importDoneBtn.hidden = false;
+                loadBrowse();
+            } else {
+                importResult.textContent = data.detail || 'Import failed';
+                importResult.className = 'import-result error';
+                importResult.hidden = false;
+            }
+        } catch (err) {
+            importProgress.hidden = true;
+            importResult.textContent = 'Server error — is Recollect running?';
+            importResult.className = 'import-result error';
+            importResult.hidden = false;
+        }
+    }
 });
