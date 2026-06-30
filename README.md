@@ -39,12 +39,12 @@ Search privately via **SearXNG** (meta search engine), save highlighted text fro
 
 **Linux / macOS:**
 ```bash
-curl -fsSL https://github.com/sarox-dev/Recollect/releases/latest/download/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sarox-dev/Recollect/main/install.sh | bash
 ```
 
 **Windows (PowerShell):**
 ```powershell
-irm https://github.com/sarox-dev/Recollect/releases/latest/download/install.ps1 | iex
+irm https://raw.githubusercontent.com/sarox-dev/Recollect/main/install.ps1 | iex
 ```
 
 ### Manual setup
