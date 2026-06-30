@@ -123,7 +123,7 @@ The [Recollect browser extension](https://github.com/sarox-dev/Recollect-Extensi
 - Use keyboard shortcuts (`Alt+Shift+R`) for quick saving
 - See how many highlights you've saved at a glance
 
-Install from the Chrome Web Store or load unpacked in developer mode.
+The Chrome Web Store release is planned for 2029 due to current publishing restrictions. Until then, the extension can be loaded unpacked in Developer Mode.
 
 ---
 
