@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
 set -e
-./stop.sh
-./start.sh
+
+docker compose restart
+
+echo "✓ Recollect restarted"
