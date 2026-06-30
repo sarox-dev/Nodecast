@@ -1,42 +1,58 @@
 $repo = "https://github.com/sarox-dev/Recollect.git"
-$dir = "$env:USERPROFILE\.recollect"
+$dir = Get-Location
 
-Write-Host "Checking dependencies..."
+Write-Host "======================================"
+Write-Host " Recollect installer (current dir)"
+Write-Host "======================================"
+Write-Host ""
+Write-Host "Target directory: $dir"
+Write-Host ""
 
+# checks
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
-    Write-Host "Install Docker first"
+    Write-Host "Docker not installed"
     exit 1
 }
 
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-    Write-Host "Install Git first"
+    Write-Host "Git not installed"
     exit 1
 }
 
-if (Test-Path "$dir\.git") {
-    Write-Host "1) Update"
-    Write-Host "2) Reinstall"
-    $choice = Read-Host "Choose"
-
-    if ($choice -eq "1") {
-        git -C $dir pull
-    } else {
-        Remove-Item -Recurse -Force $dir
-        git clone $repo $dir
-    }
+# install/update logic
+if (Test-Path ".git") {
+    Write-Host "Repo already exists. Updating..."
+    git pull
 } else {
-    git clone $repo $dir
+    Write-Host "Cloning into current directory..."
+    git clone $repo .
 }
 
-Set-Location $dir
+Write-Host ""
+Write-Host "Setting up env..."
 
-Copy-Item ".env.example" ".env" -ErrorAction SilentlyContinue
+if (-not (Test-Path ".env")) {
+    Copy-Item ".env.example" ".env" -ErrorAction SilentlyContinue
+}
+
+Write-Host ""
+Write-Host "Starting Recollect..."
 
 docker compose up -d
 
-Write-Host ""
-Write-Host "Installed"
+# read port (best-effort)
+$port = 5000
+if (Test-Path ".env") {
+    $envFile = Get-Content ".env"
+    foreach ($line in $envFile) {
+        if ($line -match "APP_PORT=(\d+)") {
+            $port = $matches[1]
+        }
+    }
+}
 
-Write-Host "To add CLI:"
-Write-Host "Add this to PATH or run:"
-Write-Host "powershell -File recollect.ps1 start"
+Write-Host ""
+Write-Host "======================================"
+Write-Host "✓ Recollect running"
+Write-Host "→ http://localhost:$port"
+Write-Host "======================================"
