@@ -2,7 +2,7 @@
 set -e
 
 REPO="https://github.com/sarox-dev/Recollect.git"
-DIR="$(pwd)"
+DIR="$(pwd)/Recollect"
 
 echo "======================================"
 echo " Recollect installer (current dir)"
@@ -22,15 +22,21 @@ command -v git >/dev/null 2>&1 || {
   exit 1
 }
 
-# safety check
 if [ -d "$DIR/.git" ]; then
-  echo "Repo already exists here."
-  echo "Updating..."
-  git pull
+    echo "Recollect is already installed."
+
+    read -rp "Update existing installation? [Y/n] " answer
+
+    if [[ ! "$answer" =~ ^[Nn]$ ]]; then
+        git -C "$DIR" pull --rebase
+    else
+        exit 0
+    fi
 else
-  echo "Cloning into current directory..."
-  git clone "$REPO" .
+    git clone "$REPO" "$DIR"
 fi
+
+cd "$DIR"
 
 echo ""
 echo "Setting up env..."

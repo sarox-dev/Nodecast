@@ -1,5 +1,5 @@
 $repo = "https://github.com/sarox-dev/Recollect.git"
-$dir = Get-Location
+$dir = Join-Path (Get-Location) "Recollect"
 
 Write-Host "======================================"
 Write-Host " Recollect installer (current dir)"
@@ -20,13 +20,22 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
 }
 
 # install/update logic
-if (Test-Path ".git") {
-    Write-Host "Repo already exists. Updating..."
-    git pull
-} else {
-    Write-Host "Cloning into current directory..."
-    git clone $repo .
+if (Test-Path "$dir\.git") {
+    Write-Host "Recollect is already installed."
+
+    $choice = Read-Host "Update existing installation? (Y/n)"
+
+    if ($choice -eq "n" -or $choice -eq "N") {
+        exit
+    }
+
+    git -C $dir pull --rebase
 }
+else {
+    git clone $repo $dir
+}
+
+Set-Location $dir
 
 Write-Host ""
 Write-Host "Setting up env..."
