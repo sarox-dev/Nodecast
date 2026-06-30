@@ -1,232 +1,208 @@
 <h1 align="center">Recollect</h1>
 
 <p align="center">
-  <img src="logo.png" width="120" />
+  <img src="logo.png" width="120" height="120" alt="Recollect logo" />
 </p>
 
 <div align="center">
 
-[![License][license]][license-url]
-[![Stars][stars]][stars-url]
-[![Python][python]][python-url]
-[![Status][status]][status-url]
-[![Docker][docker]][docker-url]
+[![License: AGPL-3.0][license-badge]][license-url]
+[![Stars][stars-badge]][stars-url]
+[![Python][python-badge]][python-url]
+[![Docker][docker-badge]][docker-url]
+[![Discord][discord-badge]][discord-url]
 
 </div>
 
-<p align="center"><strong>Recollect</strong> turns the open web into a personal <strong>knowledge</strong> system — where every search becomes something you can <strong>reuse</strong>, not just forget.</p>
+<p align="center"><strong>Search once. Reuse forever.</strong></p>
+
+<p align="center">
+  Recollect turns the web into your personal knowledge base —
+  save content, not bookmarks, and find it again instantly.
+</p>
 
 ---
 
-## 🧠 What is Recollect?
+## What is Recollect?
 
-**Recollect is a private, local-first research tool that helps you capture, organize, and reuse information from the web.**
+**Recollect is a private, self-hosted research tool** that lets you capture, organize, and instantly find useful information from the web.
 
-Instead of saving bookmarks you’ll never revisit, Recollect lets you save **actual content** — solutions, ideas, and important information — and structure it into meaningful projects.
+Instead of losing solutions in browser tabs or scattered bookmarks, Recollect stores the **actual content** you care about — with full text search, project organization, and optional AI-powered features.
 
----
-
-## ❌ The Problem
-
-People constantly search for information online:
-- Fixing errors (e.g. from forums)
-- Learning programming
-- Researching topics
-
-They:
-1. Find a solution  
-2. Use it once  
-3. Forget it  
-4. Search again later  
-
-**Bookmarks don’t work:**
-- They store links, not knowledge  
-- They lack context  
-- They become cluttered  
+Search privately via **SearXNG** (meta search engine), save highlighted text from web pages, and retrieve everything from a single local-first interface.
 
 ---
 
-## 💡 The Solution
+## Quick Start
 
-Recollect turns browsing into a **structured knowledge system**:
+### One-command install
 
-- 🔍 Search the web privately  
-- ✂️ Save only the important parts (not entire pages)  
-- 📁 Organize everything into projects  
-- 🔎 Instantly find it again later  
-
----
-
-## ⚙️ Core Features (MVP)
-
-- 🔍 **Private Meta Search** (powered by SearXNG)
-- ✂️ **Content-first saving** (not bookmarks)
-- 📁 **Project-based organization**
-- 💾 **Local-first storage**
-- 🔎 **Search inside saved content**
-
----
-
-## 🚀 Planned Features
-
-- 🌐 Browser extension (highlight → save)
-- 🤖 AI summarization & tagging
-- 🔗 Integrations (Obsidian, Notion, etc.)
-- 🎨 Custom themes
-- 🔌 Plugin system
-- ☁️ Cloud sync
-
----
-
-## 🧩 How It Works
-
-```
-Search → Open page → Highlight → Save → Organize → Reuse
+**Linux / macOS:**
+```bash
+curl -fsSL https://github.com/sarox-dev/Recollect/releases/latest/download/install.sh | bash
 ```
 
----
+**Windows (PowerShell):**
+```powershell
+irm https://github.com/sarox-dev/Recollect/releases/latest/download/install.ps1 | iex
+```
 
-## 🎯 Use Cases
-
-Recollect is designed for people who constantly work with information:
-
-- 💻 Developers saving fixes, snippets, and solutions  
-- 📰 Journalists collecting and structuring research  
-- 📚 Students organizing learning materials  
-- 🔐 Privacy-focused users who avoid tracking  
-
----
-
-## 🧠 Philosophy
-
-Recollect is built on a simple principle:
-
-> You shouldn't have to search for the same solution twice.
-
-Instead of passive browsing, Recollect turns the web into an **active knowledge system**.
-
----
-
-## 🏗️ Architecture (Concept)
-
-Recollect is designed as a modular system:
-
-- 🔍 Search layer (powered by SearXNG)
-- 💾 Local-first data storage
-- 🌐 Optional cloud sync (future)
-- 🧩 Browser extension for capturing content
-
----
-
-## ⚡ Getting Started (Development)
+### Manual setup
 
 ```bash
 git clone https://github.com/sarox-dev/Recollect.git
 cd Recollect
+
+# Configure environment
+cp .env.example .env
+
+# Start with Docker
+docker compose up -d
 ```
 
-## ⚙️ Setup and Run
+The app runs at **http://localhost:5000**.
 
-### 1. Start the application
-
-```bash
-docker compose up
-```
-### 2. Open in your browser
-
-http://localhost:8000
+### What you need
+- [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/)
+- Git (for manual setup)
 
 ---
 
-## 🛣️ Roadmap
-### MVP
- Search UI
- Save content (manual)
- Projects system
- Local storage
-### Next
- Browser extension
- Backend + authentication
- Hosted version
-### Future
- AI features
- Integrations
- Plugin system
- Themes
+## Features
 
-## 🔐 Privacy
+| Feature | Description |
+|---|---|
+| 🔍 **Private Meta Search** | Powered by SearXNG — aggregates results from multiple search engines without tracking |
+| ✂️ **Content-first saving** | Save highlighted text, not URLs. Keep the parts that matter |
+| 📁 **Project organization** | Group saved content into projects for structured knowledge management |
+| 💾 **Local-first storage** | Your data stays on your machine. No cloud dependency |
+| 🔎 **Search inside saved content** | Full-text search across everything you've saved |
+| 🌐 **Browser extension** | Save highlights directly from any webpage (optional) |
 
-### Recollect is built with privacy in mind:
+---
 
-No tracking in core search
-Local-first data storage
-Optional self-hosting
-User-controlled data
+## Architecture
 
-## 💰 Business Model (Planned)
+```
+┌─────────────────┐     ┌──────────────┐     ┌─────────────┐
+│  Browser        │────▶│  FastAPI App  │────▶│  SearXNG    │
+│  (UI / Ext.)    │     │  (port 5000)  │     │  (port 8080) │
+└─────────────────┘     └──────┬───────┘     └─────────────┘
+                               │
+                        ┌──────▼───────┐
+                        │  Local       │
+                        │  Storage     │
+                        │  (contents/) │
+                        └──────────────┘
+```
 
-### 🟢 Open Source Core
-Self-hostable
-Free forever
+- **FastAPI** — Python web server serving the frontend and API
+- **SearXNG** — Self-hosted meta search engine (Docker)
+- **Local storage** — All saved content stored in a local directory
+- **Browser extension** — Chrome extension for capturing highlights (separate repo)
 
-### 🟡 Hosted Free Tier
-Limited storage
-Basic features
+---
 
-### 🔴 Premium
-Cloud sync
-AI features
-Advanced capabilities
+## Environment Configuration
 
-## 🤝 Contributing
+Copy `.env.example` to `.env` and adjust as needed:
 
-This project is currently in early development.
+| Variable | Default | Description |
+|---|---|---|
+| `APP_HOST` | `0.0.0.0` | App bind address |
+| `APP_PORT` | `5000` | App port |
+| `SEARXNG_PORT` | `8080` | SearXNG internal port |
+| `SEARXNG_URL` | `http://searxng:8080` | SearXNG internal URL |
 
-Contributions, ideas, and feedback are welcome:
+---
 
-Open an issue
-Suggest features
-Join the discussion on 
+## Browser Extension
 
-[![Discord][discord]][discord-url]
+The [Recollect browser extension](https://github.com/sarox-dev/Recollect-Extension) lets you:
+- Select text on any webpage and save it directly to Recollect
+- Use keyboard shortcuts (`Alt+Shift+R`) for quick saving
+- See how many highlights you've saved at a glance
 
-## 📊 Status
+Install from the Chrome Web Store or load unpacked in developer mode.
 
-🚧 This project is currently in active development (WIP)
+---
 
-Expect:
+## Use Cases
 
-breaking changes
-incomplete features
-rapid iteration
+- **Developers** — Save stack overflow solutions, config snippets, and bug fixes
+- **Researchers** — Collect and organize sources, quotes, and findings
+- **Students** — Keep learning materials searchable and project-structured
+- **Privacy-conscious users** — Search and save without tracking
 
-## 🙌 Support the Project
+---
 
-If you like the idea:
+## Roadmap
 
-⭐ Star the repository
-🐛 Report issues
-💬 Join the Discord
+### ✅ MVP (current)
+- Private meta search (SearXNG)
+- Content saving with metadata
+- Project-based organization
+- Local-first storage
+- Full-text search
 
-## 🌐 Links
-🌍 Website: https://recollect.saroxtech.com
- (coming soon)
-💬 Discord: https://discord.gg/BXEDCJP7mT
+### 🚧 In progress
+- Browser extension improvements
+- AI summarization and auto-tagging
+- Premium features (extension)
 
-## 📄 License
-MIT © Saroxtech 2026
+### 🔮 Future
+- Hosted version
+- Integrations (Obsidian, Notion)
+- Plugin system
+- Themes
 
-[Live demo](https://recollect.saroxtech.com) coming soon
+---
 
-[discord]: https://img.shields.io/discord/1490718135081242745?style=for-the-badge&logo=discord&logoColor=white&label=Join&labelColor=1e2124&color=7289da
-[discord-url]: https://discord.gg/BXEDCJP7mT
-[license]: https://img.shields.io/github/license/sarox-dev/Recollect?color=007acc
-[license-url]: https://github.com/sarox-dev/Recollect/blob/main/LICENSE
-[stars]: https://img.shields.io/github/stars/sarox-dev/Recollect?style=social
+## Business Model
+
+| Tier | Features |
+|---|---|
+| 🟢 **Open Source** | Self-hosted, free forever, all core features |
+| 🔴 **Premium** | Cloud sync, AI features, advanced extension capabilities |
+
+The core is and always will be open source under AGPL-3.0. Premium features are offered as a commercial extension — never taken away from the free version.
+
+---
+
+## Contributing
+
+This project is in early development. Contributions, ideas, and feedback are welcome.
+
+- Open an [issue](https://github.com/sarox-dev/Recollect/issues)
+- Suggest features
+- Join the [Discord](https://discord.gg/BXEDCJP7mT)
+
+---
+
+## License
+
+**AGPL-3.0** — Copyright (c) 2026 Saroxtech / Valters
+
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3, or (at your option) any later version.
+
+Commercial licenses for proprietary use (e.g., embedding in closed-source products, OEM distribution) are available from the author.
+
+---
+
+## Links
+
+- 🌍 **Website**: [recollect.saroxtech.com](https://recollect.saroxtech.com)
+- 💬 **Discord**: [Join the community](https://discord.gg/BXEDCJP7mT)
+- 🐙 **GitHub**: [github.com/sarox-dev/Recollect](https://github.com/sarox-dev/Recollect)
+- 🔌 **Extension**: [Recollect-Extension](https://github.com/sarox-dev/Recollect-Extension)
+
+[license-badge]: https://img.shields.io/badge/License-AGPL--3.0-blue?logo=gnu
+[license-url]: LICENSE
+[stars-badge]: https://img.shields.io/github/stars/sarox-dev/Recollect?style=social
 [stars-url]: https://github.com/sarox-dev/Recollect
-[python]: https://img.shields.io/badge/Python-3.11%2B-blue?logo=python&logoColor=yellow
+[python-badge]: https://img.shields.io/badge/Python-3.12+-blue?logo=python&logoColor=yellow
 [python-url]: https://python.org
-[status]: https://img.shields.io/badge/Status-WIP-orange
-[status-url]: https://github.com/sarox-dev/Recollect
-[docker]: https://img.shields.io/badge/Docker-Compose-green?logo=docker
+[docker-badge]: https://img.shields.io/badge/Docker-Compose-green?logo=docker
 [docker-url]: https://hub.docker.com
+[discord-badge]: https://img.shields.io/discord/1490718135081242745?style=for-the-badge&logo=discord&logoColor=white&label=Join&labelColor=1e2124&color=7289da
+[discord-url]: https://discord.gg/BXEDCJP7mT
