@@ -1,7 +1,12 @@
 import requests
 from app.core.config import SEARXNG_URL, TIMEOUT
+from app.services.search_cache import search_cache
 
 def search(query: str, page: int = 1, count: int = 10, engines: str | None = None, categories: str = "general"):
+    cached = search_cache.get(query, engines, page, count)
+    if cached is not None:
+        return cached
+
     try:
         response = requests.get(
             f"{SEARXNG_URL}/search",
@@ -34,8 +39,9 @@ def search(query: str, page: int = 1, count: int = 10, engines: str | None = Non
         })
 
     total = data.get("number_of_results", 0)
-
-    return {
+    response_data = {
         "results": results,
         "total": total,
     }
+    search_cache.set(query, engines, page, count, response_data)
+    return response_data
