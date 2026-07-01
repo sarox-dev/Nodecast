@@ -1,4 +1,4 @@
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     // ─── DOM refs ────────────────────────────────────────────────
     const pageShell = document.getElementById('page-shell');
     const pageHeader = document.getElementById('page-header');
@@ -6,6 +6,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const queryInput = document.getElementById('query');
     const resultsContainer = document.getElementById('results-container');
     const sentinel = document.getElementById('results-sentinel');
+    const loadMoreButton = document.getElementById('load-more-button');
+    const bottomLoading = document.getElementById('bottom-loading');
+    const endOfResults = document.getElementById('end-of-results');
     const emptyState = document.getElementById('empty-state');
     const statusBar = document.getElementById('status-bar');
     const resultCount = document.getElementById('result-count');
@@ -13,6 +16,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const filterBar = document.getElementById('filter-bar');
     const settingsButton = document.getElementById('settings-button');
     const loadingIndicator = document.getElementById('loading-indicator');
+    const scrollTopButton = document.createElement('button');
+    scrollTopButton.id = 'scroll-top-button';
+    scrollTopButton.className = 'scroll-top-button';
+    scrollTopButton.type = 'button';
+    scrollTopButton.hidden = true;
+    scrollTopButton.innerHTML = 'Top';
+    document.body.appendChild(scrollTopButton);
 
     // ─── Modal DOM refs ──────────────────────────────────────────
     const snippetModal = document.getElementById('snippet-modal');
@@ -48,10 +58,39 @@ document.addEventListener('DOMContentLoaded', () => {
     const settingsClose = document.getElementById('settings-close');
     const settingsList = document.getElementById('settings-list');
     const settingsSave = document.getElementById('settings-save');
+    const settingsCategories = document.getElementById('settings-categories');
+    const settingsCategoryTitle = document.getElementById('settings-category-title');
+    const settingsCategoryDescription = document.getElementById('settings-category-description');
+    const settingsSearchInput = document.getElementById('settings-search-input');
+
+    const searchEngineFields = [
+        { key: 'engine_duckduckgo', engine: 'duckduckgo', label: 'DuckDuckGo', default: true },
+        { key: 'engine_google', engine: 'google', label: 'Google', default: true },
+        { key: 'engine_bing', engine: 'bing', label: 'Bing', default: true },
+        { key: 'engine_wikipedia', engine: 'wikipedia', label: 'Wikipedia', default: true },
+        { key: 'engine_github', engine: 'github', label: 'GitHub', default: true },
+        { key: 'engine_startpage', engine: 'startpage', label: 'Startpage', default: true },
+        { key: 'engine_brave', engine: 'brave', label: 'Brave', default: false },
+        { key: 'engine_yahoo', engine: 'yahoo', label: 'Yahoo', default: false },
+        { key: 'engine_yahoo_news', engine: 'yahoo_news', label: 'Yahoo News', default: false },
+        { key: 'engine_google_news', engine: 'google_news', label: 'Google News', default: false },
+        { key: 'engine_duckduckgo_extra', engine: 'duckduckgo_extra', label: 'DuckDuckGo Extra', default: false },
+        { key: 'engine_google_images', engine: 'google_images', label: 'Google Images', default: false },
+        { key: 'engine_bing_images', engine: 'bing_images', label: 'Bing Images', default: false },
+        { key: 'engine_google_videos', engine: 'google_videos', label: 'Google Videos', default: false },
+        { key: 'engine_duckduckgo_weather', engine: 'duckduckgo_weather', label: 'DuckDuckGo Weather', default: false },
+        { key: 'engine_github_code', engine: 'github_code', label: 'GitHub Code', default: false },
+        { key: 'engine_google_scholar', engine: 'google_scholar', label: 'Google Scholar', default: false },
+        { key: 'engine_google_play', engine: 'google_play', label: 'Google Play', default: false },
+        { key: 'engine_reddit', engine: 'reddit', label: 'Reddit', default: false }
+    ];
+
+    let activeSettingsCategory = 'Appearance';
 
     const settingsSchema = [
         {
-            category: 'General',
+            category: 'Appearance',
+            description: 'Appearance and animation settings.',
             items: [
                 { key: 'theme', label: 'Theme', type: 'select',
                   options: [
@@ -59,28 +98,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     { value: 'light', label: 'Light' }
                   ],
                   default: 'dark' },
-            ]
-        },
-        {
-            category: 'Search Behavior',
-            items: [
-                { key: 'resultsPerPage', label: 'Results per page', type: 'number', min: 1, max: 50, default: 10 },
-                { key: 'showEngines', label: 'Show search engine badges on web results', type: 'checkbox', default: true },
-                { key: 'engines', label: 'Search engines', type: 'checkbox-group',
-                  options: [
-                    { value: 'duckduckgo', label: 'DuckDuckGo' },
-                    { value: 'bing', label: 'Bing' },
-                    { value: 'google', label: 'Google' },
-                    { value: 'wikipedia', label: 'Wikipedia' },
-                    { value: 'github', label: 'GitHub' }
-                  ],
-                  default: ['duckduckgo'] },
-                { key: 'autoLoad', label: 'Auto load more results on scroll', type: 'checkbox', default: true }
-            ]
-        },
-        {
-            category: 'Animations',
-            items: [
                 { key: 'animationSpeed', label: 'Reveal animation speed', type: 'select',
                   options: [
                     { value: 'fast', label: 'Fast' },
@@ -88,7 +105,22 @@ document.addEventListener('DOMContentLoaded', () => {
                     { value: 'slow', label: 'Slow' },
                     { value: 'instant', label: 'Instant (no animation)' }
                   ],
-                  default: 'fast' },
+                  default: 'fast' }
+            ]
+        },
+        {
+            category: 'Search',
+            description: 'Search behavior and web result display settings.',
+            items: [
+                { key: 'showEngines', label: 'Show search engine badges on web results', type: 'checkbox', default: true },
+                { key: 'autoLoad', label: 'Auto load more results on scroll', type: 'checkbox', default: true }
+            ]
+        },
+        {
+            category: 'Search engines',
+            description: 'Choose which search engines are included in your queries.',
+            items: [
+                ...searchEngineFields.map(field => ({ key: field.key, label: field.label, type: 'checkbox', default: field.default }))
             ]
         }
     ];
@@ -104,6 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return p;
     }
 
+
     function setValue(key, value) {
         settingsState[key] = value;
         if (Array.isArray(value)) localStorage.setItem(key, JSON.stringify(value));
@@ -113,20 +146,35 @@ document.addEventListener('DOMContentLoaded', () => {
     function createField(item) {
         const value = getValue(item);
         settingsState[item.key] = value;
+        const categoryAttr = item.category ? ` data-category="${item.category}"` : '';
         if (item.type === 'select') {
-            return `<label class="settings-field"><span>${item.label}</span><select data-key="${item.key}">${item.options.map(o => `<option value="${o.value}" ${o.value === value ? 'selected' : ''}>${o.label}</option>`).join('')}</select></label>`;
+            return `<label class="settings-field"${categoryAttr}><span>${item.label}</span><select data-key="${item.key}">${item.options.map(o => `<option value="${o.value}" ${o.value === value ? 'selected' : ''}>${o.label}</option>`).join('')}</select></label>`;
         }
         if (item.type === 'checkbox') {
-            return `<label class="settings-field checkbox-field"><span>${item.label}</span><input type="checkbox" data-key="${item.key}" ${value ? 'checked' : ''} /></label>`;
+            return `<label class="settings-field toggle-field"${categoryAttr}><span>${item.label}</span><input type="checkbox" data-key="${item.key}" ${value ? 'checked' : ''} /></label>`;
         }
         if (item.type === 'checkbox-group') {
-            return `<div class="settings-field"><span>${item.label}</span><div class="checkbox-group">${item.options.map(opt => `<label class="checkbox-option"><input type="checkbox" data-key="${item.key}" value="${opt.value}" ${value.includes(opt.value) ? 'checked' : ''} /><span>${opt.label}</span></label>`).join('')}</div></div>`;
+            return `<div class="settings-field"${categoryAttr}><span>${item.label}</span><div class="checkbox-group">${item.options.map(opt => `<label class="checkbox-option toggle-option"><input type="checkbox" data-key="${item.key}" value="${opt.value}" ${value.includes(opt.value) ? 'checked' : ''} /><span>${opt.label}</span></label>`).join('')}</div></div>`;
         }
-        return `<label class="settings-field"><span>${item.label}</span><input type="${item.type}" data-key="${item.key}" value="${value}" min="${item.min || ''}" max="${item.max || ''}" /></label>`;
+        return `<label class="settings-field"${categoryAttr}><span>${item.label}</span><input type="${item.type}" data-key="${item.key}" value="${value}" min="${item.min || ''}" max="${item.max || ''}" /></label>`;
+    }
+
+    function renderCategoryNav() {
+        settingsCategories.innerHTML = settingsSchema.map(cat => `
+            <li class="settings-category-item">
+              <button type="button" class="settings-category-button${cat.category === activeSettingsCategory ? ' active' : ''}" data-category="${cat.category}">${cat.category}</button>
+            </li>
+        `).join('');
     }
 
     function renderSettings() {
-        settingsList.innerHTML = settingsSchema.map(cat => cat.items.map(createField).join('')).join('');
+        const category = settingsSchema.find(cat => cat.category === activeSettingsCategory) || settingsSchema[0];
+        settingsCategoryTitle.textContent = category.category;
+        settingsCategoryDescription.textContent = category.description || '';
+        settingsList.innerHTML = category.items.map(item => createField({ ...item, category: category.category })).join('');
+        if (settingsSearchInput?.value.trim()) {
+            filterSettings(settingsSearchInput.value);
+        }
     }
 
     function filterSettings(query) {
@@ -144,8 +192,19 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    document.getElementById('settings-search-input')?.addEventListener('input', (e) => {
+    settingsSearchInput?.addEventListener('input', (e) => {
         filterSettings(e.target.value);
+    });
+
+    settingsCategories?.addEventListener('click', (e) => {
+        const button = e.target.closest('.settings-category-button');
+        if (!button) return;
+        activeSettingsCategory = button.dataset.category;
+        renderCategoryNav();
+        renderSettings();
+        if (settingsSearchInput?.value.trim()) {
+            filterSettings(settingsSearchInput.value);
+        }
     });
 
     function readSettings() {
@@ -167,7 +226,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    function openSettings() { renderSettings(); settingsOverlay.hidden = false; settingsOverlay.inert = false; }
+    function openSettings() { renderCategoryNav(); renderSettings(); if (settingsSearchInput?.value.trim()) filterSettings(settingsSearchInput.value); settingsOverlay.hidden = false; settingsOverlay.inert = false; }
     function closeSettings() { document.activeElement?.blur(); settingsOverlay.inert = true; settingsOverlay.hidden = true; }
 
     settingsButton.addEventListener('click', openSettings);
@@ -192,11 +251,11 @@ document.addEventListener('DOMContentLoaded', () => {
     applyTheme();
 
     function getEngines() {
-        const e = settingsState.engines;
-        return Array.isArray(e) ? e.join(',') : 'duckduckgo';
+        const engineValues = searchEngineFields
+            .filter(field => settingsState[field.key] !== false)
+            .map(field => field.engine);
+        return engineValues.length ? engineValues.join(',') : 'duckduckgo';
     }
-
-    function getPageSize() { return Number(settingsState.resultsPerPage) || 10; }
 
     function getShowEngines() { return settingsState.showEngines !== false; }
 
@@ -231,10 +290,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ─── Loading state ──────────────────────────────────────────
-    function showLoading(show) {
-        loadingIndicator.hidden = !show;
-    }
-
     // ─── Filter tabs ─────────────────────────────────────────────
     function renderFilterTabs(mode) {
         filterBar.hidden = false;
@@ -248,6 +303,55 @@ document.addEventListener('DOMContentLoaded', () => {
         renderFilterTabs(mode);
         renderedUrls = new Set();
         renderResults();
+    }
+
+    function updatePaginationControls() {
+        const autoLoad = settingsState.autoLoad !== false;
+        const showLoadMore = !autoLoad && hasMore && !browseMode && currentQuery;
+        const showSentinel = autoLoad && hasMore && !browseMode && currentQuery;
+        const showEndMessage = !hasMore && !browseMode && currentQuery && allResults.length > 0;
+
+        sentinel.hidden = !showSentinel;
+        loadMoreButton.hidden = !showLoadMore;
+        endOfResults.hidden = !showEndMessage;
+        if (showEndMessage) {
+            bottomLoading.hidden = true;
+        }
+    }
+
+    function clearSkeletons() {
+        resultsContainer.querySelectorAll('.result-card.skeleton').forEach((card) => card.remove());
+    }
+
+    function renderLoadingSkeletons(count = 4, append = false) {
+        if (!append) {
+            resultsContainer.innerHTML = '';
+        }
+        const skeletons = Array.from({ length: count }, () => `
+            <article class="result-card skeleton">
+                <div class="card-meta">
+                    <span class="skeleton-dot"></span>
+                    <span class="skeleton-line skeleton-short"></span>
+                </div>
+                <span class="card-title skeleton-line skeleton-title"></span>
+                <p class="card-content skeleton-line skeleton-paragraph"></p>
+            </article>
+        `).join('');
+        resultsContainer.insertAdjacentHTML('beforeend', skeletons);
+    }
+
+    function showLoading(show, page) {
+        if (show) {
+            if (page === 1) {
+                renderLoadingSkeletons(5, false);
+            } else {
+                renderLoadingSkeletons(3, true);
+            }
+            bottomLoading.hidden = page === 1;
+        } else {
+            clearSkeletons();
+            bottomLoading.hidden = true;
+        }
     }
 
     filterBar.addEventListener('click', (e) => {
@@ -653,18 +757,16 @@ document.addEventListener('DOMContentLoaded', () => {
             emptyState.hidden = true;
         }
 
-        // ── Sentinel ──
-        sentinel.hidden = !(hasMore && !browseMode);
+        updatePaginationControls();
     }
 
     // ─── Fetching ────────────────────────────────────────────────
     async function doSearch(query, page) {
         if (loading) return;
         loading = true;
-        showLoading(true);
+        showLoading(true, page);
 
-        const pageSize = getPageSize();
-        const url = `/search?q=${encodeURIComponent(query)}&page=${page}&count=${pageSize}&mode=all&engines=${getEngines()}`;
+        const url = `/search?q=${encodeURIComponent(query)}&page=${page}&engines=${getEngines()}`;
 
         try {
             const resp = await fetch(url);
@@ -692,15 +794,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 renderResults(true);
             }
 
-            hasMore = fetched.length >= pageSize;
+            hasMore = fetched.length > 0;
             currentPage = page;
+
+            if (!hasMore && allResults.length > 0) {
+                endOfResults.hidden = false;
+                loadMoreButton.hidden = true;
+            }
         } catch (err) {
             console.error('Search failed:', err);
             showLoading(false);
             resultsContainer.innerHTML = `<div class="message error">Search request failed. Is the server running?</div>`;
+            hasMore = false;
+        } finally {
+            loading = false;
+            updatePaginationControls();
         }
-
-        loading = false;
     }
 
     async function loadBrowse() {
@@ -710,7 +819,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setSearchActive(false);
 
         try {
-            const resp = await fetch('/search?q=&mode=all');
+            const resp = await fetch('/browse');
             const data = await resp.json();
 
             if (!Array.isArray(data)) {
@@ -783,9 +892,28 @@ document.addEventListener('DOMContentLoaded', () => {
     }, { rootMargin: '300px' });
     observer.observe(sentinel);
 
+    loadMoreButton?.addEventListener('click', () => {
+        if (!loading && hasMore && currentQuery) {
+            doSearch(currentQuery, currentPage + 1);
+        }
+    });
+
+    scrollTopButton.addEventListener('click', () => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+
+    function handleScrollTopVisibility() {
+        const enable = window.scrollY > window.innerHeight;
+        scrollTopButton.hidden = !enable;
+    }
+    window.addEventListener('scroll', handleScrollTopVisibility, { passive: true });
+    handleScrollTopVisibility();
+
     // ─── Init ──────────────────────────────────────────────────────
+    renderSettings();
     loadBrowse();
     loadProjects();
+    updatePaginationControls();
     
     // ─── Hook into renderResults for project filter ──────────────
     const _origRenderResults = renderResults;

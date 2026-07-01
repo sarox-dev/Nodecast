@@ -301,17 +301,45 @@
   gap: 0.35rem;
 }
 
-.checkbox-option {
+.checkbox-option,
+.toggle-option {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.6rem;
-  padding: 0.5rem 0.75rem;
+  padding: 0.6rem 0.85rem;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--surface-settings-card);
   cursor: pointer;
   font-size: 0.85rem;
   transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.checkbox-option:hover,
+.toggle-option:hover {
+  border-color: var(--border-hover);
+  background: var(--surface-hover);
+}
+
+.toggle-field {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.toggle-field input[type="checkbox"],
+.toggle-option input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.checkbox-option input[type="checkbox"],
+.toggle-option input[type="checkbox"] {
+  flex-shrink: 0;
 }
 
 .checkbox-option:hover {

@@ -2,8 +2,8 @@ import requests
 from app.core.config import SEARXNG_URL, TIMEOUT
 from app.services.search_cache import search_cache
 
-def search(query: str, page: int = 1, count: int = 10, engines: str | None = None, categories: str = "general"):
-    cached = search_cache.get(query, engines, page, count)
+def search(query: str, page: int = 1, engines: str | None = None, categories: str = "general"):
+    cached = search_cache.get(query, engines, page)
     if cached is not None:
         return cached
 
@@ -14,7 +14,6 @@ def search(query: str, page: int = 1, count: int = 10, engines: str | None = Non
                 "q": query,
                 "format": "json",
                 "pageno": page,
-                "count": count,
                 "engines": engines,
                 "categories": categories,
             },
@@ -28,8 +27,13 @@ def search(query: str, page: int = 1, count: int = 10, engines: str | None = Non
     results = []
 
     for item in data.get("results", []):
-        engine = item.get("engine", "")
-        engines_list = engine.split(",") if engine else []
+        engines_value = item.get("engines")
+        if isinstance(engines_value, list):
+            engines_list = [str(engine).strip() for engine in engines_value if str(engine).strip()]
+        else:
+            engine_str = item.get("engine", "") or ""
+            engines_list = [engine.strip() for engine in engine_str.split(",") if engine.strip()]
+
         results.append({
             "title": item.get("title", ""),
             "url": item.get("url", ""),
@@ -43,5 +47,5 @@ def search(query: str, page: int = 1, count: int = 10, engines: str | None = Non
         "results": results,
         "total": total,
     }
-    search_cache.set(query, engines, page, count, response_data)
+    search_cache.set(query, engines, page, response_data)
     return response_data

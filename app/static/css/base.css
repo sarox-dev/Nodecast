@@ -441,6 +441,124 @@ body::before {
   transform: translateY(0);
 }
 
+.result-card.skeleton {
+  border-color: transparent;
+  background: var(--surface-hover);
+  color: transparent;
+  pointer-events: none;
+}
+
+.result-card.skeleton .card-meta,
+.result-card.skeleton .card-title,
+.result-card.skeleton .card-content {
+  opacity: 1;
+}
+
+.skeleton-line {
+  display: inline-block;
+  background: var(--border-card);
+  border-radius: 999px;
+  height: 0.9rem;
+  width: 100%;
+}
+
+.skeleton-title {
+  width: 60%;
+  height: 1.2rem;
+  margin: 0.75rem 0 0.5rem;
+}
+
+.skeleton-paragraph {
+  width: 100%;
+  height: 0.85rem;
+  margin: 0.2rem 0 0;
+}
+
+.skeleton-short {
+  width: 20%;
+  height: 0.8rem;
+}
+
+.skeleton-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border-card);
+  display: inline-block;
+}
+
+.load-more-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 1rem auto 0;
+  padding: 0.85rem 1.1rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-card);
+  background: var(--bg-card);
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.load-more-button:hover {
+  border-color: var(--border-hover);
+  background: var(--bg-card-hover);
+}
+
+.bottom-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-top: 1rem;
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+}
+
+.bottom-loading[hidden] {
+  display: none;
+}
+
+.scroll-top-button {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 9999;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text);
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: var(--shadow-lg);
+  transition: transform var(--transition-fast), background var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.scroll-top-button:hover {
+  transform: translateY(-1px);
+  background: var(--bg-card-hover);
+}
+
+.end-of-results {
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+  margin-top: 0.75rem;
+}
+
+.results-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.75rem 0 1rem;
+}
+
 .result-card:hover {
   border-color: var(--border-hover);
   background: var(--bg-card-hover);

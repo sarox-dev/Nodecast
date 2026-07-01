@@ -9,6 +9,7 @@ router = APIRouter()
 
 # Same path as capture.py
 CONTENTS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "contents"
+SEARXNG_SETTINGS_PATH = Path(__file__).resolve().parent.parent.parent.parent / "searxng" / "settings.yml"
 
 
 def local_search(q: str):
@@ -62,19 +63,16 @@ def search_route(
     q: str | None = Query(None),
     type: str = Query("web"),
     page: int = Query(1, ge=1),
-    count: int = Query(10, ge=1, le=50),
     engines: str | None = Query(None),
-    mode: str = Query("web"),  # "web" or "all" (merged with local)
 ):
     if not q:
-        # If no query and mode=all, show recent captures as browse
-        if mode == "all":
-            return list_captures()
         return {"message": "use ?q="}
 
-    # Get web results
+    if engines is not None:
+        engines = engines.strip() or None
+
     categories = "images" if type == "images" else "general"
-    web_response = searxng_search(q, page, count, engines, categories)
+    web_response = searxng_search(q, page, engines, categories)
 
     web_total = 0
     web_results = []
@@ -82,27 +80,59 @@ def search_route(
         web_results = web_response.get("results", [])
         web_total = web_response.get("total", 0)
 
-    # Tag web results
     for r in web_results:
         r["_type"] = "web"
         r["source"] = "web"
-
-    if mode == "all":
-        # Merge: local results first, then web
-        local_results = local_search(q)
-        # Deduplicate by URL (web won't have a capture_id)
-        seen_urls = {r.get("url", "") for r in local_results if r.get("url")}
-        web_filtered = [r for r in web_results if r.get("url") not in seen_urls]
-        total = len(local_results) + web_total
-        return {
-            "results": local_results + web_filtered,
-            "total": total,
-        }
 
     return {
         "results": web_results,
         "total": web_total,
     }
+
+
+@router.get("/browse")
+def browse_captures():
+    return list_captures()
+
+
+def _read_engine_list():
+    if not SEARXNG_SETTINGS_PATH.exists():
+        return []
+
+    engines = []
+    inside = False
+    try:
+        with open(SEARXNG_SETTINGS_PATH, "r", encoding="utf-8") as fh:
+            for line in fh:
+                stripped = line.strip()
+                if not inside:
+                    if stripped == "engines:":
+                        inside = True
+                    continue
+                if line and not line.startswith(" ") and not stripped.startswith("#"):
+                    # End of engines section once indentation returns to top level
+                    break
+                if stripped.startswith("engine:"):
+                    engine_value = stripped.split("engine:", 1)[1].strip()
+                    if engine_value and not engine_value.startswith("#"):
+                        engines.append(engine_value)
+    except Exception:
+        return []
+    return engines
+
+
+@router.get("/search/engines")
+def search_engines():
+    engines = _read_engine_list()
+    unique = []
+    seen = set()
+    for engine in engines:
+        if engine and engine not in seen:
+            seen.add(engine)
+            unique.append(engine)
+            if len(unique) >= 80:
+                break
+    return {"engines": unique}
 
 
 def list_captures():
