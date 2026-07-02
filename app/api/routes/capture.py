@@ -159,6 +159,20 @@ def update_capture(capture_id: str, update: UpdateRequest):
     raise HTTPException(404, "Capture not found")
 
 
+@router.delete("/capture/{capture_id}")
+def delete_capture(capture_id: str):
+    """Delete an existing capture."""
+    for filepath, data in _load_all_files():
+        if data.get("id") == capture_id:
+            try:
+                filepath.unlink(missing_ok=True)
+                return {"success": True, "id": capture_id}
+            except Exception as exc:
+                raise HTTPException(500, f"Failed to delete: {str(exc)}") from exc
+
+    raise HTTPException(404, "Capture not found")
+
+
 # ─── GET /api/tags ───────────────────────────────────────────────
 
 @router.get("/tags")

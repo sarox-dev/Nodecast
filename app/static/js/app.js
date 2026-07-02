@@ -1,7 +1,5 @@
-document.addEventListener('DOMContentLoaded', async () => {
-    // ─── DOM refs ────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', async () => {
     const pageShell = document.getElementById('page-shell');
-    const pageHeader = document.getElementById('page-header');
     const form = document.getElementById('search-form');
     const queryInput = document.getElementById('query');
     const resultsContainer = document.getElementById('results-container');
@@ -16,28 +14,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     const filterBar = document.getElementById('filter-bar');
     const settingsButton = document.getElementById('settings-button');
     const loadingIndicator = document.getElementById('loading-indicator');
+    const previewPane = document.getElementById('preview-content');
+    const previewHint = document.querySelector('.preview-hint');
+    const previewEmptyState = document.getElementById('preview-empty');
+
     const scrollTopButton = document.createElement('button');
     scrollTopButton.id = 'scroll-top-button';
     scrollTopButton.className = 'scroll-top-button';
     scrollTopButton.type = 'button';
     scrollTopButton.hidden = true;
-    scrollTopButton.innerHTML = 'Top';
+    scrollTopButton.textContent = '↑';
     document.body.appendChild(scrollTopButton);
 
-    // ─── Modal DOM refs ──────────────────────────────────────────
-    const snippetModal = document.getElementById('snippet-modal');
-    const modalClose = document.getElementById('modal-close');
-    const modalTitle = document.getElementById('modal-title');
-    const modalSnippet = document.getElementById('modal-snippet');
-    const modalContentText = document.getElementById('modal-content-text');
-    const modalCtxBefore = document.getElementById('modal-context-before');
-    const modalCtxAfter = document.getElementById('modal-context-after');
-    const modalTime = document.getElementById('modal-time');
-    const modalSource = document.getElementById('modal-source');
-    const modalRelative = document.getElementById('modal-relative');
-    const modalOpenUrl = document.getElementById('modal-open-url');
-
-    // ─── State ──────────────────────────────────────────────────
     let currentMode = 'all';
     let currentQuery = '';
     let currentPage = 1;
@@ -46,14 +34,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     let allResults = [];
     let browseMode = false;
     let searchActive = false;
+    let activeProject = '';
+    let activeTag = '';
+    let previewItem = null;
+    let pinnedPreviewItem = null;
+    let previewHoverTimer = null;
+    let renderSequence = 0;
+    let renderedIndices = new Set();
 
-    // ─── Word reveal state ──────────────────────────────────────
-    let revealTimer = null;
-
-    // ─── Track rendered URLs for append-only rendering ─────────
-    let renderedUrls = new Set();
-
-    // ─── Settings overlay ───────────────────────────────────────
     const settingsOverlay = document.getElementById('settings-overlay');
     const settingsClose = document.getElementById('settings-close');
     const settingsList = document.getElementById('settings-list');
@@ -86,26 +74,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     ];
 
     let activeSettingsCategory = 'Appearance';
-
     const settingsSchema = [
         {
             category: 'Appearance',
             description: 'Appearance and animation settings.',
             items: [
-                { key: 'theme', label: 'Theme', type: 'select',
-                  options: [
-                    { value: 'dark', label: 'Dark' },
-                    { value: 'light', label: 'Light' }
-                  ],
-                  default: 'dark' },
-                { key: 'animationSpeed', label: 'Reveal animation speed', type: 'select',
-                  options: [
-                    { value: 'fast', label: 'Fast' },
-                    { value: 'normal', label: 'Normal' },
-                    { value: 'slow', label: 'Slow' },
-                    { value: 'instant', label: 'Instant (no animation)' }
-                  ],
-                  default: 'fast' }
+                { key: 'theme', label: 'Theme', type: 'select', options: [{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }], default: 'dark' },
+                { key: 'animationSpeed', label: 'Reveal animation speed', type: 'select', options: [{ value: 'fast', label: 'Fast' }, { value: 'normal', label: 'Normal' }, { value: 'slow', label: 'Slow' }, { value: 'instant', label: 'Instant (no animation)' }], default: 'fast' }
             ]
         },
         {
@@ -113,34 +88,30 @@ document.addEventListener('DOMContentLoaded', async () => {
             description: 'Search behavior and web result display settings.',
             items: [
                 { key: 'showEngines', label: 'Show search engine badges on web results', type: 'checkbox', default: true },
-                { key: 'autoLoad', label: 'Auto load more results on scroll', type: 'checkbox', default: true }
+                { key: 'autoLoad', label: 'Auto load more results on scroll', type: 'checkbox', default: true },
+                { key: 'hoverPreview', label: 'Enable hover preview in the right pane', type: 'checkbox', default: true }
             ]
         },
         {
             category: 'Search engines',
             description: 'Choose which search engines are included in your queries.',
-            items: [
-                ...searchEngineFields.map(field => ({ key: field.key, label: field.label, type: 'checkbox', default: field.default }))
-            ]
+            items: searchEngineFields.map(field => ({ key: field.key, label: field.label, type: 'checkbox', default: field.default }))
         }
     ];
 
     const settingsState = {};
 
     function getValue(item) {
-        const p = localStorage.getItem(item.key);
-        if (p === null) return item.default;
-        if (item.type === 'checkbox') return p === 'true';
-        if (item.type === 'number') return Number(p);
-        if (item.type === 'checkbox-group') { try { return JSON.parse(p); } catch { return item.default; } }
-        return p;
+        const stored = localStorage.getItem(item.key);
+        if (stored === null) return item.default;
+        if (item.type === 'checkbox') return stored === 'true';
+        if (item.type === 'number') return Number(stored);
+        return stored;
     }
-
 
     function setValue(key, value) {
         settingsState[key] = value;
-        if (Array.isArray(value)) localStorage.setItem(key, JSON.stringify(value));
-        else localStorage.setItem(key, String(value));
+        localStorage.setItem(key, Array.isArray(value) ? JSON.stringify(value) : String(value));
     }
 
     function createField(item) {
@@ -152,9 +123,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         if (item.type === 'checkbox') {
             return `<label class="settings-field toggle-field"${categoryAttr}><span>${item.label}</span><input type="checkbox" data-key="${item.key}" ${value ? 'checked' : ''} /></label>`;
-        }
-        if (item.type === 'checkbox-group') {
-            return `<div class="settings-field"${categoryAttr}><span>${item.label}</span><div class="checkbox-group">${item.options.map(opt => `<label class="checkbox-option toggle-option"><input type="checkbox" data-key="${item.key}" value="${opt.value}" ${value.includes(opt.value) ? 'checked' : ''} /><span>${opt.label}</span></label>`).join('')}</div></div>`;
         }
         return `<label class="settings-field"${categoryAttr}><span>${item.label}</span><input type="${item.type}" data-key="${item.key}" value="${value}" min="${item.min || ''}" max="${item.max || ''}" /></label>`;
     }
@@ -172,9 +140,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         settingsCategoryTitle.textContent = category.category;
         settingsCategoryDescription.textContent = category.description || '';
         settingsList.innerHTML = category.items.map(item => createField({ ...item, category: category.category })).join('');
-        if (settingsSearchInput?.value.trim()) {
-            filterSettings(settingsSearchInput.value);
-        }
+        if (settingsSearchInput?.value.trim()) filterSettings(settingsSearchInput.value);
     }
 
     function filterSettings(query) {
@@ -182,39 +148,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         const fields = settingsList.querySelectorAll('.settings-field');
         fields.forEach(field => {
             const label = field.querySelector('span')?.textContent?.toLowerCase() || '';
-            const cat = field.closest('[data-category]');
-            const catName = cat?.dataset?.category?.toLowerCase() || '';
-            if (!q || label.includes(q) || catName.includes(q)) {
-                field.style.display = '';
-            } else {
-                field.style.display = 'none';
-            }
+            const catName = field.closest('[data-category]')?.dataset.category?.toLowerCase() || '';
+            field.style.display = (!q || label.includes(q) || catName.includes(q)) ? '' : 'none';
         });
     }
 
-    settingsSearchInput?.addEventListener('input', (e) => {
-        filterSettings(e.target.value);
-    });
-
+    settingsSearchInput?.addEventListener('input', (e) => filterSettings(e.target.value));
     settingsCategories?.addEventListener('click', (e) => {
         const button = e.target.closest('.settings-category-button');
         if (!button) return;
         activeSettingsCategory = button.dataset.category;
         renderCategoryNav();
         renderSettings();
-        if (settingsSearchInput?.value.trim()) {
-            filterSettings(settingsSearchInput.value);
-        }
+        if (settingsSearchInput?.value.trim()) filterSettings(settingsSearchInput.value);
     });
 
     function readSettings() {
         settingsSchema.forEach(cat => {
             cat.items.forEach(item => {
-                if (item.type === 'checkbox-group') {
-                    const inputs = settingsList.querySelectorAll(`input[data-key="${item.key}"]`);
-                    setValue(item.key, [...inputs].filter(i => i.checked).map(i => i.value));
-                    return;
-                }
                 const input = settingsList.querySelector(`[data-key="${item.key}"]`);
                 if (!input) return;
                 let value;
@@ -242,99 +193,46 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function applyTheme() {
         const theme = settingsState.theme || 'dark';
-        if (theme === 'light') {
-            document.documentElement.dataset.theme = 'light';
-        } else {
-            document.documentElement.dataset.theme = '';
-        }
+        document.documentElement.dataset.theme = theme === 'light' ? 'light' : '';
     }
     applyTheme();
 
     function getEngines() {
-        const engineValues = searchEngineFields
-            .filter(field => settingsState[field.key] !== false)
-            .map(field => field.engine);
-        return engineValues.length ? engineValues.join(',') : 'duckduckgo';
+        const values = searchEngineFields.filter(field => settingsState[field.key] !== false).map(field => field.engine);
+        return values.length ? values.join(',') : 'duckduckgo';
     }
 
     function getShowEngines() { return settingsState.showEngines !== false; }
-
+    function getHoverPreviewEnabled() { return settingsState.hoverPreview !== false; }
     function getAnimationSpeedStr() { return settingsState.animationSpeed || 'fast'; }
 
-    function getWordRevealDelayMs(totalWords) {
-        const spd = getAnimationSpeedStr();
-        let totalMs = 0;
-        switch (spd) {
-            case 'instant': totalMs = 0; break;
-            case 'fast': totalMs = 500; break;
-            case 'normal': totalMs = 1000; break;
-            case 'slow': totalMs = 2500; break;
-            default: totalMs = 500;
-        }
-        if (totalMs === 0 || !totalWords || totalWords === 0) return 0;
-        return Math.max(10, totalMs / totalWords);
-    }
-
-    // ─── Header scroll effect ───────────────────────────────────
-    function handleScroll() {
-        const scrolled = window.scrollY > 15;
-        pageHeader.classList.toggle('scrolled', scrolled);
-    }
-    window.addEventListener('scroll', handleScroll, { passive: true });
-
-    // ─── Search active state ────────────────────────────────────
     function setSearchActive(active) {
         searchActive = active;
         pageShell.classList.toggle('search-active', active);
-        pageHeader.classList.toggle('search-active', active);
     }
 
-    // ─── Loading state ──────────────────────────────────────────
-    // ─── Filter tabs ─────────────────────────────────────────────
     function renderFilterTabs(mode) {
         filterBar.hidden = false;
-        filterBar.querySelectorAll('.filter-btn').forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.mode === mode);
-        });
+        filterBar.querySelectorAll('.filter-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.mode === mode));
     }
 
     function setFilter(mode) {
         currentMode = mode;
         renderFilterTabs(mode);
-        renderedUrls = new Set();
-        renderResults();
-    }
-
-    function updatePaginationControls() {
-        const autoLoad = settingsState.autoLoad !== false;
-        const showLoadMore = !autoLoad && hasMore && !browseMode && currentQuery;
-        const showSentinel = autoLoad && hasMore && !browseMode && currentQuery;
-        const showEndMessage = !hasMore && !browseMode && currentQuery && allResults.length > 0;
-
-        sentinel.hidden = !showSentinel;
-        loadMoreButton.hidden = !showLoadMore;
-        endOfResults.hidden = !showEndMessage;
-        if (showEndMessage) {
-            bottomLoading.hidden = true;
-        }
+        renderResults(false);
     }
 
     function clearSkeletons() {
-        resultsContainer.querySelectorAll('.result-card.skeleton').forEach((card) => card.remove());
+        resultsContainer.querySelectorAll('.result-card.skeleton').forEach(card => card.remove());
     }
 
     function renderLoadingSkeletons(count = 4, append = false) {
-        if (!append) {
-            resultsContainer.innerHTML = '';
-        }
+        if (!append) resultsContainer.innerHTML = '';
         const skeletons = Array.from({ length: count }, () => `
             <article class="result-card skeleton">
-                <div class="card-meta">
-                    <span class="skeleton-dot"></span>
-                    <span class="skeleton-line skeleton-short"></span>
-                </div>
-                <span class="card-title skeleton-line skeleton-title"></span>
-                <p class="card-content skeleton-line skeleton-paragraph"></p>
+              <div class="card-meta"><span class="skeleton-dot"></span><span class="skeleton-line skeleton-short"></span></div>
+              <span class="card-title skeleton-line skeleton-title"></span>
+              <p class="card-content skeleton-line skeleton-paragraph"></p>
             </article>
         `).join('');
         resultsContainer.insertAdjacentHTML('beforeend', skeletons);
@@ -342,13 +240,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function showLoading(show, page) {
         if (show) {
-            if (page === 1) {
-                renderLoadingSkeletons(5, false);
-            } else {
-                renderLoadingSkeletons(3, true);
-            }
+            loadingIndicator.hidden = false;
+            if (page === 1) renderLoadingSkeletons(5, false);
+            else renderLoadingSkeletons(3, true);
             bottomLoading.hidden = page === 1;
         } else {
+            loadingIndicator.hidden = true;
             clearSkeletons();
             bottomLoading.hidden = true;
         }
@@ -359,178 +256,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (btn) setFilter(btn.dataset.mode);
     });
 
-    // ─── Modal logic ──────────────────────────────────────────────
-
-    function closeModal() {
-        if (revealTimer) {
-            clearInterval(revealTimer);
-            revealTimer = null;
-        }
-        const panel = snippetModal.querySelector('.modal-panel');
-        if (panel) panel.classList.add('closing');
-        snippetModal.classList.add('closing');
-        setTimeout(() => {
-            snippetModal.hidden = true;
-            snippetModal.inert = true;
-            snippetModal.classList.remove('closing');
-            if (panel) panel.classList.remove('closing');
-            document.body.style.overflow = '';
-        }, 200);
-    }
-
-    function openModal(item) {
-        if (!item || item._type !== 'saved') return;
-
-        modalTitle.textContent = item.title || 'Untitled';
-
-        // Metadata
-        const ts = item.saved_at || '';
-        modalTime.textContent = formatTimeLong(ts);
-        modalSource.textContent = item.url || '';
-        modalSource.title = item.url || '';
-        const rel = formatRelative(ts);
-        modalRelative.textContent = rel ? `Saved ${rel}` : '';
-        modalOpenUrl.href = item.url || '#';
-
-        // Build structured word list: [{text, type}] where type='before'|'sep'|'main'|'after'
-        const contentText = item.content || '';
-        const ctxBeforeRaw = ((item.context && item.context.before) || '').trim();
-        const ctxAfterRaw = ((item.context && item.context.after) || '').trim();
-
-        const wordParts = [];
-
-        // Before context words
-        if (ctxBeforeRaw) {
-            const beforeWords = ctxBeforeRaw.split(/\s+/);
-            beforeWords.forEach((w, i) => {
-                const total = beforeWords.length;
-                const progress = (i + 1) / total;
-                const opacity = Math.max(0.05, progress * 0.9 + 0.05);
-                wordParts.push({ text: w, type: 'before', opacity });
-            });
-            wordParts.push({ text: '\n', type: 'sep' });
-        }
-
-        // Main selected text words
-        if (contentText) {
-            const mainWords = contentText.split(/\s+/);
-            mainWords.forEach((w) => {
-                wordParts.push({ text: w, type: 'main' });
-            });
-        }
-
-        // After context words
-        if (ctxAfterRaw) {
-            wordParts.push({ text: '\n', type: 'sep' });
-            const afterWords = ctxAfterRaw.split(/\s+/);
-            afterWords.forEach((w, i) => {
-                const total = afterWords.length;
-                const progress = (i + 1) / total;
-                const opacity = Math.max(0.05, (1 - progress) * 0.9 + 0.05);
-                wordParts.push({ text: w, type: 'after', opacity });
-            });
-        }
-
-        // Render all words as hidden spans, reveal one at a time via timer
-        // Group main text into a single continuous span for the highlight sweep
-        let fullHtml = '';
-        let mainTextBuffer = [];
-        let inMain = false;
-
-        function flushMain() {
-            if (mainTextBuffer.length > 0) {
-                fullHtml += `<span class="sel-text" style="opacity:0">${mainTextBuffer.join(' ')} </span>`;
-                mainTextBuffer = [];
-            }
-            inMain = false;
-        }
-
-        wordParts.forEach((part) => {
-            if (part.type === 'sep') {
-                flushMain();
-                fullHtml += '<br>';
-                return;
-            }
-            if (part.type === 'main') {
-                mainTextBuffer.push(escapeHtml(part.text));
-                inMain = true;
-                return;
-            }
-            // before/after words
-            if (inMain) flushMain();
-            fullHtml += `<span class="ctx-word" style="opacity:0" data-opacity="${part.opacity.toFixed(2)}">${escapeHtml(part.text)} </span>`;
-        });
-        flushMain(); // flush any remaining main words
-
-        modalContentText.innerHTML = fullHtml;
-        // Remove CSS mask initially — we add it after all words are revealed
-        modalContentText.parentElement.classList.remove('content-revealed');
-        snippetModal.hidden = false;
-        snippetModal.inert = false;
-        document.body.style.overflow = 'hidden';
-
-        // Word-by-word reveal
-        const allSpans = modalContentText.querySelectorAll('span');
-        const totalSpans = allSpans.length;
-        const delayMs = getWordRevealDelayMs(totalSpans);
-
-        // Set highlight animation delay — starts AFTER all words are revealed
-        const totalRevealMs = totalSpans * delayMs;
-        const selTexts = modalContentText.querySelectorAll('.sel-text');
-        selTexts.forEach(el => {
-            el.style.animationDelay = `${totalRevealMs}ms`;
-        });
-
-        if (delayMs === 0 || totalSpans === 0) {
-            // Instant: show all
-            allSpans.forEach((sp) => {
-                const opacity = sp.dataset.opacity || '1';
-                sp.style.opacity = opacity;
-            });
-            modalContentText.parentElement.classList.add('content-revealed');
-            return;
-        }
-
-        if (revealTimer) clearInterval(revealTimer);
-        let wordIdx = 0;
-        revealTimer = setInterval(() => {
-            if (wordIdx < totalSpans) {
-                const sp = allSpans[wordIdx];
-                const opacity = sp.dataset.opacity || '1';
-                sp.style.opacity = opacity;
-                wordIdx++;
-            } else {
-                clearInterval(revealTimer);
-                revealTimer = null;
-                // All words revealed — apply edge fade
-                modalContentText.parentElement.classList.add('content-revealed');
-            }
-        }, delayMs);
-    }
-
-    modalClose.addEventListener('click', closeModal);
-    snippetModal.addEventListener('click', (e) => {
-        if (e.target === snippetModal) closeModal();
-    });
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && !snippetModal.hidden) closeModal();
-    });
-
-    // ─── Card animation ──────────────────────────────────────────
-    function animateCardsFrom(startIndex) {
-        const cards = resultsContainer.querySelectorAll('.result-card');
-        for (let i = startIndex; i < cards.length; i++) {
-            const delay = 20 + (i * 35);
-            setTimeout(() => {
-                cards[i].classList.add('visible');
-            }, delay);
-        }
-    }
-
-    // ─── Formatters ───────────────────────────────────────────────
     function parseDate(isoStr) {
         if (!isoStr) return null;
-        // Fix double timezone: "2026-06-28T18:29:16.909029+00:00Z" -> "2026-06-28T18:29:16.909029Z"
         const cleaned = isoStr.replace('+00:00Z', 'Z').replace('+00:00', 'Z').replace('+0000', '');
         const d = new Date(cleaned);
         return isNaN(d.getTime()) ? null : d;
@@ -542,18 +269,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         const days = Math.floor((Date.now() - d) / (1000 * 60 * 60 * 24));
         if (days === 0) return 'today';
         if (days === 1) return 'yesterday';
-        if (days < 7) return `${days} days ago`;
-        return d.toLocaleDateString();
+        return days < 7 ? `${days} days ago` : d.toLocaleDateString();
     }
 
     function formatRelative(isoStr) {
         const d = parseDate(isoStr);
         if (!d) return '';
-        const now = Date.now();
-        const diffMs = now - d;
-        const seconds = Math.floor(diffMs / 1000);
-        if (seconds < 60) return 'just now';
-        const minutes = Math.floor(seconds / 60);
+        const diffSec = Math.floor((Date.now() - d) / 1000);
+        if (diffSec < 60) return 'just now';
+        const minutes = Math.floor(diffSec / 60);
         if (minutes < 60) return `${minutes}m ago`;
         const hours = Math.floor(minutes / 60);
         if (hours < 24) return `${hours}h ago`;
@@ -566,10 +290,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     function formatTimeLong(isoStr) {
         const d = parseDate(isoStr);
         if (!d) return 'Unknown date';
-        return d.toLocaleString(undefined, {
-            year: 'numeric', month: 'short', day: 'numeric',
-            hour: '2-digit', minute: '2-digit'
-        });
+        return d.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    }
+
+    function escapeHtml(value) {
+        const div = document.createElement('div');
+        div.textContent = value || '';
+        return div.innerHTML;
     }
 
     function highlightText(text, query) {
@@ -581,75 +308,128 @@ document.addEventListener('DOMContentLoaded', async () => {
         return text.replace(pattern, '<mark>$1</mark>');
     }
 
-    function escapeHtml(str) {
-        const div = document.createElement('div');
-        div.textContent = str;
-        return div.innerHTML;
+    function getDomain(item) {
+        if (!item.url) return 'web';
+        try {
+            return new URL(item.url).hostname.replace('www.', '');
+        } catch {
+            return item.site_name || 'web';
+        }
     }
 
-    // ─── Card creation ────────────────────────────────────────────
-    function createCard(item) {
+    function getFaviconHtml(item, domain) {
+        if (domain) {
+            const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+            return `<img class="card-favicon" src="${faviconUrl}" alt="" loading="lazy" onerror="this.style.display='none'" />`;
+        }
+        return `<span class="card-favicon-fallback">${(domain || 'W').charAt(0).toUpperCase()}</span>`;
+    }
+
+    function getResultMeta(item) {
         const isSaved = item._type === 'saved';
         const ts = formatTime(item.saved_at);
+        const domain = getDomain(item);
+        const siteName = (item.site_name || '').trim();
+        const chips = [];
+        if (item.project) chips.push(item.project);
+        if (Array.isArray(item.tags)) item.tags.filter(Boolean).forEach(tag => chips.push(tag));
+        return { isSaved, ts, domain, siteName, chips };
+    }
+
+    function createCard(item) {
+        const { isSaved, ts, domain, siteName, chips } = getResultMeta(item);
         const title = item.title || item.url || 'Untitled';
         const content = item.content || '';
         const highlightedTitle = highlightText(title, currentQuery);
         const highlightedContent = highlightText(content, currentQuery);
-
-        let domain = '';
-        if (item.url) {
-            try {
-                const u = new URL(item.url);
-                domain = u.hostname.replace('www.', '');
-            } catch {}
-        }
-
-        const siteName = (item.site_name || '').trim();
-        const displayDomain = domain || siteName || 'web';
-
-        let faviconHtml;
-        if (domain) {
-            const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
-            faviconHtml = `<img class="card-favicon" src="${faviconUrl}" alt="" loading="lazy" onerror="this.style.display='none'" />`;
-        } else {
-            faviconHtml = `<span class="card-favicon-fallback">${displayDomain.charAt(0).toUpperCase()}</span>`;
-        }
-
-        const badgeHtml = isSaved
-            ? `<span class="card-type-badge saved">Saved</span>`
-            : `<span class="card-type-badge web">Web</span>`;
-
-        let enginesHtml = '';
-        if (!isSaved && getShowEngines() && item.engines && item.engines.length > 0) {
-            enginesHtml = `<span class="card-engines">${item.engines.map(e => `<span class="card-engine-badge">${escapeHtml(e)}</span>`).join('')}</span>`;
-        }
-
-        const timeHtml = isSaved && ts ? `<span class="card-time">${ts}</span>` : '';
-
-        const globalIndex = allResults.indexOf(item);
-        const cardAttrs = isSaved
-            ? `data-type="saved" data-index="${globalIndex}"`
-            : `data-type="web" data-index="${globalIndex}"`;
-
+        const badgeClass = isSaved ? 'saved' : 'web';
+        const badgeLabel = isSaved ? 'Saved' : 'Web';
+        const enginesHtml = !isSaved && getShowEngines() && Array.isArray(item.engines) && item.engines.length > 0
+            ? `<span class="card-engines">${item.engines.map(e => `<span class="card-engine-badge">${escapeHtml(e)}</span>`).join('')}</span>`
+            : '';
+        const chipHtml = chips.slice(0, 2).map(ch => `<span class="card-chip">${escapeHtml(ch)}</span>`).join('');
+        const globalIndex = allResults.findIndex(r => r === item);
         return `
-    <article class="result-card ${isSaved ? 'card-saved' : 'card-web'}" ${cardAttrs}>
-      <div class="card-meta">
-        ${faviconHtml}
-        <span class="card-domain">${displayDomain}</span>
-        ${badgeHtml}
-        ${enginesHtml}
-        ${timeHtml}
-      </div>
-      <span class="card-title" data-url="${item.url || '#'}">${highlightedTitle}</span>
-      ${content ? `<p class="card-content">${highlightedContent}</p>` : ''}
-    </article>`;
+          <article class="result-card ${isSaved ? 'card-saved' : 'card-web'}" data-type="${isSaved ? 'saved' : 'web'}" data-index="${globalIndex}">
+            <div class="card-meta">
+              ${getFaviconHtml(item, domain)}
+              <span class="card-domain">${escapeHtml(siteName || domain)}</span>
+              <span class="card-badge ${badgeClass}">${badgeLabel}</span>
+              ${enginesHtml}
+              ${isSaved && ts ? `<span class="card-time">${ts}</span>` : ''}
+            </div>
+            <span class="card-title" data-url="${item.url || '#'}">${highlightedTitle}</span>
+            ${content ? `<p class="card-content">${highlightedContent}</p>` : ''}
+            ${chipHtml ? `<div class="card-footer">${chipHtml}</div>` : ''}
+          </article>`;
     }
 
-    // ─── Attach click handlers to cards (title opens URL, saved cards open modal) ───
+    function getFilteredItems(items = allResults) {
+        let filtered = items;
+        if (activeProject) {
+            if (activeProject === '__uncategorized__') {
+                filtered = filtered.filter(item => !item.project || item.project.trim() === '');
+            } else {
+                filtered = filtered.filter(item => (item.project || '').trim() === activeProject);
+            }
+        }
+        if (activeTag) {
+            filtered = filtered.filter(item => Array.isArray(item.tags) && item.tags.includes(activeTag));
+        }
+        if (currentMode === 'saved') {
+            filtered = filtered.filter(item => item._type === 'saved');
+        } else if (currentMode === 'web') {
+            filtered = filtered.filter(item => item._type === 'web');
+        }
+        return filtered;
+    }
+
+    function updateStatusBar(items) {
+        statusBar.hidden = false;
+        const total = allResults._total || allResults.length;
+        const visible = items.length;
+        if (browseMode) {
+            resultCount.textContent = `${total} saved item${total !== 1 ? 's' : ''}`;
+        } else if (currentQuery) {
+            if (currentMode === 'all') {
+                resultCount.textContent = `${visible} result${visible !== 1 ? 's' : ''} (${allResults.filter(r => r._type === 'saved').length} saved)`;
+            } else if (currentMode === 'saved') {
+                resultCount.textContent = `${visible} saved result${visible !== 1 ? 's' : ''}`;
+            } else {
+                resultCount.textContent = `${visible} web result${visible !== 1 ? 's' : ''}`;
+            }
+        } else {
+            statusBar.hidden = true;
+        }
+    }
+
+    function updatePaginationControls() {
+        const autoLoad = settingsState.autoLoad !== false;
+        const showLoadMore = !autoLoad && hasMore && !browseMode && currentQuery;
+        const showSentinel = autoLoad && hasMore && !browseMode && currentQuery;
+        const showEndMessage = !hasMore && !browseMode && currentQuery && allResults.length > 0;
+        sentinel.hidden = !showSentinel;
+        loadMoreButton.hidden = !showLoadMore;
+        endOfResults.hidden = !showEndMessage;
+        if (showEndMessage) bottomLoading.hidden = true;
+    }
+
     function attachCardHandlers() {
-        resultsContainer.querySelectorAll('.result-card').forEach((card) => {
-            if (card._modalBound) return;
-            card._modalBound = true;
+        resultsContainer.querySelectorAll('.result-card').forEach(card => {
+            if (card._bound) return;
+            card._bound = true;
+            card.addEventListener('mouseenter', () => {
+                if (!getHoverPreviewEnabled() || pinnedPreviewItem) return;
+                const index = Number(card.dataset.index);
+                const item = allResults[index];
+                if (item) {
+                    clearTimeout(previewHoverTimer);
+                    previewHoverTimer = setTimeout(() => showPreview(item), 180);
+                }
+            });
+            card.addEventListener('mouseleave', () => {
+                clearTimeout(previewHoverTimer);
+            });
             card.addEventListener('click', (e) => {
                 const titleEl = e.target.closest('.card-title');
                 if (titleEl) {
@@ -657,154 +437,98 @@ document.addEventListener('DOMContentLoaded', async () => {
                     if (url && url !== '#') window.open(url, '_blank', 'noopener');
                     return;
                 }
-                // Only saved cards can open modal on body click
-                if (card.dataset.type === 'saved') {
-                    e.preventDefault();
-                    const index = parseInt(card.dataset.index, 10);
-                    if (!isNaN(index) && allResults[index]) {
-                        openModal(allResults[index]);
-                    }
-                }
+                const index = Number(card.dataset.index);
+                const item = allResults[index];
+                if (!item) return;
+                pinnedPreviewItem = item;
+                showPreview(item, true);
             });
         });
     }
 
-    // ─── Rendering (append-aware) ─────────────────────────────────
-    function renderResults(append) {
-        let items = allResults;
-        if (currentMode === 'web') items = allResults.filter(r => r._type === 'web');
-        else if (currentMode === 'saved') items = allResults.filter(r => r._type === 'saved');
-
-        if (append && resultsContainer.children.length > 0) {
-            // ── APPEND MODE (infinite scroll) ──
-            // Determine which items aren't yet rendered
-            const renderedCount = resultsContainer.children.length;
-            // Build a set of already-rendered data-index values
-            const existingIndices = new Set();
-            resultsContainer.querySelectorAll('.result-card').forEach(card => {
-                const idx = parseInt(card.dataset.index, 10);
-                if (!isNaN(idx)) existingIndices.add(idx);
-            });
-
-            let addedHtml = '';
-            let addedCount = 0;
-            items.forEach((item) => {
-                const idx = allResults.indexOf(item);
-                if (existingIndices.has(idx)) return;
-                addedHtml += createCard(item);
-                renderedUrls.add(item.url);
-                addedCount++;
-            });
-
-            if (addedCount === 0) return; // nothing new
-
-            resultsContainer.insertAdjacentHTML('beforeend', addedHtml);
-            attachCardHandlers();
-
-            // Animate only the newly added cards
-            const totalBefore = renderedCount;
-            animateCardsFrom(totalBefore);
-        } else {
-            // ── FULL REPLACE (new search, filter change, browse) ──
-            renderedUrls = new Set();
-            allResults.forEach(item => { if (item.url) renderedUrls.add(item.url); });
-
-            resultsContainer.innerHTML = items.map(createCard).join('');
-            attachCardHandlers();
-
-            // Animate all cards
-            if (items.length > 0) {
-                requestAnimationFrame(() => {
-                    requestAnimationFrame(() => {
-                        animateCardsFrom(0);
-                    });
-                });
-            }
-        }
-
-        // ── Status bar ──
-        statusBar.hidden = false;
-        const total = allResults._total || allResults.length;
-        const shown = resultsContainer.children.length;
-        if (browseMode) {
-            resultCount.textContent = `${total} saved item${total !== 1 ? 's' : ''}`;
-        } else if (currentQuery) {
-            const savedCount = allResults.filter(r => r._type === 'saved').length;
+    function renderResults(append = false) {
+        const items = getFilteredItems(allResults);
+        if (!append) {
+            renderedIndices = new Set();
+            resultsContainer.innerHTML = '';
+            const sections = [];
+            const savedItems = items.filter(item => item._type === 'saved');
+            const webItems = items.filter(item => item._type === 'web');
             if (currentMode === 'all') {
-                resultCount.textContent = `${total} result${total !== 1 ? 's' : ''} (${savedCount} saved)`;
-            } else if (currentMode === 'saved') {
-                resultCount.textContent = `${shown} saved result${shown !== 1 ? 's' : ''}`;
+                if (savedItems.length > 0) sections.push(`<div class="results-group"><div class="results-group-header">Your Library</div>${savedItems.map(createCard).join('')}</div>`);
+                if (webItems.length > 0) sections.push(`<div class="results-group"><div class="results-group-header">Web Results</div>${webItems.map(createCard).join('')}</div>`);
             } else {
-                resultCount.textContent = `${shown} web result${shown !== 1 ? 's' : ''}`;
+                const header = currentMode === 'saved' ? 'Saved Results' : 'Web Results';
+                sections.push(`<div class="results-group"><div class="results-group-header">${header}</div>${items.map(createCard).join('')}</div>`);
             }
+            resultsContainer.innerHTML = sections.join('');
+            attachCardHandlers();
+            resultsContainer.querySelectorAll('.result-card').forEach((card, idx) => {
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => card.classList.add('visible'));
+                });
+            });
         } else {
-            statusBar.hidden = true;
+            const newItems = items.filter(item => !renderedIndices.has(allResults.findIndex(r => r === item)));
+            if (!newItems.length) return;
+            const html = newItems.map(createCard).join('');
+            resultsContainer.insertAdjacentHTML('beforeend', html);
+            newItems.forEach(item => renderedIndices.add(allResults.findIndex(r => r === item)));
+            attachCardHandlers();
+            resultsContainer.querySelectorAll('.result-card').forEach(card => { if (!card.classList.contains('visible')) card.classList.add('visible'); });
         }
 
-        // ── Empty state ──
+        updateStatusBar(items);
+        const total = allResults._total || allResults.length;
         if (total === 0 && currentQuery) {
             emptyState.hidden = false;
             emptyState.innerHTML = `
                 <div class="empty-icon">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-                    </svg>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></svg>
                 </div>
-                <h3>No results for "${currentQuery}"</h3>
-                <p>Try different keywords. Saved content is searched alongside web results.</p>
-            `;
+                <h3>No results for "${escapeHtml(currentQuery)}"</h3>
+                <p>Try different keywords. Saved content stays in your workspace while web results are layered beneath.</p>`;
         } else {
             emptyState.hidden = true;
         }
-
         updatePaginationControls();
     }
 
-    // ─── Fetching ────────────────────────────────────────────────
     async function doSearch(query, page) {
         if (loading) return;
         loading = true;
         showLoading(true, page);
-
-        const url = `/search?q=${encodeURIComponent(query)}&page=${page}&engines=${getEngines()}`;
-
+        const url = `/search?q=${encodeURIComponent(query)}&page=${page}&engines=${getEngines()}${activeProject ? `&project=${encodeURIComponent(activeProject)}` : ''}`;
         try {
             const resp = await fetch(url);
             const data = await resp.json();
-
             if (!data || !Array.isArray(data.results)) {
-                showLoading(false);
+                showLoading(false, page);
                 loading = false;
                 return;
             }
-
             const fetched = data.results;
             const total = data.total || 0;
-
             if (page === 1) {
                 allResults = fetched;
                 allResults._total = total;
-                showLoading(false);
+                showLoading(false, page);
                 renderResults(false);
             } else {
                 const existingUrls = new Set(allResults.map(r => r.url));
                 const newWeb = fetched.filter(r => r._type === 'web' && !existingUrls.has(r.url));
                 allResults = allResults.concat(newWeb);
-                showLoading(false);
+                allResults._total = total;
+                showLoading(false, page);
                 renderResults(true);
             }
-
             hasMore = fetched.length > 0;
             currentPage = page;
-
-            if (!hasMore && allResults.length > 0) {
-                endOfResults.hidden = false;
-                loadMoreButton.hidden = true;
-            }
+            if (!hasMore && allResults.length > 0) endOfResults.hidden = false;
         } catch (err) {
             console.error('Search failed:', err);
-            showLoading(false);
-            resultsContainer.innerHTML = `<div class="message error">Search request failed. Is the server running?</div>`;
+            showLoading(false, page);
+            resultsContainer.innerHTML = '<div class="message error">Search request failed. Is the server running?</div>';
             hasMore = false;
         } finally {
             loading = false;
@@ -817,64 +541,38 @@ document.addEventListener('DOMContentLoaded', async () => {
         browseMode = true;
         currentQuery = '';
         setSearchActive(false);
-
         try {
-            const resp = await fetch('/browse');
+            const url = activeProject ? `/browse?project=${encodeURIComponent(activeProject)}` : '/browse';
+            const resp = await fetch(url);
             const data = await resp.json();
-
-            if (!Array.isArray(data)) {
-                allResults = [];
-            } else {
-                allResults = data.filter(r => r._type === 'saved');
-            }
-
+            allResults = Array.isArray(data) ? data.filter(r => r._type === 'saved') : [];
             hasMore = false;
             currentPage = 1;
             renderResults(false);
-
-            if (allResults.length === 0) {
-                emptyState.hidden = false;
-                emptyState.innerHTML = `
-                    <div class="empty-icon">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-                        </svg>
-                    </div>
-                    <h3>Nothing saved yet</h3>
-                    <p>Use the Recollect browser extension to save content from the web.</p>
-                `;
-            }
         } catch (err) {
             console.error('Browse failed:', err);
-            resultsContainer.innerHTML = `<div class="message error">Could not load saved content.</div>`;
+            resultsContainer.innerHTML = '<div class="message error">Could not load saved content.</div>';
         }
-
         loading = false;
     }
 
-    // ─── Search submit ────────────────────────────────────────────
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const query = queryInput.value.trim();
         if (!query) return;
-
         browseMode = false;
         currentQuery = query;
         currentPage = 1;
         hasMore = true;
         allResults = [];
         emptyState.hidden = true;
-
         setSearchActive(true);
-
         filterBar.hidden = false;
         renderFilterTabs('all');
-
         await doSearch(query, 1);
         queryInput.blur();
     });
 
-    // ─── Browse button ────────────────────────────────────────────
     browseBtn.addEventListener('click', () => {
         queryInput.value = '';
         currentQuery = '';
@@ -884,250 +582,252 @@ document.addEventListener('DOMContentLoaded', async () => {
         loadBrowse();
     });
 
-    // ─── Infinite scroll ──────────────────────────────────────────
     const observer = new IntersectionObserver((entries) => {
-        if (entries[0].isIntersecting && !loading && hasMore && currentQuery && settingsState.autoLoad) {
+        if (entries[0].isIntersecting && !loading && hasMore && currentQuery && settingsState.autoLoad !== false) {
             doSearch(currentQuery, currentPage + 1);
         }
     }, { rootMargin: '300px' });
     observer.observe(sentinel);
 
     loadMoreButton?.addEventListener('click', () => {
-        if (!loading && hasMore && currentQuery) {
-            doSearch(currentQuery, currentPage + 1);
-        }
+        if (!loading && hasMore && currentQuery) doSearch(currentQuery, currentPage + 1);
     });
 
-    scrollTopButton.addEventListener('click', () => {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-    });
-
-    function handleScrollTopVisibility() {
-        const enable = window.scrollY > window.innerHeight;
-        scrollTopButton.hidden = !enable;
-    }
+    scrollTopButton.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+    function handleScrollTopVisibility() { scrollTopButton.hidden = window.scrollY <= window.innerHeight; }
     window.addEventListener('scroll', handleScrollTopVisibility, { passive: true });
     handleScrollTopVisibility();
 
-    // ─── Init ──────────────────────────────────────────────────────
-    renderSettings();
-    loadBrowse();
-    loadProjects();
-    updatePaginationControls();
-    
-    // ─── Hook into renderResults for project filter ──────────────
-    const _origRenderResults = renderResults;
-    renderResults = function(append) {
-        _origRenderResults(append);
-        if (activeProject) {
-            setTimeout(() => filterByProject(activeProject), 50);
-        }
-    };
-    
-    // ─── Extension detection banner ──────────────────────────────
-    const extBanner = document.getElementById('extension-banner');
-    const bannerClose = document.getElementById('banner-close');
-    const bannerInstallLink = document.getElementById('banner-install-link');
-    const installModal = document.getElementById('install-modal');
-    const installClose = document.getElementById('install-close');
+    function renderMarkdown(markdown) {
+        const text = markdown || '';
+        if (!text.trim()) return '<p class="preview-placeholder">No content yet.</p>';
+        const lines = text.split(/\n/);
+        let html = '';
+        let paragraph = [];
+        let inList = false;
+        const flushParagraph = () => {
+            if (!paragraph.length) return;
+            const joined = paragraph.join(' ').trim();
+            if (joined) html += `<p>${formatInline(joined)}</p>`;
+            paragraph = [];
+        };
+        const flushList = () => {
+            if (!inList) return;
+            html += '</ul>';
+            inList = false;
+        };
+        lines.forEach(line => {
+            const trimmed = line.trim();
+            if (/^#{1,6}\s/.test(trimmed)) {
+                flushParagraph();
+                flushList();
+                const level = trimmed.match(/^#+/)[0].length;
+                const content = trimmed.replace(/^#{1,6}\s/, '');
+                html += `<h${Math.min(level, 3)}>${formatInline(content)}</h${Math.min(level, 3)}>`;
+            } else if (/^[-*]\s+/.test(trimmed)) {
+                flushParagraph();
+                if (!inList) {
+                    html += '<ul>';
+                    inList = true;
+                }
+                html += `<li>${formatInline(trimmed.replace(/^[-*]\s+/, ''))}</li>`;
+            } else if (/^```/.test(trimmed)) {
+                flushParagraph();
+                flushList();
+                html += '<pre><code>' + escapeHtml(text) + '</code></pre>';
+            } else if (!trimmed) {
+                flushParagraph();
+                flushList();
+            } else {
+                paragraph.push(trimmed);
+            }
+        });
+        flushParagraph();
+        flushList();
+        return html || `<pre>${escapeHtml(text)}</pre>`;
+    }
 
-    function checkExtensionInstalled() {
-        if (localStorage.getItem('bannerDismissed') === 'true') return;
-        const sentinel = document.querySelector('meta[name="recollect-extension"]');
-        if (!sentinel || sentinel.content !== 'installed') {
-            extBanner.hidden = false;
+    function formatInline(text) {
+        return escapeHtml(text)
+            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.+?)\*/g, '<em>$1</em>')
+            .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    }
+
+    function showPreview(item, pin = false) {
+        if (!item) {
+            previewPane.innerHTML = '<div class="preview-empty"><div class="preview-title">Select a result</div><p>Hover to preview notes and saved items here.</p></div>';
+            previewHint.textContent = 'Hover • click to pin';
+            return;
+        }
+        if (!pin) previewItem = item;
+        else previewItem = item;
+        const isSaved = item._type === 'saved';
+        const { domain, siteName, chips } = getResultMeta(item);
+        const previewTitle = item.title || item.url || 'Untitled';
+        const previewDate = formatTimeLong(item.saved_at);
+        const previewBody = item.content || item.description || item.snippet || '';
+        const previewMeta = [
+            ['Title', previewTitle],
+            ['Website', siteName || domain || item.url || '—'],
+            ['Saved', previewDate || '—'],
+            ['Project', item.project || '—'],
+            ['Tags', Array.isArray(item.tags) && item.tags.length ? item.tags.join(', ') : '—']
+        ];
+        const actions = `
+          <div class="preview-actions">
+            <button class="preview-action-btn" data-action="open" type="button">Open website</button>
+            <button class="preview-action-btn" data-action="copy" type="button">Copy</button>
+            <button class="preview-action-btn" data-action="edit" type="button">Edit</button>
+            <button class="preview-action-btn" data-action="delete" type="button">Delete</button>
+            <button class="preview-action-btn" data-action="move" type="button">Move to project</button>
+          </div>`;
+        previewPane.innerHTML = `
+          <div class="preview-card">
+            <div class="preview-meta-list">
+              ${previewMeta.map(([label, value]) => `<div class="preview-meta-item"><strong>${escapeHtml(label)}</strong><span>${escapeHtml(value)}</span></div>`).join('')}
+            </div>
+            ${actions}
+            <div class="preview-content">${renderMarkdown(previewBody)}</div>
+          </div>`;
+        previewHint.textContent = pin ? 'Pinned preview' : 'Hover • click to pin';
+        const actionButtons = previewPane.querySelectorAll('.preview-action-btn');
+        actionButtons.forEach(btn => btn.addEventListener('click', () => handlePreviewAction(btn.dataset.action, item)));
+        if (isSaved && item.url) {
+            previewPane.querySelector('.preview-content').dataset.url = item.url;
         }
     }
 
-    bannerClose.addEventListener('click', () => {
-        extBanner.hidden = true;
-        localStorage.setItem('bannerDismissed', 'true');
-    });
-
-    bannerInstallLink.addEventListener('click', () => {
-        extBanner.hidden = true;
-        installModal.hidden = false;
-        installModal.inert = false;
-    });
-
-    installClose.addEventListener('click', () => {
-        installModal.hidden = true;
-        installModal.inert = true;
-    });
-
-    installModal.addEventListener('click', (e) => {
-        if (e.target === installModal) {
-            installModal.hidden = true;
-            installModal.inert = true;
+    async function handlePreviewAction(action, item) {
+        if (!item) return;
+        if (action === 'open') {
+            if (item.url) window.open(item.url, '_blank', 'noopener');
+            return;
         }
-    });
-
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && !installModal.hidden) {
-            installModal.hidden = true;
-            installModal.inert = true;
+        if (action === 'copy') {
+            const text = `${item.title || ''}\n\n${item.content || ''}`.trim();
+            navigator.clipboard.writeText(text).catch(() => {});
+            return;
         }
-    });
-
-    // Copy-to-clipboard for code blocks
-    document.querySelectorAll('.step-copy-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const text = btn.dataset.copy;
-            if (text) {
-                navigator.clipboard.writeText(text).then(() => {
-                    const orig = btn.textContent;
-                    btn.textContent = '✓';
-                    setTimeout(() => { btn.textContent = orig; }, 1500);
-                }).catch(() => {});
+        if (action === 'edit') {
+            openEditModal(item);
+            return;
+        }
+        if (action === 'move') {
+            openEditModal(item);
+            return;
+        }
+        if (action === 'delete') {
+            if (!confirm('Delete this saved item?')) return;
+            try {
+                const resp = await fetch(`/api/capture/${item.id || item.capture_id}`, { method: 'DELETE' });
+                const data = await resp.json();
+                if (data.success) {
+                    allResults = allResults.filter(r => (r.id || r.capture_id) !== (item.id || item.capture_id));
+                    renderResults(false);
+                    if (previewItem && (previewItem.id || previewItem.capture_id) === (item.id || item.capture_id)) {
+                        previewItem = null;
+                        pinnedPreviewItem = null;
+                        showPreview(null);
+                    }
+                }
+            } catch (err) {
+                console.error('Delete failed', err);
             }
-        });
-    });
-
-    // Check after a small delay to let extension inject sentinel
-    setTimeout(checkExtensionInstalled, 300);
-    
-    // ─── Sidebar ────────────────────────────────────────────────────
-    const sidebar = document.getElementById('sidebar');
-    const sidebarOverlay = document.getElementById('sidebar-overlay');
-    const sidebarToggle = document.getElementById('sidebar-toggle');
-    let sidebarOpen = false;
-    let activeProject = '';
-
-    function isMobile() { return window.innerWidth <= 768; }
-
-    sidebarToggle.addEventListener('click', () => {
-        sidebarOpen = !sidebarOpen;
-        if (sidebarOpen) {
-            sidebar.hidden = false;
-            document.body.classList.add('sidebar-open');
-            setTimeout(() => { sidebar.style.visibility = ''; }, 10);
-        } else {
-            sidebar.style.visibility = 'hidden';
-            document.body.classList.remove('sidebar-open');
-            setTimeout(() => { sidebar.hidden = true; }, 200);
         }
-    });
+    }
 
-    document.getElementById('sidebar-close-x')?.addEventListener('click', () => {
-        if (sidebarOpen) sidebarToggle.click();
-    });
+    function updatePreviewFromSelection() {
+        if (pinnedPreviewItem) {
+            showPreview(pinnedPreviewItem, true);
+        } else if (previewItem) {
+            showPreview(previewItem, false);
+        } else {
+            showPreview(null);
+        }
+    }
+
+    function setPinnedPreview(item) {
+        pinnedPreviewItem = item;
+        showPreview(item, true);
+    }
+
+    const sidebarProjectList = document.getElementById('sidebar-project-list');
+    const sidebarTags = document.getElementById('sidebar-tags');
+    const sidebarNewProject = document.getElementById('sidebar-new-project');
+    const sidebarAddBtn = document.getElementById('sidebar-add-btn');
 
     function loadProjects() {
-        fetch('/api/tags')
-            .then(r => r.json())
-            .then(data => {
-                const list = document.getElementById('sidebar-projects');
-                const countAll = document.getElementById('count-all');
-                const countUncat = document.getElementById('count-uncat');
-                countAll.textContent = data.total_items || 0;
-                countUncat.textContent = data.uncategorized || 0;
-
-                // Populate sidebar project list
-                list.innerHTML = '';
-                (data.projects || []).forEach(p => {
-                    const btn = document.createElement('button');
-                    btn.className = 'sidebar-item' + (activeProject === p.name ? ' active' : '');
-                    btn.dataset.project = p.name;
-                    btn.innerHTML = `<span class="sidebar-item-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span><span class="sidebar-item-label">${escapeHtml(p.name)}</span><span class="sidebar-item-count">${p.count}</span>`;
-                    btn.addEventListener('click', () => selectProject(p.name));
-                    list.appendChild(btn);
+        fetch('/api/tags').then(r => r.json()).then(data => {
+            const projects = data.projects || [];
+            sidebarProjectList.innerHTML = '';
+            const allBtn = document.createElement('button');
+            allBtn.className = 'sidebar-item' + (!activeProject ? ' active' : '');
+            allBtn.innerHTML = '<span class="sidebar-item-icon">⌘</span><span class="sidebar-item-label">All items</span><span class="sidebar-item-count">' + (data.total_items || 0) + '</span>';
+            allBtn.addEventListener('click', () => selectProject(''));
+            sidebarProjectList.appendChild(allBtn);
+            const uncatBtn = document.createElement('button');
+            uncatBtn.className = 'sidebar-item sidebar-item-uncat' + (activeProject === '__uncategorized__' ? ' active' : '');
+            uncatBtn.innerHTML = '<span class="sidebar-item-icon">?</span><span class="sidebar-item-label">Uncategorized</span><span class="sidebar-item-count">' + (data.uncategorized || 0) + '</span>';
+            uncatBtn.addEventListener('click', () => selectProject('__uncategorized__'));
+            sidebarProjectList.appendChild(uncatBtn);
+            projects.forEach(project => {
+                const button = document.createElement('button');
+                button.className = 'sidebar-item' + (activeProject === project.name ? ' active' : '');
+                button.innerHTML = `<span class="sidebar-item-icon">▣</span><span class="sidebar-item-label">${escapeHtml(project.name)}</span><span class="sidebar-item-count">${project.count}</span>`;
+                button.addEventListener('click', () => selectProject(project.name));
+                sidebarProjectList.appendChild(button);
+            });
+            sidebarTags.innerHTML = '';
+            (data.tags || []).forEach(tag => {
+                const btn = document.createElement('button');
+                btn.className = 'sidebar-tag-btn' + (activeTag === tag ? ' active' : '');
+                btn.textContent = tag;
+                btn.addEventListener('click', () => {
+                    activeTag = activeTag === tag ? '' : tag;
+                    loadProjects();
+                    renderResults(false);
                 });
-
-                // Populate project dropdowns
-                ['note-project', 'edit-project'].forEach(id => {
-                    const sel = document.getElementById(id);
-                    if (!sel) return;
-                    const current = sel.value;
-                    sel.innerHTML = '<option value="">— None —</option>';
-                    (data.projects || []).forEach(p => {
-                        const opt = document.createElement('option');
-                        opt.value = p.name;
-                        opt.textContent = p.name;
-                        if (p.name === current) opt.selected = true;
-                        sel.appendChild(opt);
-                    });
+                sidebarTags.appendChild(btn);
+            });
+            ['note-project', 'edit-project'].forEach(id => {
+                const select = document.getElementById(id);
+                if (!select) return;
+                const currentValue = select.value;
+                select.innerHTML = '<option value="">— None —</option>';
+                projects.forEach(project => {
+                    const option = document.createElement('option');
+                    option.value = project.name;
+                    option.textContent = project.name;
+                    if (project.name === currentValue) option.selected = true;
+                    select.appendChild(option);
                 });
-
-                // Populate tag suggestions for edit modal
-                const suggContainer = document.getElementById('edit-tags-suggestions');
-                if (suggContainer && data.tags) {
-                    suggContainer.innerHTML = '';
-                    data.tags.forEach(t => {
-                        const btn = document.createElement('button');
-                        btn.className = 'edit-tag-suggestion';
-                        btn.textContent = t;
-                        btn.addEventListener('click', () => addEditTag(t));
-                        suggContainer.appendChild(btn);
-                    });
-                }
-            })
-            .catch(() => {});
+            });
+        });
     }
 
     function selectProject(project) {
         activeProject = project;
-        // Update active state in sidebar
-        document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
-        const target = project === '__uncategorized__'
-            ? document.querySelector('.sidebar-item-uncat')
-            : document.querySelector(`.sidebar-item[data-project="${project}"]`);
-        if (target) target.classList.add('active');
-        // If "All items" was selected (project empty), find the All items button
-        if (!project) {
-            const allBtn = document.querySelector('.sidebar-item[data-project=""]');
-            if (allBtn) allBtn.classList.add('active');
+        loadProjects();
+        if (!currentQuery) {
+            loadBrowse();
+        } else {
+            doSearch(currentQuery, 1);
         }
-        // Re-render with filter
-        filterByProject(project);
-        // Close sidebar on mobile
-        if (isMobile()) sidebarToggle.click();
+        renderResults(false);
     }
-
-    function filterByProject(project) {
-        const cards = resultsContainer.querySelectorAll('.result-card');
-        cards.forEach(card => {
-            if (!project) {
-                card.style.display = '';
-                return;
-            }
-            const idx = parseInt(card.dataset.index, 10);
-            const item = allResults[idx];
-            if (!item) { card.style.display = 'none'; return; }
-            if (project === '__uncategorized__') {
-                card.style.display = (!item.project || item.project.trim() === '') ? '' : 'none';
-            } else {
-                card.style.display = (item.project === project) ? '' : 'none';
-            }
-        });
-        // Update status bar count
-        const visible = resultsContainer.querySelectorAll('.result-card:not([style*="display: none"])').length;
-        const total = allResults._total || allResults.length;
-        document.getElementById('result-count').textContent = project
-            ? `${visible} result${visible !== 1 ? 's' : ''} (filtered)`
-            : `${total} result${total !== 1 ? 's' : ''}`;
-    }
-
-    // ─── Add project ────────────────────────────────────────────────
-    const sidebarNewProject = document.getElementById('sidebar-new-project');
-    const sidebarAddBtn = document.getElementById('sidebar-add-btn');
 
     sidebarAddBtn.addEventListener('click', () => {
         const name = sidebarNewProject.value.trim();
         if (!name) return;
-        // Add to allResults items later via edit. For now add to dropdowns.
-        // Reload projects from API
         sidebarNewProject.value = '';
-        // Refresh the project list
         loadProjects();
-        // Select the new project
-        setTimeout(() => selectProject(name), 200);
+        setTimeout(() => selectProject(name), 120);
     });
 
-    sidebarNewProject.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') sidebarAddBtn.click();
-    });
+    sidebarNewProject.addEventListener('keydown', (e) => { if (e.key === 'Enter') sidebarAddBtn.click(); });
+    document.getElementById('sidebar-search-nav')?.addEventListener('click', () => queryInput.focus());
 
-    // ─── New note modal ───────────────────────────────────────────
     const noteModal = document.getElementById('note-modal');
     const noteClose = document.getElementById('note-close');
     const noteCancel = document.getElementById('note-cancel');
@@ -1143,15 +843,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         noteStatus.hidden = true;
         noteModal.hidden = false;
         noteModal.inert = false;
-        setTimeout(() => noteTitle.focus(), 150);
+        setTimeout(() => noteTitle.focus(), 120);
     }
-
-    function closeNoteModal() {
-        noteModal.hidden = true;
-        noteModal.inert = true;
-    }
-
-    newNoteBtn.addEventListener('click', openNoteModal);
+    function closeNoteModal() { noteModal.hidden = true; noteModal.inert = true; }
+    if (newNoteBtn) newNoteBtn.addEventListener('click', openNoteModal);
     noteClose.addEventListener('click', closeNoteModal);
     noteCancel.addEventListener('click', closeNoteModal);
     noteModal.addEventListener('click', (e) => { if (e.target === noteModal) closeNoteModal(); });
@@ -1159,31 +854,27 @@ document.addEventListener('DOMContentLoaded', async () => {
     noteSave.addEventListener('click', async () => {
         const title = noteTitle.value.trim();
         const content = noteContent.value.trim();
-        if (!title) { noteStatus.textContent = 'Title is required'; noteStatus.className = 'note-status error'; noteStatus.hidden = false; return; }
-        if (!content) { noteStatus.textContent = 'Content is required'; noteStatus.className = 'note-status error'; noteStatus.hidden = false; return; }
-
+        if (!title || !content) {
+            noteStatus.textContent = title ? 'Content is required' : 'Title is required';
+            noteStatus.className = 'note-status error';
+            noteStatus.hidden = false;
+            return;
+        }
         noteStatus.textContent = 'Saving...';
         noteStatus.className = 'note-status';
         noteStatus.hidden = false;
         noteSave.disabled = true;
-
         try {
             const resp = await fetch('/api/capture', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    type: 'manual',
-                    content: content,
-                    source: { url: '', title: title, site_name: 'Manual' },
-                    project: document.getElementById('note-project').value || '',
-                    tags: []
-                })
+                body: JSON.stringify({ type: 'manual', content, source: { url: '', title, site_name: 'Manual' }, project: document.getElementById('note-project').value || '', tags: [] })
             });
             const data = await resp.json();
             if (data.success) {
                 noteStatus.textContent = 'Saved ✓';
                 noteStatus.className = 'note-status success';
-                setTimeout(() => { closeNoteModal(); loadBrowse(); }, 800);
+                setTimeout(() => { closeNoteModal(); loadBrowse(); }, 600);
             } else {
                 noteStatus.textContent = 'Save failed';
                 noteStatus.className = 'note-status error';
@@ -1195,7 +886,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         noteSave.disabled = false;
     });
 
-    // ─── Bookmark import ──────────────────────────────────────────
     const importModal = document.getElementById('import-modal');
     const importModalClose = document.getElementById('import-modal-close');
     const importDropzone = document.getElementById('import-dropzone');
@@ -1207,33 +897,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     const importDoneBtn = document.getElementById('import-done-btn');
     const importBtn = document.getElementById('import-btn');
 
-    importBtn.addEventListener('click', () => {
-        importResult.hidden = true;
-        importProgress.hidden = true;
-        importDoneBtn.hidden = true;
-        importModal.hidden = false;
-        importModal.inert = false;
+    if (importBtn) importBtn.addEventListener('click', () => {
+        importResult.hidden = true; importProgress.hidden = true; importDoneBtn.hidden = true; importModal.hidden = false; importModal.inert = false;
     });
-
     function closeImportModal() { importModal.hidden = true; importModal.inert = true; }
     importModalClose.addEventListener('click', closeImportModal);
     importModal.addEventListener('click', (e) => { if (e.target === importModal) closeImportModal(); });
     importDoneBtn.addEventListener('click', closeImportModal);
-
     importBrowseLink.addEventListener('click', () => importFileInput.click());
     importDropzone.addEventListener('click', () => importFileInput.click());
-
     importDropzone.addEventListener('dragover', (e) => { e.preventDefault(); importDropzone.classList.add('drag-over'); });
     importDropzone.addEventListener('dragleave', () => importDropzone.classList.remove('drag-over'));
-    importDropzone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        importDropzone.classList.remove('drag-over');
-        if (e.dataTransfer.files.length > 0) handleImportFile(e.dataTransfer.files[0]);
-    });
-
-    importFileInput.addEventListener('change', () => {
-        if (importFileInput.files.length > 0) handleImportFile(importFileInput.files[0]);
-    });
+    importDropzone.addEventListener('drop', (e) => { e.preventDefault(); importDropzone.classList.remove('drag-over'); if (e.dataTransfer.files.length) handleImportFile(e.dataTransfer.files[0]); });
+    importFileInput.addEventListener('change', () => { if (importFileInput.files.length) handleImportFile(importFileInput.files[0]); });
 
     async function handleImportFile(file) {
         if (!file.name.endsWith('.html')) {
@@ -1242,31 +918,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             importResult.hidden = false;
             return;
         }
-
-        importProgress.hidden = false;
-        importResult.hidden = true;
-        importDoneBtn.hidden = true;
-        importStatusText.textContent = `Importing ${file.name}...`;
-
-        const formData = new FormData();
-        formData.append('file', file);
-
+        importProgress.hidden = false; importResult.hidden = true; importDoneBtn.hidden = true; importStatusText.textContent = `Importing ${file.name}...`;
+        const formData = new FormData(); formData.append('file', file);
         try {
             const resp = await fetch('/api/import/bookmarks', { method: 'POST', body: formData });
             const data = await resp.json();
             importProgress.hidden = true;
-
             if (data.success) {
-                const preview = data.items.slice(0, 5);
-                let html = `<div class="import-result success"><strong>${data.saved} / ${data.total}</strong> bookmarks imported</div>`;
-                if (data.errors > 0) html += `<div class="import-result error">${data.errors} failed</div>`;
-                if (preview.length > 0) {
-                    html += '<div style="margin-top:0.5rem;font-size:0.8rem;color:var(--text-secondary)">Preview:</div><ul style="margin:0.25rem 0;padding-left:1.25rem;font-size:0.8rem">';
-                    preview.forEach(b => { html += `<li>${b.tags.length > 0 ? '[' + b.tags.join('/') + '] ' : ''}${b.title}</li>`; });
-                    html += '</ul>';
-                    if (data.total > 5) html += `<div style="font-size:0.78rem;color:var(--text-tertiary)">... and ${data.total - 5} more</div>`;
-                }
-                importResult.innerHTML = html;
+                importResult.innerHTML = `<div class="import-result success"><strong>${data.saved} / ${data.total}</strong> bookmarks imported</div>`;
                 importResult.className = 'import-result';
                 importResult.hidden = false;
                 importDoneBtn.hidden = false;
@@ -1283,8 +942,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             importResult.hidden = false;
         }
     }
- 
-    // ─── Edit modal ────────────────────────────────────────────────
+
     const editModal = document.getElementById('edit-modal');
     const editClose = document.getElementById('edit-close');
     const editCancel = document.getElementById('edit-cancel');
@@ -1294,7 +952,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const editTagsInput = document.getElementById('edit-tags-input');
     const editTagsAdd = document.getElementById('edit-tags-add');
     const editStatus = document.getElementById('edit-status');
-    const editBtn = document.getElementById('modal-edit-btn');
     let editingItem = null;
 
     function openEditModal(item) {
@@ -1304,109 +961,119 @@ document.addEventListener('DOMContentLoaded', async () => {
         editStatus.hidden = true;
         editModal.hidden = false;
         editModal.inert = false;
-        loadProjects(); // refresh dropdown
+        loadProjects();
     }
-
     function closeEditModal() { editModal.hidden = true; editModal.inert = true; editingItem = null; }
-
     function renderEditTags(tags) {
         editTagsList.innerHTML = '';
-        (tags || []).forEach(t => {
+        (tags || []).forEach(tag => {
             const chip = document.createElement('span');
             chip.className = 'edit-tag-chip';
-            chip.innerHTML = `${escapeHtml(t)} <button class="edit-tag-remove" data-tag="${escapeHtml(t)}">&times;</button>`;
-            chip.querySelector('.edit-tag-remove').addEventListener('click', () => {
-                removeEditTag(t);
-            });
+            chip.innerHTML = `${escapeHtml(tag)} <button class="edit-tag-remove" data-tag="${escapeHtml(tag)}">&times;</button>`;
+            chip.querySelector('.edit-tag-remove').addEventListener('click', () => removeEditTag(tag));
             editTagsList.appendChild(chip);
         });
     }
-
-    function getEditTags() {
-        return [...editTagsList.querySelectorAll('.edit-tag-chip')].map(chip => {
-            const btn = chip.querySelector('.edit-tag-remove');
-            return btn ? btn.dataset.tag : '';
-        }).filter(Boolean);
-    }
-
-    function addEditTag(tag) {
-        const t = tag.trim();
-        if (!t) return;
-        const existing = getEditTags();
-        if (existing.includes(t)) return;
-        renderEditTags([...existing, t]);
-        editTagsInput.value = '';
-        editTagsInput.focus();
-    }
-
-    function removeEditTag(tag) {
-        const existing = getEditTags();
-        renderEditTags(existing.filter(t => t !== tag));
-    }
-
-    editClose.addEventListener('click', closeEditModal);
-    editCancel.addEventListener('click', closeEditModal);
-    editModal.addEventListener('click', (e) => { if (e.target === editModal) closeEditModal(); });
-
-    editTagsAdd.addEventListener('click', () => addEditTag(editTagsInput.value));
-    editTagsInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') addEditTag(editTagsInput.value); });
-
+    function getEditTags() { return [...editTagsList.querySelectorAll('.edit-tag-chip')].map(chip => chip.querySelector('.edit-tag-remove')?.dataset.tag).filter(Boolean); }
+    function addEditTag(tag) { const t = tag.trim(); if (!t) return; const current = getEditTags(); if (current.includes(t)) return; renderEditTags([...current, t]); editTagsInput.value = ''; editTagsInput.focus(); }
+    function removeEditTag(tag) { renderEditTags(getEditTags().filter(t => t !== tag)); }
+    editClose.addEventListener('click', closeEditModal); editCancel.addEventListener('click', closeEditModal); editModal.addEventListener('click', (e) => { if (e.target === editModal) closeEditModal(); });
+    editTagsAdd.addEventListener('click', () => addEditTag(editTagsInput.value)); editTagsInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') addEditTag(editTagsInput.value); });
     editSave.addEventListener('click', async () => {
         if (!editingItem) return;
         const project = editProject.value || '';
         const tags = getEditTags();
-        editStatus.textContent = 'Saving...';
-        editStatus.className = 'note-status';
-        editStatus.hidden = false;
-        editSave.disabled = true;
-
+        editStatus.textContent = 'Saving...'; editStatus.className = 'note-status'; editStatus.hidden = false; editSave.disabled = true;
         try {
-            const resp = await fetch(`/api/capture/${editingItem.id || editingItem.capture_id}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ project, tags })
-            });
+            const resp = await fetch(`/api/capture/${editingItem.id || editingItem.capture_id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project, tags }) });
             const data = await resp.json();
             if (data.success) {
-                editingItem.project = data.project;
-                editingItem.tags = data.tags;
-                editStatus.textContent = 'Saved ✓';
-                editStatus.className = 'note-status success';
-                // Update the card display
-                const cards = resultsContainer.querySelectorAll('.result-card');
-                const idx = allResults.indexOf(editingItem);
-                if (idx >= 0) {
-                    // Update in-memory
-                    allResults[idx].project = data.project;
-                    allResults[idx].tags = data.tags;
-                }
-                loadProjects();
-                setTimeout(closeEditModal, 600);
+                editingItem.project = data.project; editingItem.tags = data.tags;
+                const idx = allResults.findIndex(item => (item.id || item.capture_id) === (editingItem.id || editingItem.capture_id));
+                if (idx >= 0) { allResults[idx].project = data.project; allResults[idx].tags = data.tags; }
+                editStatus.textContent = 'Saved ✓'; editStatus.className = 'note-status success';
+                loadProjects(); setTimeout(closeEditModal, 600); renderResults(false); if (pinnedPreviewItem && (pinnedPreviewItem.id || pinnedPreviewItem.capture_id) === (editingItem.id || editingItem.capture_id)) showPreview(pinnedPreviewItem, true);
             } else {
-                editStatus.textContent = 'Save failed';
-                editStatus.className = 'note-status error';
+                editStatus.textContent = 'Save failed'; editStatus.className = 'note-status error';
             }
         } catch (err) {
-            editStatus.textContent = 'Server error';
-            editStatus.className = 'note-status error';
+            editStatus.textContent = 'Server error'; editStatus.className = 'note-status error';
         }
         editSave.disabled = false;
     });
 
-    editBtn.addEventListener('click', () => {
-        // Get the currently open item from the snippet modal
-        // We stored it via the modal item
-        if (editingItem) openEditModal(editingItem);
+    const extBanner = document.getElementById('extension-banner');
+    const bannerClose = document.getElementById('banner-close');
+    const bannerInstallLink = document.getElementById('banner-install-link');
+    const installModal = document.getElementById('install-modal');
+    const installClose = document.getElementById('install-close');
+    function checkExtensionInstalled() { if (localStorage.getItem('bannerDismissed') === 'true') return; const sentinel = document.querySelector('meta[name="recollect-extension"]'); if (!sentinel || sentinel.content !== 'installed') extBanner.hidden = false; }
+    bannerClose.addEventListener('click', () => { extBanner.hidden = true; localStorage.setItem('bannerDismissed', 'true'); });
+    bannerInstallLink.addEventListener('click', () => { extBanner.hidden = true; installModal.hidden = false; installModal.inert = false; });
+    installClose.addEventListener('click', () => { installModal.hidden = true; installModal.inert = true; });
+    installModal.addEventListener('click', (e) => { if (e.target === installModal) { installModal.hidden = true; installModal.inert = true; } });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !installModal.hidden) { installModal.hidden = true; installModal.inert = true; } });
+    setTimeout(checkExtensionInstalled, 300);
+
+    const sidebarResizer = document.getElementById('sidebar-resizer');
+    const previewResizer = document.getElementById('preview-resizer');
+    const workspaceSidebar = document.getElementById('workspace-sidebar');
+    const workspacePreview = document.getElementById('workspace-preview');
+    function applyPanelWidths() {
+        document.documentElement.style.setProperty('--sidebar-width', `${sidebarWidth}px`);
+        document.documentElement.style.setProperty('--preview-width', `${previewWidth}px`);
+        workspaceSidebar.style.width = `${sidebarWidth}px`;
+        workspacePreview.style.width = `${previewWidth}px`;
+    }
+
+    let sidebarWidth = Number(localStorage.getItem('recollect.sidebarWidth') || 280);
+    let previewWidth = Number(localStorage.getItem('recollect.previewWidth') || 360);
+    applyPanelWidths();
+
+    function startResize(side, startEvent) {
+        const startX = startEvent.clientX;
+        const startSidebar = sidebarWidth;
+        const startPreview = previewWidth;
+        const onMove = (e) => {
+            if (side === 'left') {
+                const next = Math.min(Math.max(220, startSidebar + (e.clientX - startX)), 360);
+                sidebarWidth = next;
+            } else {
+                const next = Math.min(Math.max(320, startPreview - (e.clientX - startX)), 520);
+                previewWidth = next;
+            }
+            applyPanelWidths();
+        };
+        const onUp = () => {
+            localStorage.setItem('recollect.sidebarWidth', String(sidebarWidth));
+            localStorage.setItem('recollect.previewWidth', String(previewWidth));
+            document.body.classList.remove('resizing');
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+        };
+        document.body.classList.add('resizing');
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+    }
+
+    sidebarResizer.addEventListener('mousedown', (e) => { e.preventDefault(); startResize('left', e); });
+    previewResizer.addEventListener('mousedown', (e) => { e.preventDefault(); startResize('right', e); });
+
+    document.addEventListener('click', (e) => {
+        const card = e.target.closest('.result-card');
+        if (!card) return;
+        const index = Number(card.dataset.index);
+        const item = allResults[index];
+        if (item) {
+            pinnedPreviewItem = item;
+            showPreview(item, true);
+        }
     });
 
-    // Override openModal to track the current item for editing
-    const _origOpenModal = openModal;
-    openModal = function(item) {
-        editingItem = item;
-        _origOpenModal(item);
-        // Show edit button only for saved items
-        editBtn.style.display = item && item._type === 'saved' ? '' : 'none';
-    };
-    
-    // Remove duplicate init calls - loadBrowse is already called below
+    showPreview(null);
+    renderSettings();
+    loadBrowse();
+    loadProjects();
+    renderResults(false);
+    updatePaginationControls();
 });

@@ -12,7 +12,7 @@ CONTENTS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "contents"
 SEARXNG_SETTINGS_PATH = Path(__file__).resolve().parent.parent.parent.parent / "searxng" / "settings.yml"
 
 
-def local_search(q: str):
+def local_search(q: str, project: str | None = None):
     """Full-text search over saved JSON captures."""
     if not q or not CONTENTS_DIR.exists():
         return []
@@ -22,6 +22,7 @@ def local_search(q: str):
     if not terms:
         return []
 
+    project_filter = (project or "").strip()
     files = sorted(CONTENTS_DIR.glob("*.json"), reverse=True)
     results = []
 
@@ -30,11 +31,16 @@ def local_search(q: str):
             with open(f, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
 
+            if project_filter and str(data.get("project", "")).strip().lower() != project_filter.lower():
+                continue
+
             searchable = (
                 (data.get("content", "") or "") + " " +
                 (data.get("source", {}).get("title", "") or "") + " " +
                 (data.get("source", {}).get("site_name", "") or "") + " " +
-                (data.get("source", {}).get("url", "") or "")
+                (data.get("source", {}).get("url", "") or "") + " " +
+                (data.get("project", "") or "") + " " +
+                " ".join(data.get("tags", []))
             ).lower()
 
             if all(t in searchable for t in terms):
@@ -64,12 +70,36 @@ def search_route(
     type: str = Query("web"),
     page: int = Query(1, ge=1),
     engines: str | None = Query(None),
+    project: str | None = Query(None),
 ):
     if not q:
         return {"message": "use ?q="}
 
     if engines is not None:
         engines = engines.strip() or None
+
+    if page == 1:
+        saved_results = local_search(q, project=project)
+        if project:
+            return {"results": saved_results, "total": len(saved_results)}
+
+        categories = "images" if type == "images" else "general"
+        web_response = searxng_search(q, page, engines, categories)
+
+        web_total = 0
+        web_results = []
+        if web_response is not None:
+            web_results = web_response.get("results", [])
+            web_total = web_response.get("total", 0)
+
+        for r in web_results:
+            r["_type"] = "web"
+            r["source"] = "web"
+
+        return {
+            "results": saved_results + web_results,
+            "total": len(saved_results) + web_total,
+        }
 
     categories = "images" if type == "images" else "general"
     web_response = searxng_search(q, page, engines, categories)
@@ -91,8 +121,8 @@ def search_route(
 
 
 @router.get("/browse")
-def browse_captures():
-    return list_captures()
+def browse_captures(project: str | None = Query(None)):
+    return list_captures(project=project)
 
 
 def _read_engine_list():
@@ -135,17 +165,20 @@ def search_engines():
     return {"engines": unique}
 
 
-def list_captures():
+def list_captures(project: str | None = None):
     """Return all saved captures for browse mode."""
     if not CONTENTS_DIR.exists():
         return []
 
+    project_filter = (project or "").strip()
     files = sorted(CONTENTS_DIR.glob("*.json"), reverse=True)
     results = []
     for f in files[:100]:
         try:
             with open(f, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
+            if project_filter and str(data.get("project", "")).strip().lower() != project_filter.lower():
+                continue
             results.append({
                 "_type": "saved",
                 "id": data.get("id"),
