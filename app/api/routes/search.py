@@ -12,6 +12,16 @@ CONTENTS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "contents"
 SEARXNG_SETTINGS_PATH = Path(__file__).resolve().parent.parent.parent.parent / "searxng" / "settings.yml"
 
 
+def _matches_project_filter(data, project_filter):
+    if not project_filter:
+        return True
+    if project_filter == "__uncategorized__":
+        project_name = str(data.get("project", "")).strip()
+        tags = [str(tag).strip() for tag in data.get("tags", []) if str(tag).strip()]
+        return not project_name and not tags
+    return str(data.get("project", "")).strip().lower() == project_filter.lower()
+
+
 def local_search(q: str, project: str | None = None):
     """Full-text search over saved JSON captures."""
     if not q or not CONTENTS_DIR.exists():
@@ -31,7 +41,7 @@ def local_search(q: str, project: str | None = None):
             with open(f, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
 
-            if project_filter and str(data.get("project", "")).strip().lower() != project_filter.lower():
+            if not _matches_project_filter(data, project_filter):
                 continue
 
             searchable = (
@@ -177,7 +187,7 @@ def list_captures(project: str | None = None):
         try:
             with open(f, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
-            if project_filter and str(data.get("project", "")).strip().lower() != project_filter.lower():
+            if not _matches_project_filter(data, project_filter):
                 continue
             results.append({
                 "_type": "saved",

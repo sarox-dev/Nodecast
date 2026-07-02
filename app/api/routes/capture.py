@@ -13,6 +13,7 @@ router = APIRouter()
 
 CONTENTS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "contents"
 CONTENTS_DIR.mkdir(exist_ok=True)
+PROJECTS_FILE = CONTENTS_DIR / "projects.json"
 
 
 class SourceModel(BaseModel):
@@ -50,6 +51,10 @@ class UpdateRequest(BaseModel):
     tags: list[str] | None = None
 
 
+class ProjectCreateRequest(BaseModel):
+    name: str
+
+
 def _load_all_files():
     """Load all saved JSON files, newest first."""
     if not CONTENTS_DIR.exists():
@@ -69,6 +74,40 @@ def _save_file(filepath, record):
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(record, f, ensure_ascii=False, indent=2)
     os.chmod(filepath, 0o644)
+
+
+def _load_projects():
+    if not PROJECTS_FILE.exists():
+        return []
+    try:
+        with open(PROJECTS_FILE, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        if isinstance(data, dict):
+            items = data.get("projects", [])
+        elif isinstance(data, list):
+            items = data
+        else:
+            return []
+        return [str(item).strip() for item in items if str(item).strip()]
+    except Exception:
+        return []
+
+
+def _save_projects(projects):
+    payload = {"projects": projects}
+    with open(PROJECTS_FILE, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, ensure_ascii=False, indent=2)
+    os.chmod(PROJECTS_FILE, 0o644)
+
+
+def _matches_project_filter(data, project_filter):
+    if not project_filter:
+        return True
+    if project_filter == "__uncategorized__":
+        project_name = str(data.get("project", "")).strip()
+        tags = [str(tag).strip() for tag in data.get("tags", []) if str(tag).strip()]
+        return not project_name and not tags
+    return str(data.get("project", "")).strip().lower() == project_filter.lower()
 
 
 # ─── POST /api/capture ───────────────────────────────────────────
@@ -190,8 +229,15 @@ def get_tags():
             if t:
                 all_tags.add(t)
 
+    for project_name in _load_projects():
+        projects.setdefault(project_name, 0)
+
     total = len(list(CONTENTS_DIR.glob("*.json")))
-    uncategorized = sum(1 for f in CONTENTS_DIR.glob("*.json") if not json.load(open(f)).get("project", "").strip())
+    uncategorized = sum(
+        1
+        for _, data in _load_all_files()
+        if not str(data.get("project", "")).strip() and not any(str(tag).strip() for tag in data.get("tags", []))
+    )
 
     return {
         "total_items": total,
@@ -199,6 +245,21 @@ def get_tags():
         "projects": [{"name": k, "count": v} for k, v in sorted(projects.items())],
         "tags": sorted(all_tags),
     }
+
+
+@router.post("/projects")
+def create_project(request: ProjectCreateRequest):
+    name = request.name.strip()
+    if not name:
+        raise HTTPException(400, "Project name is required")
+
+    projects = _load_projects()
+    if name.lower() in {project.lower() for project in projects}:
+        return {"success": True, "created": False, "name": name}
+
+    projects.append(name)
+    _save_projects(projects)
+    return {"success": True, "created": True, "name": name}
 
 
 # ─── Bookmark import ─────────────────────────────────────────────

@@ -817,10 +817,19 @@ window.addEventListener('DOMContentLoaded', async () => {
         renderResults(false);
     }
 
-    sidebarAddBtn.addEventListener('click', () => {
+    sidebarAddBtn.addEventListener('click', async () => {
         const name = sidebarNewProject.value.trim();
         if (!name) return;
         sidebarNewProject.value = '';
+        try {
+            await fetch('/api/projects', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name })
+            });
+        } catch (err) {
+            console.error('Create project failed', err);
+        }
         loadProjects();
         setTimeout(() => selectProject(name), 120);
     });
