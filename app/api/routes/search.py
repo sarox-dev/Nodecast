@@ -1,208 +1,109 @@
 import json
-import re
 from pathlib import Path
 
 from fastapi import APIRouter, Query
 from app.services.searxng import search as searxng_search
+from app.services.database import get_db
 
 router = APIRouter()
-
-# Same path as capture.py
-CONTENTS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "contents"
 SEARXNG_SETTINGS_PATH = Path(__file__).resolve().parent.parent.parent.parent / "searxng" / "settings.yml"
 
 
-def _matches_project_filter(data, project_filter):
-    if not project_filter:
-        return True
-    if project_filter == "__uncategorized__":
-        project_name = str(data.get("project", "")).strip()
-        tags = [str(tag).strip() for tag in data.get("tags", []) if str(tag).strip()]
-        return not project_name and not tags
-    return str(data.get("project", "")).strip().lower() == project_filter.lower()
+def _to_item(row) -> dict:
+    tags = json.loads(row["tags"]) if isinstance(row["tags"], str) else []
+    return {
+        "_type": "saved", "id": row["id"], "title": row["source_title"],
+        "url": row["source_url"], "content": row["content"],
+        "project": row["project"], "tags": tags,
+        "context": {"before": row["context_before"], "after": row["context_after"],
+                     "selection_html": row["context_selection_html"]},
+        "selected_tag": row["selected_tag"] if "selected_tag" in row.keys() else "",
+        "tag_ancestry": row["tag_ancestry"] if "tag_ancestry" in row.keys() else "",
+        "thumbnail": None, "source": "local", "site_name": row["source_site_name"],
+        "saved_at": row["saved_at"],
+    }
 
 
 def local_search(q: str, project: str | None = None):
-    """Full-text search over saved JSON captures."""
-    if not q or not CONTENTS_DIR.exists():
-        return []
-
-    query_lower = q.lower().strip()
-    terms = [t for t in query_lower.split() if t]
-    if not terms:
-        return []
-
-    project_filter = (project or "").strip()
-    files = sorted(CONTENTS_DIR.glob("*.json"), reverse=True)
-    results = []
-
-    for f in files:
-        try:
-            with open(f, "r", encoding="utf-8") as fh:
-                data = json.load(fh)
-
-            if not _matches_project_filter(data, project_filter):
-                continue
-
-            searchable = (
-                (data.get("content", "") or "") + " " +
-                (data.get("source", {}).get("title", "") or "") + " " +
-                (data.get("source", {}).get("site_name", "") or "") + " " +
-                (data.get("source", {}).get("url", "") or "") + " " +
-                (data.get("project", "") or "") + " " +
-                " ".join(data.get("tags", []))
-            ).lower()
-
-            if all(t in searchable for t in terms):
-                results.append({
-                    "_type": "saved",
-                    "id": data.get("id"),
-                    "title": data.get("source", {}).get("title", ""),
-                    "url": data.get("source", {}).get("url", ""),
-                    "content": data.get("content", ""),
-                    "project": data.get("project", ""),
-                    "tags": data.get("tags", []),
-                    "context": data.get("context", {}),
-                    "thumbnail": None,
-                    "source": "local",
-                    "site_name": data.get("source", {}).get("site_name", ""),
-                    "saved_at": data.get("saved_at", ""),
-                })
-        except Exception:
-            pass
-
-    return results
+    if not q: return []
+    terms = [t for t in q.lower().strip().split() if t]
+    if not terms: return []
+    pf = (project or "").strip()
+    conn = get_db()
+    try:
+        results = []
+        for row in conn.execute("SELECT * FROM items ORDER BY saved_at DESC").fetchall():
+            p = (row["project"] or "").strip().lower()
+            if pf:
+                if pf == "__uncategorized__":
+                    tgs = json.loads(row["tags"]) if isinstance(row["tags"], str) else []
+                    if p or tgs: continue
+                elif p != pf.lower(): continue
+            text = " ".join([row["content"] or "", row["source_title"] or "",
+                             row["source_site_name"] or "", row["source_url"] or "",
+                             row["project"] or ""]).lower()
+            try:
+                text += " " + " ".join(json.loads(row["tags"]) if isinstance(row["tags"], str) else [])
+            except Exception: pass
+            if all(t in text for t in terms):
+                results.append(_to_item(row))
+        return results
+    finally:
+        conn.close()
 
 
 @router.get("/search")
-def search_route(
-    q: str | None = Query(None),
-    type: str = Query("web"),
-    page: int = Query(1, ge=1),
-    engines: str | None = Query(None),
-    project: str | None = Query(None),
-):
-    if not q:
-        return {"message": "use ?q="}
-
-    if engines is not None:
-        engines = engines.strip() or None
-
-    if page == 1:
-        saved_results = local_search(q, project=project)
-        if project:
-            return {"results": saved_results, "total": len(saved_results)}
-
-        categories = "images" if type == "images" else "general"
-        web_response = searxng_search(q, page, engines, categories)
-
-        web_total = 0
-        web_results = []
-        if web_response is not None:
-            web_results = web_response.get("results", [])
-            web_total = web_response.get("total", 0)
-
-        for r in web_results:
-            r["_type"] = "web"
-            r["source"] = "web"
-
-        return {
-            "results": saved_results + web_results,
-            "total": len(saved_results) + web_total,
-        }
-
-    categories = "images" if type == "images" else "general"
-    web_response = searxng_search(q, page, engines, categories)
-
-    web_total = 0
-    web_results = []
-    if web_response is not None:
-        web_results = web_response.get("results", [])
-        web_total = web_response.get("total", 0)
-
-    for r in web_results:
-        r["_type"] = "web"
-        r["source"] = "web"
-
-    return {
-        "results": web_results,
-        "total": web_total,
-    }
+def search_route(q: str | None = Query(None), type: str = Query("web"),
+                  page: int = Query(1, ge=1), engines: str | None = Query(None),
+                  project: str | None = Query(None)):
+    if not q: return {"message": "use ?q="}
+    if engines is not None: engines = engines.strip() or None
+    page1 = page == 1
+    saved = local_search(q, project=project) if page1 else []
+    if project and page1:
+        return {"results": saved, "total": len(saved)}
+    web = searxng_search(q, page, engines, "images" if type == "images" else "general") or {}
+    wr = web.get("results", [])
+    for r in wr: r["_type"] = "web"; r["source"] = "web"
+    base = saved if page1 else []
+    return {"results": base + wr, "total": len(base) + web.get("total", 0)}
 
 
 @router.get("/browse")
 def browse_captures(project: str | None = Query(None)):
-    return list_captures(project=project)
+    conn = get_db()
+    try:
+        pf = (project or "").strip()
+        if pf == "__uncategorized__":
+            rows = conn.execute("""SELECT * FROM items WHERE (project IS NULL OR project = '')
+                AND (tags IS NULL OR tags = '[]') ORDER BY saved_at DESC LIMIT 100""").fetchall()
+        elif pf:
+            rows = conn.execute("SELECT * FROM items WHERE LOWER(project)=LOWER(?) ORDER BY saved_at DESC LIMIT 100", (pf,)).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM items ORDER BY saved_at DESC LIMIT 100").fetchall()
+        return [_to_item(r) for r in rows]
+    finally:
+        conn.close()
 
 
 def _read_engine_list():
-    if not SEARXNG_SETTINGS_PATH.exists():
-        return []
-
-    engines = []
-    inside = False
-    try:
-        with open(SEARXNG_SETTINGS_PATH, "r", encoding="utf-8") as fh:
-            for line in fh:
-                stripped = line.strip()
-                if not inside:
-                    if stripped == "engines:":
-                        inside = True
-                    continue
-                if line and not line.startswith(" ") and not stripped.startswith("#"):
-                    # End of engines section once indentation returns to top level
-                    break
-                if stripped.startswith("engine:"):
-                    engine_value = stripped.split("engine:", 1)[1].strip()
-                    if engine_value and not engine_value.startswith("#"):
-                        engines.append(engine_value)
-    except Exception:
-        return []
+    if not SEARXNG_SETTINGS_PATH.exists(): return []
+    engines, inside = [], False
+    for line in SEARXNG_SETTINGS_PATH.read_text().splitlines():
+        s = line.strip()
+        if not inside:
+            if s == "engines:": inside = True
+            continue
+        if line and not line.startswith(" ") and not s.startswith("#"): break
+        if s.startswith("engine:") and not (v := s.split("engine:", 1)[1].strip()).startswith("#"):
+            engines.append(v)
     return engines
 
 
 @router.get("/search/engines")
 def search_engines():
-    engines = _read_engine_list()
-    unique = []
-    seen = set()
-    for engine in engines:
-        if engine and engine not in seen:
-            seen.add(engine)
-            unique.append(engine)
-            if len(unique) >= 80:
-                break
+    unique, seen = [], set()
+    for e in _read_engine_list():
+        if e and e not in seen: seen.add(e); unique.append(e)
+        if len(unique) >= 80: break
     return {"engines": unique}
-
-
-def list_captures(project: str | None = None):
-    """Return all saved captures for browse mode."""
-    if not CONTENTS_DIR.exists():
-        return []
-
-    project_filter = (project or "").strip()
-    files = sorted(CONTENTS_DIR.glob("*.json"), reverse=True)
-    results = []
-    for f in files[:100]:
-        try:
-            with open(f, "r", encoding="utf-8") as fh:
-                data = json.load(fh)
-            if not _matches_project_filter(data, project_filter):
-                continue
-            results.append({
-                "_type": "saved",
-                "id": data.get("id"),
-                "title": data.get("source", {}).get("title", ""),
-                "url": data.get("source", {}).get("url", ""),
-                "content": data.get("content", ""),
-                "project": data.get("project", ""),
-                "tags": data.get("tags", []),
-                "context": data.get("context", {}),
-                "thumbnail": None,
-                "source": "local",
-                "site_name": data.get("source", {}).get("site_name", ""),
-                "saved_at": data.get("saved_at", ""),
-            })
-        except Exception:
-            pass
-    return results

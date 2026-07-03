@@ -35,7 +35,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     let browseMode = false;
     let searchActive = false;
     let activeProject = '';
-    let activeTag = '';
+    let activeTags = [];
     let previewItem = null;
     let pinnedPreviewItem = null;
     let previewHoverTimer = null;
@@ -243,11 +243,11 @@ window.addEventListener('DOMContentLoaded', async () => {
             loadingIndicator.hidden = false;
             if (page === 1) renderLoadingSkeletons(5, false);
             else renderLoadingSkeletons(3, true);
-            bottomLoading.hidden = page === 1;
+            bottomLoading.hidden = false;
+            endOfResults.hidden = true;
         } else {
             loadingIndicator.hidden = true;
             clearSkeletons();
-            bottomLoading.hidden = true;
         }
     }
 
@@ -373,8 +373,8 @@ window.addEventListener('DOMContentLoaded', async () => {
                 filtered = filtered.filter(item => (item.project || '').trim() === activeProject);
             }
         }
-        if (activeTag) {
-            filtered = filtered.filter(item => Array.isArray(item.tags) && item.tags.includes(activeTag));
+        if (activeTags.length > 0) {
+            filtered = filtered.filter(item => Array.isArray(item.tags) && item.tags.some(t => activeTags.includes(t)));
         }
         if (currentMode === 'saved') {
             filtered = filtered.filter(item => item._type === 'saved');
@@ -405,13 +405,18 @@ window.addEventListener('DOMContentLoaded', async () => {
 
     function updatePaginationControls() {
         const autoLoad = settingsState.autoLoad !== false;
-        const showLoadMore = !autoLoad && hasMore && !browseMode && currentQuery;
-        const showSentinel = autoLoad && hasMore && !browseMode && currentQuery;
-        const showEndMessage = !hasMore && !browseMode && currentQuery && allResults.length > 0;
+        const isActive = !browseMode && currentQuery;
+        const showLoadMore = !autoLoad && hasMore && isActive;
+        const showSentinel = autoLoad && hasMore && isActive;
+        const showEndMessage = !hasMore && isActive && allResults.length > 0;
+        const showLoadingMore = hasMore && isActive && loading && currentPage > 1;
         sentinel.hidden = !showSentinel;
         loadMoreButton.hidden = !showLoadMore;
         endOfResults.hidden = !showEndMessage;
+        // bottomLoading: managed by showLoading, but ensure it's hidden at end
+        if (!loading) bottomLoading.hidden = true;
         if (showEndMessage) bottomLoading.hidden = true;
+        if (!sentinel.hidden) ensureSentinelObserved();
     }
 
     function attachCardHandlers() {
@@ -463,19 +468,37 @@ window.addEventListener('DOMContentLoaded', async () => {
             }
             resultsContainer.innerHTML = sections.join('');
             attachCardHandlers();
-            resultsContainer.querySelectorAll('.result-card').forEach((card, idx) => {
-                requestAnimationFrame(() => {
-                    requestAnimationFrame(() => card.classList.add('visible'));
-                });
+            const cards = resultsContainer.querySelectorAll('.result-card');
+            const animSpeed = settingsState.animationSpeed || 'fast';
+            const delayStep = animSpeed === 'fast' ? 30 : animSpeed === 'slow' ? 100 : animSpeed === 'instant' ? 0 : 50;
+            resultsContainer.style.setProperty('--card-transition', animSpeed === 'instant' ? '0s' : '');
+            cards.forEach((card, idx) => {
+                const delay = idx * delayStep;
+                if (delayStep === 0) {
+                    card.classList.add('visible');
+                } else {
+                    setTimeout(() => card.classList.add('visible'), delay);
+                }
             });
         } else {
             const newItems = items.filter(item => !renderedIndices.has(allResults.findIndex(r => r === item)));
-            if (!newItems.length) return;
+            if (!newItems.length) { updatePaginationControls(); return; }
             const html = newItems.map(createCard).join('');
             resultsContainer.insertAdjacentHTML('beforeend', html);
             newItems.forEach(item => renderedIndices.add(allResults.findIndex(r => r === item)));
             attachCardHandlers();
-            resultsContainer.querySelectorAll('.result-card').forEach(card => { if (!card.classList.contains('visible')) card.classList.add('visible'); });
+            const newCards = resultsContainer.querySelectorAll('.result-card:not(.visible)');
+            const animSpeed = settingsState.animationSpeed || 'fast';
+            const delayStep = animSpeed === 'fast' ? 30 : animSpeed === 'slow' ? 100 : animSpeed === 'instant' ? 0 : 50;
+            resultsContainer.style.setProperty('--card-transition', animSpeed === 'instant' ? '0s' : '');
+            newCards.forEach((card, idx) => {
+                const delay = idx * delayStep;
+                if (delayStep === 0) {
+                    card.classList.add('visible');
+                } else {
+                    setTimeout(() => card.classList.add('visible'), delay);
+                }
+            });
         }
 
         updateStatusBar(items);
@@ -564,6 +587,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         currentQuery = query;
         currentPage = 1;
         hasMore = true;
+        loading = false;
         allResults = [];
         emptyState.hidden = true;
         setSearchActive(true);
@@ -587,6 +611,15 @@ window.addEventListener('DOMContentLoaded', async () => {
             doSearch(currentQuery, currentPage + 1);
         }
     }, { rootMargin: '300px' });
+
+    function ensureSentinelObserved() {
+        if (sentinel && !sentinel.hidden) {
+            observer.unobserve(sentinel);
+            observer.observe(sentinel);
+        }
+    }
+    // Initial observe — sentinel is hidden, but when it becomes visible
+    // updatePaginationControls will call ensureSentinelObserved
     observer.observe(sentinel);
 
     loadMoreButton?.addEventListener('click', () => {
@@ -667,6 +700,22 @@ window.addEventListener('DOMContentLoaded', async () => {
         const previewTitle = item.title || item.url || 'Untitled';
         const previewDate = formatTimeLong(item.saved_at);
         const previewBody = item.content || item.description || item.snippet || '';
+        const contextBefore = item.context?.before || '';
+        const contextAfter = item.context?.after || '';
+        const selectionHtml = item.context?.selection_html || '';
+        let previewContentHtml = '';
+        if (contextBefore || contextAfter) {
+            let beforeEsc = escapeHtml(contextBefore);
+            let afterEsc = escapeHtml(contextAfter);
+            let contentEsc = escapeHtml(previewBody);
+            if (selectionHtml) {
+                previewContentHtml = `<div class="preview-context">${escapeHtml(contextBefore)}<span class="sel-text">${selectionHtml}</span>${escapeHtml(contextAfter)}</div>`;
+            } else {
+                previewContentHtml = `<div class="preview-with-context"><span class="preview-ctx-before">${beforeEsc}</span><span class="sel-text">${contentEsc}</span><span class="preview-ctx-after">${afterEsc}</span></div>`;
+            }
+        } else {
+            previewContentHtml = renderMarkdown(previewBody);
+        }
         const previewMeta = [
             ['Title', previewTitle],
             ['Website', siteName || domain || item.url || '—'],
@@ -688,7 +737,7 @@ window.addEventListener('DOMContentLoaded', async () => {
               ${previewMeta.map(([label, value]) => `<div class="preview-meta-item"><strong>${escapeHtml(label)}</strong><span>${escapeHtml(value)}</span></div>`).join('')}
             </div>
             ${actions}
-            <div class="preview-content">${renderMarkdown(previewBody)}</div>
+            <div class="preview-content">${previewContentHtml}</div>
           </div>`;
         previewHint.textContent = pin ? 'Pinned preview' : 'Hover • click to pin';
         const actionButtons = previewPane.querySelectorAll('.preview-action-btn');
@@ -718,7 +767,7 @@ window.addEventListener('DOMContentLoaded', async () => {
             return;
         }
         if (action === 'delete') {
-            if (!confirm('Delete this saved item?')) return;
+            const confirmed = await showConfirmDialog('Delete this saved item?'); if (!confirmed) return;
             try {
                 const resp = await fetch(`/api/capture/${item.id || item.capture_id}`, { method: 'DELETE' });
                 const data = await resp.json();
@@ -776,20 +825,37 @@ window.addEventListener('DOMContentLoaded', async () => {
                 button.className = 'sidebar-item' + (activeProject === project.name ? ' active' : '');
                 button.innerHTML = `<span class="sidebar-item-icon">▣</span><span class="sidebar-item-label">${escapeHtml(project.name)}</span><span class="sidebar-item-count">${project.count}</span>`;
                 button.addEventListener('click', () => selectProject(project.name));
+                button.addEventListener('contextmenu', (e) => {
+                    e.preventDefault();
+                    showProjectContextMenu(e, project.name, button);
+                });
                 sidebarProjectList.appendChild(button);
             });
             sidebarTags.innerHTML = '';
             (data.tags || []).forEach(tag => {
                 const btn = document.createElement('button');
-                btn.className = 'sidebar-tag-btn' + (activeTag === tag ? ' active' : '');
+                btn.className = 'sidebar-tag-btn' + (activeTags.includes(tag) ? ' active' : '');
                 btn.textContent = tag;
                 btn.addEventListener('click', () => {
-                    activeTag = activeTag === tag ? '' : tag;
+                    const idx = activeTags.indexOf(tag);
+                    if (idx >= 0) activeTags.splice(idx, 1);
+                    else activeTags.push(tag);
                     loadProjects();
                     renderResults(false);
                 });
                 sidebarTags.appendChild(btn);
             });
+            if (activeTags.length > 0) {
+                const clearBtn = document.createElement('button');
+                clearBtn.className = 'sidebar-tag-clear-btn';
+                clearBtn.textContent = 'Clear filters (' + activeTags.length + ')';
+                clearBtn.addEventListener('click', () => {
+                    activeTags = [];
+                    loadProjects();
+                    renderResults(false);
+                });
+                sidebarTags.appendChild(clearBtn);
+            }
             ['note-project', 'edit-project'].forEach(id => {
                 const select = document.getElementById(id);
                 if (!select) return;
@@ -952,6 +1018,40 @@ window.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
+
+    // ─── Confirmation dialog ─────────────────────────────────────
+    const confirmOverlay = document.getElementById('confirm-overlay');
+    const confirmClose = document.getElementById('confirm-close');
+    const confirmTitle = document.getElementById('confirm-title');
+    const confirmMessage = document.getElementById('confirm-message');
+    const confirmCancel = document.getElementById('confirm-cancel');
+    const confirmDelete = document.getElementById('confirm-delete');
+
+    function showConfirmDialog(msg) {
+        return new Promise((resolve) => {
+            confirmMessage.textContent = msg;
+            confirmOverlay.hidden = false;
+            confirmOverlay.removeAttribute('aria-hidden');
+            
+            function cleanup() {
+                confirmOverlay.hidden = true;
+                confirmOverlay.setAttribute('aria-hidden', 'true');
+                confirmOverlay.removeEventListener('click', overlayClick);
+                confirmClose.removeEventListener('click', rejectClick);
+                confirmCancel.removeEventListener('click', rejectClick);
+                confirmDelete.removeEventListener('click', acceptClick);
+            }
+            function acceptClick() { cleanup(); resolve(true); }
+            function rejectClick() { cleanup(); resolve(false); }
+            function overlayClick(e) { if (e.target === confirmOverlay) { cleanup(); resolve(false); } }
+            
+            confirmDelete.addEventListener('click', acceptClick);
+            confirmCancel.addEventListener('click', rejectClick);
+            confirmClose.addEventListener('click', rejectClick);
+            confirmOverlay.addEventListener('click', overlayClick);
+        });
+    }
+
     const editModal = document.getElementById('edit-modal');
     const editClose = document.getElementById('edit-close');
     const editCancel = document.getElementById('edit-cancel');
@@ -966,28 +1066,105 @@ window.addEventListener('DOMContentLoaded', async () => {
     function openEditModal(item) {
         editingItem = item;
         editProject.value = item.project || '';
-        renderEditTags(item.tags || []);
         editStatus.hidden = true;
         editModal.hidden = false;
         editModal.inert = false;
         loadProjects();
+        renderEditTagPicker(item.tags || []);
     }
     function closeEditModal() { editModal.hidden = true; editModal.inert = true; editingItem = null; }
-    function renderEditTags(tags) {
+
+    const editTagsAll = document.getElementById('edit-tags-all');
+    const editTagsStatus = document.getElementById('edit-tags-status');
+
+    function renderEditTagPicker(selectedTags) {
+        // Render the currently selected tags as chips
         editTagsList.innerHTML = '';
-        (tags || []).forEach(tag => {
+        (selectedTags || []).forEach(tag => {
             const chip = document.createElement('span');
             chip.className = 'edit-tag-chip';
             chip.innerHTML = `${escapeHtml(tag)} <button class="edit-tag-remove" data-tag="${escapeHtml(tag)}">&times;</button>`;
-            chip.querySelector('.edit-tag-remove').addEventListener('click', () => removeEditTag(tag));
+            chip.querySelector('.edit-tag-remove').addEventListener('click', () => {
+                removeEditTagFromPicker(tag, selectedTags);
+            });
             editTagsList.appendChild(chip);
         });
+
+        // Load all available tags and show as clickable options
+        fetch('/api/tags').then(r => r.json()).then(data => {
+            const allTags = data.tags || [];
+            editTagsAll.innerHTML = '';
+            let hasMatch = false;
+            allTags.forEach(tag => {
+                const isSelected = selectedTags.includes(tag);
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'edit-tag-option' + (isSelected ? ' selected' : '');
+                btn.textContent = tag;
+                btn.addEventListener('click', () => {
+                    if (isSelected) {
+                        const idx = selectedTags.indexOf(tag);
+                        if (idx >= 0) selectedTags.splice(idx, 1);
+                    } else {
+                        selectedTags.push(tag);
+                    }
+                    renderEditTagPicker(selectedTags);
+                });
+                editTagsAll.appendChild(btn);
+
+                const filter = editTagsInput.value.trim().toLowerCase();
+                if (filter && tag.toLowerCase().includes(filter)) hasMatch = true;
+                if (filter) btn.hidden = !tag.toLowerCase().includes(filter);
+            });
+
+            if (allTags.length === 0) {
+                editTagsAll.innerHTML = '<div class="edit-tags-empty">No tags yet. Type a name and click Add.</div>';
+            } else {
+                editTagsStatus.hidden = true;
+            }
+        }).catch(() => {});
     }
-    function getEditTags() { return [...editTagsList.querySelectorAll('.edit-tag-chip')].map(chip => chip.querySelector('.edit-tag-remove')?.dataset.tag).filter(Boolean); }
-    function addEditTag(tag) { const t = tag.trim(); if (!t) return; const current = getEditTags(); if (current.includes(t)) return; renderEditTags([...current, t]); editTagsInput.value = ''; editTagsInput.focus(); }
-    function removeEditTag(tag) { renderEditTags(getEditTags().filter(t => t !== tag)); }
-    editClose.addEventListener('click', closeEditModal); editCancel.addEventListener('click', closeEditModal); editModal.addEventListener('click', (e) => { if (e.target === editModal) closeEditModal(); });
-    editTagsAdd.addEventListener('click', () => addEditTag(editTagsInput.value)); editTagsInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') addEditTag(editTagsInput.value); });
+
+    function removeEditTagFromPicker(tag, selectedTags) {
+        const idx = selectedTags.indexOf(tag);
+        if (idx >= 0) selectedTags.splice(idx, 1);
+        renderEditTagPicker(selectedTags);
+    }
+
+    function getEditTags() {
+        const tags = [];
+        editTagsList.querySelectorAll('.edit-tag-chip').forEach(chip => {
+            const removeBtn = chip.querySelector('.edit-tag-remove');
+            if (removeBtn) tags.push(removeBtn.dataset.tag);
+        });
+        return tags;
+    }
+
+    editClose.addEventListener('click', closeEditModal);
+    editCancel.addEventListener('click', closeEditModal);
+    editModal.addEventListener('click', (e) => { if (e.target === editModal) closeEditModal(); });
+
+    editTagsAdd.addEventListener('click', () => {
+        const tag = editTagsInput.value.trim();
+        if (!tag) return;
+        if (tag.length > 32) { editTagsStatus.textContent = 'Max 32 characters'; editTagsStatus.className = 'note-status error'; editTagsStatus.hidden = false; return; }
+        const current = getEditTags();
+        if (current.includes(tag)) { editTagsStatus.textContent = 'Tag already added'; editTagsStatus.className = 'note-status'; editTagsStatus.hidden = false; return; }
+        current.push(tag);
+        editTagsInput.value = '';
+        editTagsStatus.hidden = true;
+        renderEditTagPicker(current);
+    });
+    editTagsInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); editTagsAdd.click(); }
+    });
+    editTagsInput.addEventListener('input', () => {
+        // Filter the options as user types
+        const filter = editTagsInput.value.trim().toLowerCase();
+        editTagsAll.querySelectorAll('.edit-tag-option').forEach(btn => {
+            btn.hidden = filter && !btn.textContent.toLowerCase().includes(filter);
+        });
+    });
     editSave.addEventListener('click', async () => {
         if (!editingItem) return;
         const project = editProject.value || '';
@@ -1085,4 +1262,206 @@ window.addEventListener('DOMContentLoaded', async () => {
     loadProjects();
     renderResults(false);
     updatePaginationControls();
+
+    
+
+
+
+
+    // ─── Project context menu ───────────────────────────────────
+    function showProjectContextMenu(e, projectName, btn) {
+        const existing = document.getElementById('project-context-menu');
+        if (existing) existing.remove();
+        
+        const menu = document.createElement('div');
+        menu.id = 'project-context-menu';
+        menu.className = 'project-context-menu';
+        menu.style.left = e.clientX + 'px';
+        menu.style.top = e.clientY + 'px';
+        
+        const deleteOpt = document.createElement('div');
+        deleteOpt.className = 'context-menu-option context-menu-danger';
+        deleteOpt.textContent = 'Delete "' + projectName + '"';
+        deleteOpt.addEventListener('click', async () => {
+            menu.remove();
+            const confirmedProj = await showConfirmDialog('Remove project "' + projectName + '" from all items?'); if (!confirmedProj) return;
+            fetch('/api/projects/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: projectName })
+            }).then(r => r.json()).then(res => {
+                if (res.success || res.message) {
+                    if (activeProject === projectName) selectProject('');
+                    loadProjects();
+                    renderResults(false);
+                }
+            }).catch(() => {});
+        });
+        menu.appendChild(deleteOpt);
+        
+        document.body.appendChild(menu);
+        
+        document.addEventListener('click', () => { if (menu.parentNode) menu.remove(); }, { once: true });
+    }
+    // ─── Collapsible sidebar sections ────────────────────────────
+    document.querySelectorAll('.sidebar-section-label').forEach(label => {
+        const section = label.parentElement;
+        const collapse = section.querySelector('.sidebar-collapse');
+        if (!collapse) return;
+        label.addEventListener('click', () => {
+            label.classList.toggle('collapsed');
+            collapse.classList.toggle('collapsed');
+        });
+    });
+
+
+
+    // ─── Tag Management Modal ────────────────────────────────────
+    let tagManageMode = 'rename';
+    let tagManageTagData = [];
+    
+    const tagManageOverlay = document.getElementById('tag-manage-overlay');
+    const tagManageClose = document.getElementById('tag-manage-close');
+    const tagManageSearch = document.getElementById('tag-manage-search');
+    const tagManageNew = document.getElementById('tag-manage-new');
+    const tagManageAddBtn = document.getElementById('tag-manage-add-btn');
+    const tagManageList = document.getElementById('tag-manage-list');
+    const tagManageStatus = document.getElementById('tag-manage-status');
+    const manageTagsBtn = document.getElementById('manage-tags-btn');
+    const renameModeBtn = document.getElementById('tag-manage-mode-rename');
+    const deleteModeBtn = document.getElementById('tag-manage-mode-delete');
+
+    function showTagManageStatus(msg, type) {
+        tagManageStatus.textContent = msg;
+        tagManageStatus.className = 'note-status ' + (type || '') + (msg ? '' : ' hidden');
+    }
+
+    function loadTagManageList() {
+        fetch('/api/tags').then(r => r.json()).then(data => {
+            tagManageTagData = data.tags || [];
+            const filter = (tagManageSearch ? tagManageSearch.value.trim().toLowerCase() : '');
+            const filtered = filter ? tagManageTagData.filter(t => t.toLowerCase().includes(filter)) : tagManageTagData;
+            
+            tagManageList.innerHTML = '';
+            filtered.forEach(tag => {
+                const chip = document.createElement('span');
+                chip.className = 'tag-manage-chip';
+                chip.textContent = tag;
+                chip.title = tag;
+                
+                if (tagManageMode === 'rename') {
+                    chip.addEventListener('click', () => {
+                        const oldName = chip.textContent;
+                        const input = document.createElement('input');
+                        input.type = 'text';
+                        input.className = 'tag-manage-chip-input';
+                        input.value = oldName;
+                        input.maxLength = 32;
+                        chip.textContent = '';
+                        chip.appendChild(input);
+                        input.focus();
+                        input.select();
+                        
+                        function saveRename() {
+                            const newName = input.value.trim();
+                            if (!newName || newName === oldName) {
+                                chip.textContent = oldName;
+                                return;
+                            }
+                            if (newName.length > 32) { showTagManageStatus('Max 32 characters.', 'error'); chip.textContent = oldName; return; }
+                            fetch('/api/tags/rename', {
+                                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ old: oldName, new: newName })
+                            }).then(r => r.json()).then(res => {
+                                if (res.success || res.message) {
+                                    showTagManageStatus('Renamed.', 'success');
+                                    loadTagManageList();
+                                    loadProjects();
+                                    renderResults(false);
+                                } else { showTagManageStatus('Failed.', 'error'); chip.textContent = oldName; }
+                            }).catch(() => { showTagManageStatus('Network error.', 'error'); chip.textContent = oldName; });
+                        }
+                        
+                        input.addEventListener('keydown', (ev) => {
+                            if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
+                            if (ev.key === 'Escape') { chip.textContent = oldName; }
+                        });
+                        input.addEventListener('blur', saveRename);
+                    });
+                } else {
+                    // Delete mode
+                    chip.classList.add('tag-manage-chip-deletable');
+                    chip.addEventListener('click', async () => {
+                        const oldName = chip.textContent;
+                        const confirmedTag = await showConfirmDialog('Delete tag "' + oldName + '" from all items?'); if (!confirmedTag) return;
+                        fetch('/api/tags/delete', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ tag: oldName })
+                        }).then(r => r.json()).then(res => {
+                            if (res.success || res.message) {
+                                showTagManageStatus('Deleted.', 'success');
+                                loadTagManageList();
+                                loadProjects();
+                                renderResults(false);
+                            } else { showTagManageStatus('Failed.', 'error'); }
+                        }).catch(() => showTagManageStatus('Network error.', 'error'));
+                    });
+                }
+                tagManageList.appendChild(chip);
+            });
+            if (filtered.length === 0) {
+                tagManageList.innerHTML = '<div class="tag-manage-empty">' +
+                    (filter ? 'No tags match "' + filter + '".' : 'No tags yet. Create your first tag above.') + '</div>';
+            }
+        }).catch(() => showTagManageStatus('Failed to load tags.', 'error'));
+    }
+
+    function switchTagManageMode(mode) {
+        tagManageMode = mode;
+        renameModeBtn.classList.toggle('active', mode === 'rename');
+        deleteModeBtn.classList.toggle('active', mode === 'delete');
+        loadTagManageList();
+    }
+
+    if (renameModeBtn) renameModeBtn.addEventListener('click', () => switchTagManageMode('rename'));
+    if (deleteModeBtn) deleteModeBtn.addEventListener('click', () => switchTagManageMode('delete'));
+
+    if (manageTagsBtn) {
+        manageTagsBtn.addEventListener('click', () => {
+            tagManageOverlay.hidden = false;
+            tagManageOverlay.removeAttribute('aria-hidden');
+            showTagManageStatus('', '');
+            if (tagManageSearch) tagManageSearch.value = '';
+            switchTagManageMode('rename');
+        });
+    }
+    if (tagManageClose) {
+        tagManageClose.addEventListener('click', () => { tagManageOverlay.hidden = true; tagManageOverlay.setAttribute('aria-hidden', 'true'); });
+    }
+    if (tagManageOverlay) {
+        tagManageOverlay.addEventListener('click', (e) => { if (e.target === tagManageOverlay) { tagManageOverlay.hidden = true; tagManageOverlay.setAttribute('aria-hidden', 'true'); } });
+    }
+    if (tagManageSearch) {
+        tagManageSearch.addEventListener('input', () => loadTagManageList());
+    }
+    if (tagManageAddBtn && tagManageNew) {
+        tagManageAddBtn.addEventListener('click', () => {
+            const name = tagManageNew.value.trim();
+            if (!name) { showTagManageStatus('Tag name cannot be empty.', 'error'); return; }
+            if (name.length > 32) { showTagManageStatus('Max 32 characters.', 'error'); return; }
+            fetch('/api/tags/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tag: name }) })
+                .then(r => r.json()).then(res => {
+                    if (res.success || res.status === 'ok' || res.message) {
+                        showTagManageStatus('Tag created.', 'success');
+                        tagManageNew.value = '';
+                        loadTagManageList();
+                        loadProjects();
+                        renderResults(false);
+                    } else { showTagManageStatus(res.error || 'Failed.', 'error'); }
+                }).catch(() => showTagManageStatus('Network error.', 'error'));
+        });
+        tagManageNew.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); tagManageAddBtn.click(); } });
+    }
+
+
 });
