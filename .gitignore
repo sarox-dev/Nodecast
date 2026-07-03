@@ -15,3 +15,6 @@ Thumbs.db
 
 # Local captures
 contents/
+
+# Searxng
+searxng/
