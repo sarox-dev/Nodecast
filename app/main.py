@@ -4,8 +4,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from app.api.routes.search import router as search_router
 from app.api.routes.capture import router as capture_router
+from app.services.database import init_db
 
 app = FastAPI()
+
+@app.on_event("startup")
+def startup():
+    init_db()
 
 app.add_middleware(
     CORSMiddleware,
@@ -21,7 +26,7 @@ app.include_router(capture_router, prefix="/api")
 
 @app.get("/api/version")
 def get_version():
-    return {"version": "0.0.1"}
+    return {"version": "0.0.3"}
 
 @app.get("/api/update/check")
 def check_update():
@@ -31,7 +36,7 @@ def check_update():
         if resp.status_code == 200:
             data = resp.json()
             latest = data.get("tag_name", "").lstrip("v")
-            current = "0.0.1"
+            current = "0.0.3"
             return {
                 "current_version": current,
                 "latest_version": latest,
@@ -40,9 +45,9 @@ def check_update():
                 "release_notes": data.get("body", "")[:500] if data.get("body") else "",
                 "published_at": data.get("published_at", ""),
             }
-        return {"current_version": "0.0.1", "error": "Could not reach GitHub"}
+        return {"current_version": "0.0.3", "error": "Could not reach GitHub"}
     except Exception as e:
-        return {"current_version": "0.0.1", "error": str(e)}
+        return {"current_version": "0.0.3", "error": str(e)}
 
 @app.get("/api/update/install")
 def install_update():
