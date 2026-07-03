@@ -1,6 +1,7 @@
 #!/usr/bin/env pwsh
 $Repo = "sarox-dev/Recollect"
 $InstallDir = Join-Path $HOME "Recollect"
+
 Write-Host "Installing Recollect..."
 
 # Check Docker
@@ -10,21 +11,59 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
-# Download latest release
-Write-Host "Downloading latest release..."
+# Get latest release tag from GitHub
+Write-Host "Checking latest version..."
+try {
+    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest"
+    $latestTag = $release.tag_name
+} catch {
+    Write-Host "Error: Could not determine latest version."
+    Write-Host "Visit https://github.com/$Repo/releases to install manually."
+    exit 1
+}
+Write-Host "Latest version: $latestTag"
+
+# Download and extract latest release
+Write-Host "Downloading $latestTag..."
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 Set-Location $InstallDir
-Invoke-WebRequest -Uri "https://github.com/$Repo/archive/refs/tags/v0.0.1.zip" -OutFile "release.zip"
+Invoke-WebRequest -Uri "https://github.com/$Repo/archive/refs/tags/$latestTag.zip" -OutFile "release.zip"
+
+Write-Host "Extracting..."
 Expand-Archive -Path "release.zip" -DestinationPath "/tmp/recollect-extract" -Force
 $extracted = Get-ChildItem "/tmp/recollect-extract/Recollect-*" | Select-Object -First 1
+if (-not $extracted) {
+    Write-Host "Error: Extraction failed."
+    Remove-Item "release.zip" -Force
+    exit 1
+}
 Copy-Item -Path "$($extracted.FullName)\*" -Destination $InstallDir -Recurse -Force
 Remove-Item -Path "release.zip" -Force
 Remove-Item -Path "/tmp/recollect-extract" -Recurse -Force
 
-# Setup .env from example if missing
-if (-not (Test-Path ".env") -and (Test-Path ".env.example")) {
-    Copy-Item ".env.example" ".env"
-    Write-Host "Created .env from .env.example"
+Write-Host "Setting up configuration..."
+
+# If .env doesn't exist, copy from .env.example
+if (-not (Test-Path ".env")) {
+    if (Test-Path ".env.example") {
+        Copy-Item ".env.example" ".env"
+        Write-Host "  Created .env from .env.example"
+    }
+} else {
+    # Merge new variables from .env.example into .env
+    if (Test-Path ".env.example") {
+        $exampleLines = Get-Content ".env.example"
+        $existingKeys = (Get-Content ".env") | ForEach-Object { if ($_ -match "^(\w+)=") { $matches[1] } }
+        foreach ($line in $exampleLines) {
+            if ($line -match "^(\w+)=") {
+                $key = $matches[1]
+                if ($key -notin $existingKeys) {
+                    Add-Content -Path ".env" -Value $line
+                    Write-Host "  Added new config: $key"
+                }
+            }
+        }
+    }
 }
 
 # Start

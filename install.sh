@@ -2,6 +2,7 @@
 set -e
 REPO="sarox-dev/Recollect"
 INSTALL_DIR="${HOME}/Recollect"
+
 echo "Installing Recollect..."
 
 # Check Docker
@@ -11,19 +12,54 @@ if ! command -v docker &>/dev/null 2>&1; then
     exit 1
 fi
 
-# Download latest release
-echo "Downloading latest release..."
+# Get latest release tag from GitHub
+echo "Checking latest version..."
+LATEST_TAG=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | cut -d'"' -f4)
+if [ -z "$LATEST_TAG" ]; then
+    echo "Error: Could not determine latest version."
+    echo "Visit https://github.com/$REPO/releases to install manually."
+    exit 1
+fi
+echo "Latest version: $LATEST_TAG"
+
+# Download and extract latest release
+echo "Downloading $LATEST_TAG..."
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
-curl -fsSL "https://github.com/$REPO/archive/refs/tags/v0.0.1.zip" -o release.zip
+curl -fsSL "https://github.com/$REPO/archive/refs/tags/$LATEST_TAG.zip" -o release.zip
+
+echo "Extracting..."
 unzip -o release.zip -d /tmp/recollect-extract/ >/dev/null 2>&1
-cp -r /tmp/recollect-extract/Recollect-*/* "$INSTALL_DIR/"
+EXTRACTED_DIR=$(find /tmp/recollect-extract/ -maxdepth 1 -type d -name "Recollect-*" | head -1)
+if [ -z "$EXTRACTED_DIR" ]; then
+    echo "Error: Extraction failed."
+    rm -f release.zip
+    exit 1
+fi
+cp -r "$EXTRACTED_DIR"/. "$INSTALL_DIR/"
 rm -rf /tmp/recollect-extract/ release.zip
 
-# Setup .env from example if missing
-if [ ! -f .env ] && [ -f .env.example ]; then
-    cp .env.example .env
-    echo "Created .env from .env.example"
+echo "Setting up configuration..."
+
+# If .env doesn't exist, copy from .env.example
+if [ ! -f .env ]; then
+    if [ -f .env.example ]; then
+        cp .env.example .env
+        echo "  Created .env from .env.example"
+    fi
+else
+    # Merge new variables from .env.example into .env (without overwriting existing values)
+    if [ -f .env.example ]; then
+        while IFS='=' read -r key val; do
+            # Skip comments and empty lines
+            [[ "$key" =~ ^#.*$ || -z "$key" ]] && continue
+            # If key not in .env, append it
+            if ! grep -q "^${key}=" .env; then
+                echo "${key}=${val}" >> .env
+                echo "  Added new config: ${key}"
+            fi
+        done < .env.example
+    fi
 fi
 
 # Start
