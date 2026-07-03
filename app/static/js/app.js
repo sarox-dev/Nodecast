@@ -96,6 +96,13 @@ window.addEventListener('DOMContentLoaded', async () => {
             category: 'Search engines',
             description: 'Choose which search engines are included in your queries.',
             items: searchEngineFields.map(field => ({ key: field.key, label: field.label, type: 'checkbox', default: field.default }))
+        },
+        {
+            category: 'Updates',
+            description: 'Check for new versions and manage auto-updates.',
+            items: [
+                { key: 'autoUpdate', label: 'Auto update when available', type: 'checkbox', default: false },
+            ]
         }
     ];
 

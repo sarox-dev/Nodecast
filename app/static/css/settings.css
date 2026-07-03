@@ -409,3 +409,10 @@
     padding: 0.4rem 0.6rem;
   }
 }
+
+/* ─── Update section ─────────────────────────────────────────── */
+.update-btn-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.update-status { font-size: 0.82rem; color: var(--text-secondary); }
+.update-available { color: var(--saved-text); }
+.update-current { color: var(--text-tertiary); }
+.update-link { color: var(--accent); text-decoration: underline; }

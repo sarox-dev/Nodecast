@@ -1,58 +1,26 @@
 #!/usr/bin/env bash
 set -e
+REPO="sarox-dev/Recollect"
+echo "Installing Recollect..."
 
-REPO="https://github.com/sarox-dev/Recollect.git"
-DIR="$(pwd)/Recollect"
-
-echo "======================================"
-echo " Recollect installer (current dir)"
-echo "======================================"
-echo ""
-echo "Target directory: $DIR"
-echo ""
-
-# checks
-command -v docker >/dev/null 2>&1 || {
-  echo "Docker not installed"
-  exit 1
-}
-
-command -v git >/dev/null 2>&1 || {
-  echo "Git not installed"
-  exit 1
-}
-
-if [ -d "$DIR/.git" ]; then
-    echo "Recollect is already installed."
-
-    read -rp "Update existing installation? [Y/n] " answer
-
-    if [[ ! "$answer" =~ ^[Nn]$ ]]; then
-        git -C "$DIR" pull --rebase
-    else
-        exit 0
-    fi
-else
-    git clone "$REPO" "$DIR"
+# Check Docker
+if ! command -v docker &>/dev/null; then
+    echo "Error: Docker is required. Install from https://docs.docker.com/get-docker/"
+    exit 1
 fi
 
-cd "$DIR"
+# Clone or pull
+if [ -d "Recollect" ]; then
+    echo "Updating existing installation..."
+    cd Recollect
+    git pull
+else
+    echo "Cloning repository..."
+    git clone https://github.com/$REPO.git
+    cd Recollect
+fi
 
-echo ""
-echo "Setting up env..."
-
-[ -f .env ] || cp .env.example .env 2>/dev/null || true
-
-echo ""
+# Start
 echo "Starting Recollect..."
-
 docker compose up -d
-
-PORT=$(grep APP_PORT .env 2>/dev/null | cut -d '=' -f2)
-PORT=${PORT:-5000}
-
-echo ""
-echo "======================================"
-echo "✓ Recollect running"
-echo "→ http://localhost:$PORT"
-echo "======================================"
+echo "Recollect is running at http://localhost:5000"

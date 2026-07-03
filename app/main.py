@@ -18,6 +18,46 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 app.include_router(search_router)
 app.include_router(capture_router, prefix="/api")
 
+
+@app.get("/api/version")
+def get_version():
+    return {"version": "0.0.1"}
+
+@app.get("/api/update/check")
+def check_update():
+    import requests
+    try:
+        resp = requests.get("https://api.github.com/repos/sarox-dev/Recollect/releases/latest", timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            latest = data.get("tag_name", "").lstrip("v")
+            current = "0.0.1"
+            return {
+                "current_version": current,
+                "latest_version": latest,
+                "has_update": latest > current if latest else False,
+                "release_url": data.get("html_url", ""),
+                "release_notes": data.get("body", "")[:500] if data.get("body") else "",
+                "published_at": data.get("published_at", ""),
+            }
+        return {"current_version": "0.0.1", "error": "Could not reach GitHub"}
+    except Exception as e:
+        return {"current_version": "0.0.1", "error": str(e)}
+
+@app.get("/api/update/install")
+def install_update():
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["bash", "-c", "curl -fsSL https://github.com/sarox-dev/Recollect/releases/latest/download/install.sh | bash"],
+            capture_output=True, text=True, timeout=120
+        )
+        return {"success": result.returncode == 0, "output": result.stdout[:500], "error": result.stderr[:500] if result.stderr else ""}
+    except subprocess.TimeoutExpired:
+        return {"success": False, "error": "Update timed out"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
 templates = Jinja2Templates(directory="app/templates")
 
 @app.get("/")
