@@ -1,13 +1,13 @@
-import sqlite3
 import json
 import os
+import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.core.security import USERS_DB_PATH, USERS_DATA_DIR, CONTENTS_DIR
+from app.core.security import CONTENTS_DIR, USERS_DB_PATH, USERS_DATA_DIR
 
-# ─── Global users DB ──────────────────────────────────────────────
+# ─── Global users DB (Auth) ───────────────────────────────────────
 
 def get_users_db():
     """Open the global users database (creates if not exists)."""
@@ -30,11 +30,10 @@ def _init_users_schema(conn):
             created_at TEXT DEFAULT ''
         );
     """)
-    # Add is_admin column if missing (migration)
     try:
         conn.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0")
-    except:
-        pass  # Already exists
+    except Exception:
+        pass
     conn.commit()
 
 
@@ -85,7 +84,7 @@ def get_user_by_username(username: str) -> dict | None:
 def get_user_by_id(user_id: str) -> dict | None:
     conn = get_users_db()
     try:
-        row = conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+        row = conn.execute("SELECT id, username, is_admin, created_at FROM users WHERE id=?", (user_id,)).fetchone()
         return dict(row) if row else None
     finally:
         conn.close()
@@ -94,7 +93,9 @@ def get_user_by_id(user_id: str) -> dict | None:
 def get_all_users() -> list[dict]:
     conn = get_users_db()
     try:
-        return [dict(r) for r in conn.execute("SELECT id, username, is_admin, created_at FROM users ORDER BY created_at").fetchall()]
+        return [dict(r) for r in conn.execute(
+            "SELECT id, username, is_admin, created_at FROM users ORDER BY created_at"
+        ).fetchall()]
     finally:
         conn.close()
 
@@ -125,7 +126,6 @@ def delete_user(user_id: str):
         conn.commit()
     finally:
         conn.close()
-    # Remove data directory
     import shutil
     user_dir = USERS_DATA_DIR / user_id
     if user_dir.exists():
@@ -133,41 +133,38 @@ def delete_user(user_id: str):
 
 
 def clear_user_data(user_id: str):
-    """Clear all items/projects from a user's DB but keep the user."""
+    """Clear all captures from a user's DB but keep the user."""
     db_path = get_user_db_path(user_id)
     if not db_path.exists():
         return
     conn = sqlite3.connect(str(db_path))
     try:
-        conn.execute("DELETE FROM items")
-        conn.execute("DELETE FROM projects")
+        conn.execute("DELETE FROM captures")
         conn.commit()
     finally:
         conn.close()
 
 
 # ─── Registration setting ─────────────────────────────────────────
+
 REGISTER_SETTINGS_PATH = CONTENTS_DIR / "registration.json"
 
 
 def get_registration_setting() -> bool:
-    """True = anyone can register. False = admin-only."""
     if not REGISTER_SETTINGS_PATH.exists():
-        return True  # Default: open registration
-    import json
+        return True
     try:
         data = json.loads(REGISTER_SETTINGS_PATH.read_text())
         return data.get("open_registration", True)
-    except:
+    except Exception:
         return True
 
 
 def set_registration_setting(open_reg: bool):
-    import json
     REGISTER_SETTINGS_PATH.write_text(json.dumps({"open_registration": open_reg}))
 
 
-# ─── Per-user data DB ─────────────────────────────────────────────
+# ─── Per-user Capture DB ──────────────────────────────────────────
 
 def get_user_db_path(user_id: str) -> Path:
     """Path to a user's data directory and database."""
@@ -177,35 +174,28 @@ def get_user_db_path(user_id: str) -> Path:
 
 
 def init_user_db(user_id: str):
-    """Initialize a user's personal database with schema."""
+    """Initialize a user's personal database with the new captures schema."""
     db_path = get_user_db_path(user_id)
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.executescript("""
-        CREATE TABLE IF NOT EXISTS items (
+        CREATE TABLE IF NOT EXISTS captures (
             id TEXT PRIMARY KEY,
-            type TEXT DEFAULT 'snippet',
-            content TEXT DEFAULT '',
-            project TEXT DEFAULT '',
-            tags TEXT DEFAULT '[]',
+            capture_type TEXT DEFAULT 'page',
             source_url TEXT DEFAULT '',
             source_title TEXT DEFAULT '',
             source_site_name TEXT DEFAULT '',
-            source_captured_at TEXT DEFAULT '',
-            context_before TEXT DEFAULT '',
-            context_after TEXT DEFAULT '',
-            context_selection_html TEXT DEFAULT '',
-            selected_tag TEXT DEFAULT '',
-            tag_ancestry TEXT DEFAULT '',
-            saved_at TEXT DEFAULT ''
+            captured_at TEXT DEFAULT '',
+            saved_at TEXT DEFAULT '',
+            tags TEXT DEFAULT '[]',
+            project TEXT DEFAULT '',
+            raw_path TEXT DEFAULT ''
         );
-        CREATE TABLE IF NOT EXISTS projects (
-            name TEXT PRIMARY KEY
-        );
-        CREATE INDEX IF NOT EXISTS idx_items_project ON items(project);
-        CREATE INDEX IF NOT EXISTS idx_items_saved_at ON items(saved_at);
+        CREATE INDEX IF NOT EXISTS idx_captures_saved_at ON captures(saved_at);
+        CREATE INDEX IF NOT EXISTS idx_captures_project ON captures(project);
+        CREATE INDEX IF NOT EXISTS idx_captures_source_url ON captures(source_url);
     """)
     conn.commit()
     conn.close()
@@ -223,121 +213,123 @@ def get_db(user_id: str):
     return conn
 
 
-# ─── Migration ────────────────────────────────────────────────────
+# ─── Capture CRUD helpers ─────────────────────────────────────────
 
-def migrate_existing_data():
-    """Migrate existing contents/recollect.db to a user's per-user database."""
-    old_db = CONTENTS_DIR / "recollect.db"
-    if not old_db.exists():
-        return
-
-    # Check if we've already migrated
-    from app.services.auth import hash_password
-    first_user = get_all_users()
-    if first_user:
-        user = first_user[0]
-        user_id = user["id"]
-    else:
-        user_id = "admin"
-        now = datetime.now(timezone.utc).isoformat()
-        conn = get_users_db()
+def insert_capture_ref(
+    user_id: str,
+    capture_id: str,
+    capture_type: str,
+    source_url: str,
+    source_title: str | None,
+    source_site_name: str | None,
+    captured_at: str,
+    saved_at: str,
+    tags: list[str],
+    project: str,
+    raw_path: str,
+):
+    """Insert a capture reference row into the user's DB."""
+    conn = get_db(user_id)
+    try:
         conn.execute(
-            "INSERT OR IGNORE INTO users (id, username, password_hash, is_admin, created_at) VALUES (?,?,?,?,?)",
-            (user_id, "admin", hash_password("changeme"), 1, now),
+            """INSERT INTO captures
+               (id, capture_type, source_url, source_title, source_site_name,
+                captured_at, saved_at, tags, project, raw_path)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (
+                capture_id,
+                capture_type,
+                source_url,
+                source_title or "",
+                source_site_name or "",
+                captured_at,
+                saved_at,
+                json.dumps(tags),
+                project,
+                raw_path,
+            ),
         )
         conn.commit()
+    finally:
         conn.close()
 
-    target_dir = USERS_DATA_DIR / user_id
-    migrated_flag = target_dir / ".migrated"
-    if migrated_flag.exists():
-        return
 
-    target_db = target_dir / "recollect.db"
-    if target_db.exists() and target_db.stat().st_size > 1000:
-        migrated_flag.write_text(f"migrated from {old_db} at {datetime.now(timezone.utc).isoformat()}")
-        return
-
-    os.makedirs(str(target_dir), exist_ok=True)
-
+def get_capture_ref(user_id: str, capture_id: str) -> dict | None:
+    """Get a capture reference row from DB."""
+    conn = get_db(user_id)
     try:
-        old_conn = sqlite3.connect(str(old_db))
-        old_conn.row_factory = sqlite3.Row
-
-        new_conn = sqlite3.connect(str(target_db))
-        new_conn.execute("PRAGMA journal_mode=WAL")
-        new_conn.execute("PRAGMA synchronous=NORMAL")
-        new_conn.executescript("""
-            CREATE TABLE IF NOT EXISTS items (
-                id TEXT PRIMARY KEY,
-                type TEXT DEFAULT 'snippet',
-                content TEXT DEFAULT '',
-                project TEXT DEFAULT '',
-                tags TEXT DEFAULT '[]',
-                source_url TEXT DEFAULT '',
-                source_title TEXT DEFAULT '',
-                source_site_name TEXT DEFAULT '',
-                source_captured_at TEXT DEFAULT '',
-                context_before TEXT DEFAULT '',
-                context_after TEXT DEFAULT '',
-                context_selection_html TEXT DEFAULT '',
-                selected_tag TEXT DEFAULT '',
-                tag_ancestry TEXT DEFAULT '',
-                saved_at TEXT DEFAULT ''
-            );
-            CREATE TABLE IF NOT EXISTS projects (
-                name TEXT PRIMARY KEY
-            );
-            CREATE INDEX IF NOT EXISTS idx_items_project ON items(project);
-            CREATE INDEX IF NOT EXISTS idx_items_saved_at ON items(saved_at);
-        """)
-
-        copied = 0
-        for row in old_conn.execute("SELECT * FROM items").fetchall():
-            new_conn.execute(
-                """INSERT INTO items
-                   (id, type, content, project, tags,
-                    source_url, source_title, source_site_name, source_captured_at,
-                    context_before, context_after, context_selection_html, selected_tag, tag_ancestry, saved_at)
-                   VALUES (?,?,?,?,?, ?,?,?,?, ?,?,?,?,?,?)""",
-                (row["id"], row["type"], row["content"], row["project"], row["tags"],
-                 row["source_url"], row["source_title"], row["source_site_name"], row["source_captured_at"],
-                 row["context_before"], row["context_after"], row["context_selection_html"],
-                 row["selected_tag"] if "selected_tag" in row.keys() else "",
-                 row["tag_ancestry"] if "tag_ancestry" in row.keys() else "",
-                 row["saved_at"]),
-            )
-            copied += 1
-
-        for row in old_conn.execute("SELECT * FROM projects").fetchall():
-            new_conn.execute("INSERT OR IGNORE INTO projects (name) VALUES (?)", (row["name"],))
-
-        new_conn.commit()
-        new_conn.close()
-        old_conn.close()
-
-        migrated_flag.write_text(f"migrated {copied} items from {old_db} at {datetime.now(timezone.utc).isoformat()}")
-
-        old_db.rename(old_db.with_suffix(".db.pre-auth"))
-        print(f"Migrated {copied} items to {target_db}")
-    except Exception as e:
-        print(f"Migration error: {e}")
+        row = conn.execute("SELECT * FROM captures WHERE id=?", (capture_id,)).fetchone()
+        if row:
+            return _row_to_dict(row)
+        return None
+    finally:
+        conn.close()
 
 
-# ─── Legacy compatibility ─────────────────────────────────────────
-# Keep these for backwards compatibility during transition
+def list_captures(user_id: str, limit: int = 50, offset: int = 0) -> list[dict]:
+    """List capture references, newest first."""
+    conn = get_db(user_id)
+    try:
+        rows = conn.execute(
+            "SELECT * FROM captures ORDER BY saved_at DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+    finally:
+        conn.close()
 
-def get_legacy_db():
-    """Open the old single-user database (for backward compat during migration)."""
-    return get_db("default")
+
+def delete_capture_ref(user_id: str, capture_id: str) -> bool:
+    """Delete a capture reference. Returns True if existed."""
+    conn = get_db(user_id)
+    try:
+        cur = conn.execute("DELETE FROM captures WHERE id=?", (capture_id,))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def search_captures(user_id: str, query: str) -> list[dict]:
+    """Simple text search across capture references."""
+    conn = get_db(user_id)
+    try:
+        rows = conn.execute(
+            """SELECT * FROM captures
+               WHERE source_url LIKE ? OR source_title LIKE ? OR project LIKE ? OR tags LIKE ?
+               ORDER BY saved_at DESC LIMIT 50""",
+            (f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%"),
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def _row_to_dict(row) -> dict:
+    tags = json.loads(row["tags"]) if isinstance(row["tags"], str) else []
+    return {
+        "id": row["id"],
+        "capture_type": row["capture_type"],
+        "source_url": row["source_url"],
+        "source_title": row["source_title"],
+        "source_site_name": row["source_site_name"],
+        "captured_at": row["captured_at"],
+        "saved_at": row["saved_at"],
+        "tags": tags,
+        "project": row["project"],
+        "raw_path": row["raw_path"],
+    }
+
+
+# ─── Backward compat stubs (no-op) ────────────────────────────────
+
+def migrate_existing_data():
+    pass  # No migration needed — clean start
+
+
+def init_db():
+    pass  # Auto-migrate removed — fresh system
 
 
 def init_legacy_db_if_needed():
-    """Run migration if old DB exists."""
-    migrate_existing_data()
-
-
-# ─── Old init_db kept for import compatibility ────────────────────
-def init_db():
-    """Legacy: auto-migrate on startup."""
-    migrate_existing_data()
+    pass
