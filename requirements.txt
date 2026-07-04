@@ -4,3 +4,5 @@ httpx
 requests
 jinja2
 python-multipart
+bcrypt
+pyjwt

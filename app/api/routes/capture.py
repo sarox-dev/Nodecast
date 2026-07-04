@@ -5,10 +5,11 @@ from pathlib import Path
 from uuid import uuid4
 from html.parser import HTMLParser
 
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
 from pydantic import BaseModel
 
 from app.services.database import get_db
+from app.services.auth import get_current_user
 
 router = APIRouter()
 CONTENTS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "contents"
@@ -90,13 +91,13 @@ def _row_to_search_item(row) -> dict:
 
 # ─── POST /api/capture ───────────────────────────────────────────
 @router.post("/capture", response_model=CaptureResponse)
-def capture_item(request: CaptureRequest):
+def capture_item(request: CaptureRequest, current_user: dict = Depends(get_current_user)):
     capture_id = uuid4().hex[:12]
     now = datetime.now(timezone.utc)
     saved_at = now.replace(tzinfo=None).isoformat() + "Z"
     tags_json = json.dumps(request.tags)
 
-    conn = get_db()
+    conn = get_db(current_user["user_id"])
     try:
         conn.execute(
             """INSERT INTO items
@@ -146,8 +147,8 @@ def capture_item(request: CaptureRequest):
 
 # ─── PATCH /api/capture/{capture_id} ─────────────────────────────
 @router.patch("/capture/{capture_id}")
-def update_capture(capture_id: str, update: UpdateRequest):
-    conn = get_db()
+def update_capture(capture_id: str, update: UpdateRequest, current_user: dict = Depends(get_current_user)):
+    conn = get_db(current_user["user_id"])
     try:
         row = conn.execute("SELECT * FROM items WHERE id=?", (capture_id,)).fetchone()
         if not row:
@@ -169,8 +170,8 @@ def update_capture(capture_id: str, update: UpdateRequest):
 
 # ─── DELETE /api/capture/{capture_id} ─────────────────────────────
 @router.delete("/capture/{capture_id}")
-def delete_capture(capture_id: str):
-    conn = get_db()
+def delete_capture(capture_id: str, current_user: dict = Depends(get_current_user)):
+    conn = get_db(current_user["user_id"])
     try:
         if not conn.execute("SELECT id FROM items WHERE id=?", (capture_id,)).fetchone():
             raise HTTPException(404, "Capture not found")
@@ -183,8 +184,8 @@ def delete_capture(capture_id: str):
 
 # ─── GET /api/capture ────────────────────────────────────────────
 @router.get("/capture")
-def list_captures():
-    conn = get_db()
+def list_captures(current_user: dict = Depends(get_current_user)):
+    conn = get_db(current_user["user_id"])
     try:
         rows = conn.execute("SELECT * FROM items ORDER BY saved_at DESC LIMIT 50").fetchall()
         captures = []
@@ -203,8 +204,8 @@ def list_captures():
 
 # ─── GET /api/tags ───────────────────────────────────────────────
 @router.get("/tags")
-def get_tags():
-    conn = get_db()
+def get_tags(current_user: dict = Depends(get_current_user)):
+    conn = get_db(current_user["user_id"])
     try:
         rows = conn.execute("SELECT project, tags FROM items").fetchall()
         projects = {}
@@ -234,11 +235,11 @@ def get_tags():
 
 # ─── POST /api/projects ──────────────────────────────────────────
 @router.post("/projects")
-def create_project(request: ProjectCreateRequest):
+def create_project(request: ProjectCreateRequest, current_user: dict = Depends(get_current_user)):
     name = request.name.strip()
     if not name:
         raise HTTPException(400, "Project name is required")
-    conn = get_db()
+    conn = get_db(current_user["user_id"])
     try:
         conn.execute("INSERT OR IGNORE INTO projects (name) VALUES (?)", (name,))
         conn.commit()
@@ -249,13 +250,13 @@ def create_project(request: ProjectCreateRequest):
 
 # ─── POST /api/projects/delete ────────────────────────────────────
 @router.post("/projects/delete")
-def delete_project(request: ProjectDeleteRequest):
+def delete_project(request: ProjectDeleteRequest, current_user: dict = Depends(get_current_user)):
     name = request.name.strip()
     if not name:
         raise HTTPException(400, "Project name is required")
     if name.lower() in ("all items", "uncategorized"):
         raise HTTPException(400, "Cannot delete a built-in filter")
-    conn = get_db()
+    conn = get_db(current_user["user_id"])
     try:
         count = conn.execute("SELECT COUNT(*) as c FROM items WHERE LOWER(project)=LOWER(?)", (name,)).fetchone()["c"] or 0
         conn.execute("UPDATE items SET project='' WHERE LOWER(project)=LOWER(?)", (name,))
@@ -278,7 +279,7 @@ def delete_tag(request: TagDeleteRequest):
     tag = request.tag.strip()
     if not tag:
         raise HTTPException(400, "Tag name is required")
-    conn = get_db()
+    conn = get_db(current_user["user_id"])
     try:
         rows = conn.execute("SELECT id, tags FROM items").fetchall()
         count = 0
@@ -302,7 +303,7 @@ def rename_tag(request: TagRenameRequest):
         raise HTTPException(400, "Both old and new tag names required")
     if old == new:
         return {"success": True, "message": "No change needed."}
-    conn = get_db()
+    conn = get_db(current_user["user_id"])
     try:
         rows = conn.execute("SELECT id, tags FROM items").fetchall()
         count = 0
@@ -353,7 +354,7 @@ class BookmarkParser(HTMLParser):
 
 
 @router.post("/import/bookmarks")
-def import_bookmarks(file: UploadFile = File(...)):
+def import_bookmarks(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
     if not file.filename or not file.filename.endswith(".html"):
         raise HTTPException(400, "Please upload an .html bookmark file")
     try:
@@ -368,7 +369,7 @@ def import_bookmarks(file: UploadFile = File(...)):
     saved_at = now.replace(tzinfo=None).isoformat() + "Z"
     saved = []
     errors = 0
-    conn = get_db()
+    conn = get_db(current_user["user_id"])
     try:
         for bm in bookmarks:
             capture_id = uuid4().hex[:12]
@@ -403,13 +404,13 @@ def parse_bookmark_html(content: str) -> list[dict]:
 
 # ─── GET /api/local/search ────────────────────────────────────────
 @router.get("/local/search")
-def local_search(q: str = ""):
+def local_search(q: str = "", current_user: dict = Depends(get_current_user)):
     if not q:
         return []
     terms = [t for t in q.lower().strip().split() if t]
     if not terms:
         return []
-    conn = get_db()
+    conn = get_db(current_user["user_id"])
     try:
         results = []
         for row in conn.execute("SELECT * FROM items ORDER BY saved_at DESC").fetchall():

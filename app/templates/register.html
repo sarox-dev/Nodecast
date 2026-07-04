@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Recollect — Register</title>
+    <link rel="stylesheet" href="/static/css/base.css" />
+    <link rel="stylesheet" href="/static/css/theme-default.css" />
+    <link rel="icon" type="image/png" sizes="32x32" href="../static/favicon_io/favicon-32x32.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <style>
+      .auth-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 2rem; }
+      .auth-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 2.5rem; width: 100%; max-width: 380px; box-shadow: 0 4px 24px rgba(0,0,0,0.3); }
+      .auth-brand { text-align: center; margin-bottom: 2rem; }
+      .auth-brand img { width: 48px; height: 48px; border-radius: 10px; }
+      .auth-brand h1 { font-size: 1.3rem; margin: 0.5rem 0 0.2rem; }
+      .auth-brand p { color: var(--text-dim); font-size: 0.85rem; margin: 0; }
+      .auth-form .auth-field { margin-bottom: 1rem; }
+      .auth-form label { display: block; font-size: 0.82rem; font-weight: 500; margin-bottom: 0.3rem; color: var(--text-dim); }
+      .auth-form input { width: 100%; padding: 0.6rem 0.75rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font-size: 0.9rem; outline: none; box-sizing: border-box; }
+      .auth-form input:focus { border-color: var(--accent); }
+      .auth-submit { width: 100%; padding: 0.65rem; border: none; border-radius: 8px; background: var(--accent); color: #fff; font-weight: 600; font-size: 0.9rem; cursor: pointer; margin-top: 0.5rem; }
+      .auth-submit:hover { opacity: 0.9; }
+      .auth-error { color: #f87171; font-size: 0.8rem; margin-top: 0.5rem; text-align: center; display: none; }
+      .auth-link { text-align: center; margin-top: 1.2rem; font-size: 0.82rem; color: var(--text-dim); }
+      .auth-link a { color: var(--accent); text-decoration: none; }
+      .auth-link a:hover { text-decoration: underline; }
+      .setup-banner { background: var(--accent); color: #fff; border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1.5rem; text-align: center; font-size: 0.85rem; font-weight: 500; }
+    </style>
+  </head>
+  <body>
+    <div class="auth-page">
+      <div class="auth-card">
+        <div class="auth-brand">
+          <img src="/static/logo.png" alt="Recollect" />
+          <h1>Recollect</h1>
+          {% if no_users %}
+            <p>Create your admin account</p>
+          {% else %}
+            <p>Create a new account</p>
+          {% endif %}
+        </div>
+        {% if no_users %}
+          <div class="setup-banner">This is the first account — you will be the <strong>admin</strong>.</div>
+        {% endif %}
+        <form class="auth-form" id="register-form">
+          <div class="auth-field">
+            <label for="username">Username</label>
+            <input id="username" type="text" placeholder="Choose a username" autocomplete="username" required />
+          </div>
+          <div class="auth-field">
+            <label for="password">Password</label>
+            <input id="password" type="password" placeholder="Minimum 4 characters" autocomplete="new-password" required />
+          </div>
+          <div id="auth-error" class="auth-error"></div>
+          <button type="submit" class="auth-submit">Create account</button>
+        </form>
+        {% if not no_users %}
+          <div class="auth-link">
+            Already have an account? <a href="/login">Sign in</a>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+    <script>
+      document.getElementById('register-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const username = document.getElementById('username').value.trim();
+        const password = document.getElementById('password').value;
+        const errorEl = document.getElementById('auth-error');
+        const btn = e.target.querySelector('button');
+        btn.disabled = true; btn.textContent = 'Creating...';
+        errorEl.style.display = 'none';
+        try {
+          const res = await fetch('/auth/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password }),
+          });
+          const data = await res.json();
+          if (data.success) {
+            window.location.href = '/';
+          } else {
+            errorEl.textContent = data.detail || 'Registration failed';
+            errorEl.style.display = 'block';
+          }
+        } catch (err) {
+          errorEl.textContent = 'Connection error. Is the server running?';
+          errorEl.style.display = 'block';
+        } finally {
+          btn.disabled = false; btn.textContent = 'Create account';
+        }
+      });
+    </script>
+  </body>
+</html>

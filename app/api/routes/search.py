@@ -1,9 +1,10 @@
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 from app.services.searxng import search as searxng_search
 from app.services.database import get_db
+from app.services.auth import get_current_user
 
 router = APIRouter()
 SEARXNG_SETTINGS_PATH = Path(__file__).resolve().parent.parent.parent.parent / "searxng" / "settings.yml"
@@ -24,12 +25,12 @@ def _to_item(row) -> dict:
     }
 
 
-def local_search(q: str, project: str | None = None):
+def local_search(q: str, project: str | None = None, user_id: str | None = None):
     if not q: return []
     terms = [t for t in q.lower().strip().split() if t]
     if not terms: return []
     pf = (project or "").strip()
-    conn = get_db()
+    conn = get_db(user_id or "default")
     try:
         results = []
         for row in conn.execute("SELECT * FROM items ORDER BY saved_at DESC").fetchall():
@@ -55,11 +56,12 @@ def local_search(q: str, project: str | None = None):
 @router.get("/search")
 def search_route(q: str | None = Query(None), type: str = Query("web"),
                   page: int = Query(1, ge=1), engines: str | None = Query(None),
-                  project: str | None = Query(None)):
+                  project: str | None = Query(None),
+                  current_user: dict = Depends(get_current_user)):
     if not q: return {"message": "use ?q="}
     if engines is not None: engines = engines.strip() or None
     page1 = page == 1
-    saved = local_search(q, project=project) if page1 else []
+    saved = local_search(q, project=project, user_id=current_user["user_id"]) if page1 else []
     if project and page1:
         return {"results": saved, "total": len(saved)}
     web = searxng_search(q, page, engines, "images" if type == "images" else "general") or {}
@@ -70,8 +72,9 @@ def search_route(q: str | None = Query(None), type: str = Query("web"),
 
 
 @router.get("/browse")
-def browse_captures(project: str | None = Query(None)):
-    conn = get_db()
+def browse_captures(project: str | None = Query(None),
+                     current_user: dict = Depends(get_current_user)):
+    conn = get_db(current_user["user_id"])
     try:
         pf = (project or "").strip()
         if pf == "__uncategorized__":

@@ -1,4 +1,36 @@
 window.addEventListener('DOMContentLoaded', async () => {
+    // ─── Auth check ───────────────────────────────────────────────
+    let currentUser = null;
+    try {
+        const meRes = await fetch('/auth/me');
+        if (meRes.ok) {
+            currentUser = await meRes.json();
+            const uname = document.getElementById('sidebar-username');
+            if (uname) uname.textContent = currentUser.username;
+            subtitle = document.getElementById('sidebar-brand-subtitle');
+            if (subtitle) subtitle.textContent = currentUser.username;
+        } else {
+            // Not logged in — redirect to login
+            window.location.href = '/login';
+            return;
+        }
+    } catch {
+        window.location.href = '/login';
+        return;
+    }
+
+    document.getElementById('logout-button')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await fetch('/auth/logout', { method: 'POST' });
+        window.location.href = '/login';
+    });
+
+    // Brand click opens Account settings
+    document.querySelector('.sidebar-brand')?.addEventListener('click', (e) => {
+        if (e.target.closest('button')) return; // ignore button clicks inside brand
+        openAccountSettings();
+    });
+
     const pageShell = document.getElementById('page-shell');
     const form = document.getElementById('search-form');
     const queryInput = document.getElementById('query');
@@ -74,6 +106,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     ];
 
     let activeSettingsCategory = 'Appearance';
+    let accountData = null;
     const settingsSchema = [
         {
             category: 'Appearance',
@@ -103,6 +136,11 @@ window.addEventListener('DOMContentLoaded', async () => {
             items: [
                 { key: 'autoUpdate', label: 'Auto update when available', type: 'checkbox', default: false },
             ]
+        },
+        {
+            category: 'Account',
+            description: 'Your account settings.',
+            items: []  // Custom rendering
         }
     ];
 
@@ -146,8 +184,196 @@ window.addEventListener('DOMContentLoaded', async () => {
         const category = settingsSchema.find(cat => cat.category === activeSettingsCategory) || settingsSchema[0];
         settingsCategoryTitle.textContent = category.category;
         settingsCategoryDescription.textContent = category.description || '';
-        settingsList.innerHTML = category.items.map(item => createField({ ...item, category: category.category })).join('');
+        if (category.category === 'Account') {
+            renderAccountSettings();
+        } else {
+            settingsList.innerHTML = category.items.map(item => createField({ ...item, category: category.category })).join('');
+        }
         if (settingsSearchInput?.value.trim()) filterSettings(settingsSearchInput.value);
+    }
+
+    async function renderAccountSettings() {
+        // Fetch fresh account data
+        let user = null, users = null, settings = null;
+        try {
+            const r1 = await fetch('/auth/me');
+            user = r1.ok ? await r1.json() : null;
+            const r2 = await fetch('/auth/settings');
+            settings = r2.ok ? await r2.json() : null;
+        } catch {}
+        // Try to get users list
+        try {
+            const r3 = await fetch('/auth/users');
+            users = r3.ok ? (await r3.json()).users : null;
+        } catch {}
+
+        const isAdmin = user?.is_admin;
+        let html = '<div class="settings-field-group">';
+
+        // Username
+        html += `<div class="settings-field"><span>Username</span><span style="color:var(--text-dim);font-size:0.85rem">${user?.username || ''}</span></div>`;
+
+        // Copy API Token
+        html += `<div class="settings-field"><span>API Token</span><button id="acc-copy-token" class="modal-btn modal-btn-primary" type="button" style="padding:0.35rem 0.75rem;font-size:0.78rem">Copy API Token</button></div>`;
+
+        // Change username
+        html += `<div class="settings-field" style="flex-direction:column;align-items:stretch;gap:0.4rem">
+          <span>Change username</span>
+          <div style="display:flex;gap:0.4rem">
+            <input id="acc-new-username" type="text" placeholder="New username" style="flex:1;padding:0.35rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:0.82rem" />
+            <input id="acc-username-pw" type="password" placeholder="Password" style="flex:1;padding:0.35rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:0.82rem" />
+            <button id="acc-change-username" class="modal-btn modal-btn-primary" type="button" style="padding:0.35rem 0.6rem;font-size:0.78rem">Save</button>
+          </div>
+          <span id="acc-username-status" class="note-status" hidden></span>
+        </div>`;
+
+        // Change password
+        html += `<div class="settings-field" style="flex-direction:column;align-items:stretch;gap:0.4rem">
+          <span>Change password</span>
+          <div style="display:flex;gap:0.4rem">
+            <input id="acc-cur-pw" type="password" placeholder="Current password" style="flex:1;padding:0.35rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:0.82rem" />
+            <input id="acc-new-pw" type="password" placeholder="New password" style="flex:1;padding:0.35rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:0.82rem" />
+            <button id="acc-change-pw" class="modal-btn modal-btn-primary" type="button" style="padding:0.35rem 0.6rem;font-size:0.78rem">Save</button>
+          </div>
+          <span id="acc-pw-status" class="note-status" hidden></span>
+        </div>`;
+
+        // Admin-only: registration toggle
+        if (isAdmin) {
+            const openReg = settings?.open_registration !== false;
+            html += `<div class="settings-field toggle-field">
+              <span>Open registration (anyone can sign up)</span>
+              <input type="checkbox" id="acc-open-reg" ${openReg ? 'checked' : ''} />
+            </div>`;
+        }
+
+        html += '</div>';
+
+        // Admin-only: users list
+        if (isAdmin && users) {
+            html += `<div class="settings-section-header" style="margin-top:1rem"><h3>Users</h3></div>`;
+            html += `<div class="settings-list" style="gap:0.3rem">`;
+            for (const u of users) {
+                const isYou = u.user_id === user?.user_id;
+                html += `<div class="settings-field" style="justify-content:space-between">
+                  <span>${u.username}${u.is_admin ? ' <span style="color:var(--accent);font-size:0.75rem">(admin)</span>' : ''}${isYou ? ' <span style="color:var(--text-dim);font-size:0.75rem">(you)</span>' : ''}</span>
+                  ${!isYou ? `<div style="display:flex;gap:0.3rem">
+                    <button class="acc-admin-action modal-btn modal-btn-secondary" style="padding:0.25rem 0.5rem;font-size:0.75rem" data-uid="${u.user_id}" data-uname="${u.username}" data-action="clear_data">Clear data</button>
+                    <button class="acc-admin-action modal-btn" style="padding:0.25rem 0.5rem;font-size:0.75rem;background:var(--danger,#f87171);color:#fff;border:none" data-uid="${u.user_id}" data-uname="${u.username}" data-action="delete">Delete</button>
+                  </div>` : ''}
+                </div>`;
+            }
+            html += `</div>`;
+            // Admin password confirmation
+            html += `<div class="settings-field" style="flex-direction:column;align-items:stretch;gap:0.4rem;margin-top:0.5rem">
+              <span>Enter your admin password to confirm actions:</span>
+              <div style="display:flex;gap:0.4rem">
+                <input id="acc-admin-pw" type="password" placeholder="Admin password" style="flex:1;padding:0.35rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:0.82rem" />
+                <span id="acc-admin-status" class="note-status" style="font-size:0.78rem;color:var(--text-dim)" hidden></span>
+              </div>
+            </div>`;
+        }
+
+        settingsList.innerHTML = html;
+
+        // Bind event handlers
+        document.getElementById('acc-copy-token')?.addEventListener('click', async () => {
+            try {
+                const r = await fetch('/auth/token');
+                const d = await r.json();
+                await navigator.clipboard.writeText(d.token);
+                document.getElementById('acc-copy-token').textContent = 'Copied!';
+                setTimeout(() => document.getElementById('acc-copy-token').textContent = 'Copy API Token', 2000);
+            } catch {}
+        });
+
+        document.getElementById('acc-change-username')?.addEventListener('click', async () => {
+            const newUsername = document.getElementById('acc-new-username').value.trim();
+            const password = document.getElementById('acc-username-pw').value;
+            const status = document.getElementById('acc-username-status');
+            status.hidden = false;
+            try {
+                const r = await fetch('/auth/change-username', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({password, new_username: newUsername}),
+                });
+                const d = await r.json();
+                if (d.success) {
+                    status.textContent = 'Username updated! Relogin...';
+                    status.style.color = 'var(--accent)';
+                    setTimeout(() => window.location.reload(), 1000);
+                } else {
+                    status.textContent = d.detail || 'Failed';
+                    status.style.color = '#f87171';
+                }
+            } catch { status.textContent = 'Error'; status.style.color = '#f87171'; }
+        });
+
+        document.getElementById('acc-change-pw')?.addEventListener('click', async () => {
+            const current = document.getElementById('acc-cur-pw').value;
+            const newpw = document.getElementById('acc-new-pw').value;
+            const status = document.getElementById('acc-pw-status');
+            status.hidden = false;
+            try {
+                const r = await fetch('/auth/change-password', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({current_password: current, new_password: newpw}),
+                });
+                const d = await r.json();
+                if (d.success) {
+                    status.textContent = 'Password updated!';
+                    status.style.color = 'var(--accent)';
+                    document.getElementById('acc-cur-pw').value = '';
+                    document.getElementById('acc-new-pw').value = '';
+                } else {
+                    status.textContent = d.detail || 'Failed';
+                    status.style.color = '#f87171';
+                }
+            } catch { status.textContent = 'Error'; status.style.color = '#f87171'; }
+        });
+
+        // Admin: open registration toggle
+        document.getElementById('acc-open-reg')?.addEventListener('change', async (e) => {
+            const open = e.target.checked;
+            await fetch('/auth/settings/registration?open_registration=' + open, { method: 'POST' });
+        });
+
+        // Admin: user actions (delete / clear data)
+        document.querySelectorAll('.acc-admin-action').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const targetUserId = btn.dataset.uid;
+                const targetUsername = btn.dataset.uname;
+                const action = btn.dataset.action;
+                const adminPw = document.getElementById('acc-admin-pw')?.value;
+                if (!adminPw) {
+                    document.getElementById('acc-admin-status').textContent = 'Enter admin password first';
+                    document.getElementById('acc-admin-status').hidden = false;
+                    return;
+                }
+                if (action === 'delete' && !confirm('Delete user "' + targetUsername + '" and all their data?')) return;
+                const status = document.getElementById('acc-admin-status');
+                status.hidden = false;
+                try {
+                    const r = await fetch('/auth/admin/user', {
+                        method: 'POST',
+                        headers: {'Content-Type':'application/json'},
+                        body: JSON.stringify({target_user_id: targetUserId, admin_password: adminPw, action}),
+                    });
+                    const d = await r.json();
+                    if (d.success) {
+                        status.textContent = d.message;
+                        status.style.color = 'var(--accent)';
+                        document.getElementById('acc-admin-pw').value = '';
+                        setTimeout(() => renderAccountSettings(), 1500);
+                    } else {
+                        status.textContent = d.detail || 'Failed';
+                        status.style.color = '#f87171';
+                    }
+                } catch { status.textContent = 'Error'; status.style.color = '#f87171'; }
+            });
+        });
     }
 
     function filterSettings(query) {
@@ -184,7 +410,13 @@ window.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    function openSettings() { renderCategoryNav(); renderSettings(); if (settingsSearchInput?.value.trim()) filterSettings(settingsSearchInput.value); settingsOverlay.hidden = false; settingsOverlay.inert = false; }
+    function openSettings(category) {
+        if (category) activeSettingsCategory = category;
+        renderCategoryNav(); renderSettings();
+        if (settingsSearchInput?.value.trim()) filterSettings(settingsSearchInput.value);
+        settingsOverlay.hidden = false; settingsOverlay.inert = false;
+    }
+    function openAccountSettings() { openSettings('Account'); }
     function closeSettings() { document.activeElement?.blur(); settingsOverlay.inert = true; settingsOverlay.hidden = true; }
 
     settingsButton.addEventListener('click', openSettings);
