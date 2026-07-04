@@ -21,6 +21,7 @@ from app.services.raw_storage import (
     list_raw_captures,
     raw_exists,
 )
+from app.services.extractor_pipeline import extract_and_save
 from app.services.auth import get_current_user
 
 router = APIRouter()
@@ -76,10 +77,21 @@ def capture_item(
         raw_path=str(raw_path),
     )
 
+    # Run Extractor pipeline (non-blocking — produce Knowledge Objects)
+    extraction = None
+    try:
+        extraction = extract_and_save(user_id, package, html=page_html)
+    except Exception:
+        pass  # Extraction failure shouldn't break the save
+
+    msg = f"Saved to Recollect ({package.capture_type})"
+    if extraction and extraction.knowledge_objects:
+        msg += f" — extracted {len(extraction.knowledge_objects)} knowledge objects"
+
     return CPResponse(
         success=True,
         id=package.capture_id,
-        message=f"Saved to Recollect ({package.capture_type})",
+        message=msg,
     )
 
 

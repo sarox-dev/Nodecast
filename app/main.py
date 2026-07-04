@@ -7,6 +7,7 @@ from app.api.routes.search import router as search_router
 from app.api.routes.capture import router as capture_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.layouts import router as layouts_router
+from app.api.routes.knowledge import router as knowledge_router
 from app.services.database import init_db, user_count
 
 app = FastAPI()
@@ -28,6 +29,7 @@ app.include_router(search_router)
 app.include_router(capture_router, prefix="/api")
 app.include_router(auth_router)
 app.include_router(layouts_router)
+app.include_router(knowledge_router)
 
 # ─── Auth status template variable ────────────────────────────────
 templates = Jinja2Templates(directory="app/templates")
