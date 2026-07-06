@@ -84,4 +84,20 @@ KNOWLEDGE_OBJECT_TYPES: dict[str, dict[str, str]] = {
         "description": "Citāts no lapas",
         "properties": "text, author, source",
     },
+    "video": {
+        "description": "Video informācija (YouTube u.c.)",
+        "properties": "video_id, title, author, duration_seconds, description, keywords, publish_date",
+    },
+    "reddit_post": {
+        "description": "Reddit post — tikai saturs, bez komentāriem",
+        "properties": "title, author, subreddit, score, timestamp, comments_count, url",
+    },
+    "json_ld": {
+        "description": "Schema.org JSON-LD dati",
+        "properties": "schema_type, data",
+    },
+    "document": {
+        "description": "DOM secīgi satura bloki — headings, paragraphs, images, code, tables, lists",
+        "properties": "title, blocks[], block_count",
+    },
 }

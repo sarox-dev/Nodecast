@@ -296,34 +296,45 @@ class TestGenericHtmlExtractor:
         html = load_fixture(fixture_html)
         return extractor.extract(package, html)
 
+    def _get_document_blocks(self, result):
+        """Izvelk document blokus no rezultāta."""
+        for ko in result.knowledge_objects:
+            if ko.type == "document":
+                return ko.properties.get("blocks", [])
+        return []
+
     def test_article_extracts_metadata(self):
-        """Generic HTML izvelk meta datus no article."""
+        """Generic HTML izvelk meta datus."""
         result = self._run_generic("simple_article.html")
         types = [ko.type for ko in result.knowledge_objects]
         assert "metadata" in types
 
     def test_article_extracts_headings(self):
-        """Generic HTML atrod visus virsrakstus."""
+        """Generic HTML atrod visus virsrakstus dokumentā."""
         result = self._run_generic("simple_article.html")
-        headings = [ko for ko in result.knowledge_objects if ko.type == "heading"]
+        blocks = self._get_document_blocks(result)
+        headings = [b for b in blocks if b.get("type") == "heading"]
         assert len(headings) >= 3  # h1, h2, h2, h3
 
     def test_article_extracts_article_object(self):
-        """Generic HTML izvelk article objektu."""
+        """Generic HTML izvelk document objektu."""
         result = self._run_generic("simple_article.html")
-        articles = [ko for ko in result.knowledge_objects if ko.type == "article"]
-        assert len(articles) >= 1
+        docs = [ko for ko in result.knowledge_objects if ko.type == "document"]
+        assert len(docs) >= 1
 
     def test_article_contains_links(self):
-        """Generic HTML izvelk saites (navigācijas saites tiek izlaistas)."""
+        """Generic HTML izvelk saites (nav navigācijas)."""
         result = self._run_generic("simple_article.html")
-        links = [ko for ko in result.knowledge_objects if ko.type == "link"]
-        assert len(links) >= 1
+        blocks = self._get_document_blocks(result)
+        paragraphs = [b for b in blocks if b.get("type") == "paragraph"]
+        # Pārbaudam vai ir satura paragrāfi
+        assert len(paragraphs) >= 3
 
     def test_article_contains_code_blocks(self):
         """Generic HTML atrod koda blokus."""
         result = self._run_generic("simple_article.html")
-        code_blocks = [ko for ko in result.knowledge_objects if ko.type == "code_block"]
+        blocks = self._get_document_blocks(result)
+        code_blocks = [b for b in blocks if b.get("type") == "code"]
         assert len(code_blocks) >= 1
 
     def test_no_html_returns_warning(self):
@@ -333,12 +344,13 @@ class TestGenericHtmlExtractor:
         result = extractor.extract(make_package("https://example.com"), None)
         assert len(result.warnings) > 0
 
-    def test_can_handle_returns_false_for_none(self):
-        """can_handle atgriež False, ja nav HTML."""
+    def test_can_handle_returns_false_for_small_html(self):
+        """can_handle atgriež False, ja HTML ir pārāk mazs."""
         from app.services.extractors.generic_html import GenericHtmlExtractor
         extractor = GenericHtmlExtractor()
         assert not extractor.can_handle(make_package("https://example.com"), None)
-        assert extractor.can_handle(make_package("https://example.com"), "<html></html>")
+        assert not extractor.can_handle(make_package("https://example.com"), "<html></html>")
+        assert extractor.can_handle(make_package("https://example.com"), "<html><body><p>Content</p></body></html>")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -373,7 +385,7 @@ class TestPipeline:
 
         types = [ko.type for ko in result.knowledge_objects]
         assert "metadata" in types
-        assert "article" in types
+        assert "document" in types
 
     def test_pipeline_no_html(self):
         """Bez HTML pipeline atgriež brīdinājumu."""

@@ -93,7 +93,7 @@
                     {% for type_name, count in type_counts.items() %}
                     <div class="kv-stat">
                         <span class="kv-stat-number">{{ count }}</span>
-                        <span class="kv-stat-label"><span class="badge badge-{{ type_name }}">{{ type_name }}</span></span>
+                        <span class="kv-stat-label"><span class="badge badge-{{ type_name if type_name in ['metadata', 'article', 'heading', 'link', 'code_block', 'image', 'video', 'json_ld', 'quote', 'list_item', 'reddit_post', 'document', 'snippet', 'issue', 'thread'] else 'generic' }}">{{ type_name }}</span></span>
                     </div>
                     {% endfor %}
                 </div>
@@ -159,7 +159,7 @@
                 {% for ko in type_kos %}
                 <div class="kv-ko-card">
                     <div class="kv-ko-header">
-                        <span class="badge badge-{{ ko.type }}">{{ ko.type }}</span>
+                        <span class="badge badge-{{ ko.type if ko.type in ['metadata', 'article', 'heading', 'link', 'code_block', 'image', 'video', 'json_ld', 'quote', 'list_item', 'reddit_post', 'document', 'snippet', 'issue', 'thread'] else 'generic' }}">{{ ko.type }}</span>
                         <span class="kv-ko-confidence">{{ (ko.confidence * 100)|int }}%</span>
                         <span class="kv-ko-extractor">{{ ko.extracted_by }}</span>
                         <span class="kv-ko-position">#{{ ko.position }}</span>
@@ -195,6 +195,53 @@
                                 <p><strong>{{ ko.properties.title }}</strong></p>
                                 <p>{{ ko.properties.text[:200] }}{% if ko.properties.text|length > 200 %}...{% endif %}</p>
                                 <span class="text-muted">{{ ko.properties.word_count }} words</span>
+                            </div>
+                        {% elif ko.type == "video" %}
+                            <table class="kv-props-table">
+                            {% for k, v in ko.properties.items() %}
+                                <tr><td>{{ k }}</td><td>{% if v is string %}{{ v }}{% elif v is sequence and v is not string %}{% if k == 'available_countries' %}{{ v[:5]|join(", ") }}{% if v|length > 5 %}... ({{ v|length }} total){% endif %}{% else %}{{ v|join(", ") }}{% endif %}{% else %}{{ v }}{% endif %}</td></tr>
+                            {% endfor %}
+                            </table>
+                        {% elif ko.type == "reddit_post" %}
+                            <table class="kv-props-table">
+                            {% for k, v in ko.properties.items() %}
+                                <tr><td>{{ k }}</td><td>{% if v is string %}{{ v }}{% elif v is sequence and v is not string %}{{ v|join(", ") }}{% else %}{{ v }}{% endif %}</td></tr>
+                            {% endfor %}
+                            </table>
+                        {% elif ko.type == "document" %}
+                            {% set blocks = ko.properties.blocks or [] %}
+                            <div class="document-blocks">
+                            {% for block in blocks %}
+                                {% if block.type == "heading" %}
+                                <h{{ block.level|default(2) }}>{{ block.content }}</h{{ block.level|default(2) }}>
+                                {% elif block.type == "paragraph" %}
+                                <p>{{ block.content }}</p>
+                                {% elif block.type == "image" %}
+                                <figure>
+                                    <img src="{{ block.src }}" alt="{{ block.alt }}" loading="lazy"{% if block.width %} width="{{ block.width }}"{% endif %}{% if block.height %} height="{{ block.height }}"{% endif %}>
+                                    {% if block.caption %}<figcaption>{{ block.caption }}</figcaption>{% endif %}
+                                </figure>
+                                {% elif block.type == "blockquote" %}
+                                <blockquote><p>{{ block.content }}</p></blockquote>
+                                {% elif block.type == "code" %}
+                                <pre{% if block.language %} class="language-{{ block.language }}"{% endif %}><code>{{ block.content[:300] }}{% if block.content|length > 300 %}...{% endif %}</code></pre>
+                                {% elif block.type == "hr" %}
+                                <hr>
+                                {% elif block.type == "list_item" %}
+                                <div class="list-item" style="margin-left: {{ block.depth|default(0) * 20 }}px;">{% if block.list_type == "ol" %}{{ loop.index }}.{% else %}•{% endif %} {{ block.content }}</div>
+                                {% elif block.type == "table" %}
+                                <table><tbody>
+                                {% for row in block.rows %}
+                                <tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>
+                                {% endfor %}
+                                </tbody></table>
+                                {% endif %}
+                            {% endfor %}
+                            </div>
+                        {% elif ko.type == "json_ld" %}
+                            <div class="kv-article-preview">
+                                <p><strong>Schema: {{ ko.properties.schema_type }}</strong></p>
+                                <pre class="json-preview" style="max-height:200px;"><code>{{ ko.properties.data|tojson(indent=2) if ko.properties.data is mapping else ko.properties.data }}</code></pre>
                             </div>
                         {% else %}
                             <pre class="kv-ko-raw">{{ ko.properties|tojson(indent=2) }}</pre>

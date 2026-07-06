@@ -160,6 +160,13 @@
 .badge-issue { background: var(--badge-issue); }
 .badge-video { background: var(--badge-video); }
 .badge-thread { background: var(--badge-thread); }
+.badge-json_ld { background: var(--badge-metadata); }
+.badge-quote { background: var(--badge-code_block); }
+.badge-list_item { background: var(--badge-link); }
+.badge-document { background: var(--badge-article); }
+
+/* Generic fallback for unknown badge types */
+.badge-generic { background: #21262d; border: 1px solid var(--border); }
 
 .badge-tag {
   background: #21262d;
@@ -479,6 +486,47 @@
 .prose table { width: 100%; border-collapse: collapse; }
 .prose table td { padding: 4px 8px; border-bottom: 1px solid var(--border); }
 .prose hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+
+/* ─── Renderer sections ────────────────────────────────────────── */
+.kv-renderer-output .ko-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin: 16px 0;
+}
+.kv-renderer-output .ko-section h2 {
+  margin-top: 0;
+  font-size: 1.2rem;
+}
+.kv-renderer-output .ko-section h3 {
+  font-size: 1rem;
+  margin: 12px 0 8px;
+}
+.kv-renderer-output table.kv-props-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+}
+.kv-renderer-output table.kv-props-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.875rem;
+}
+.kv-renderer-output table.kv-props-table td:first-child {
+  width: 120px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.kv-renderer-output .video-card h2,
+.kv-renderer-output .reddit-card h2 {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.kv-renderer-output a[target="_blank"]::after {
+  content: " ↗";
+  font-size: 0.8em;
+}
 
 /* ─── Top bar ──────────────────────────────────────────────────── */
 
