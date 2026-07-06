@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ capture.source_title or "Capture" }} — Recollect Knowledge Viewer</title>
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/capture-view.css">
+</head>
+<body>
+    <nav class="top-bar">
+        <a href="/" class="logo">Recollect</a>
+        <span class="top-bar-title">Knowledge Viewer</span>
+        {% if user %}
+        <span class="top-bar-user">{{ user.username }}</span>
+        {% endif %}
+    </nav>
+
+    <main class="kv-main">
+        {% if error %}
+        <div class="kv-error">
+            <h2>Error</h2>
+            <p>{{ error }}</p>
+            <a href="/" class="btn">← Back to home</a>
+        </div>
+        {% else %}
+
+        {% set c = capture %}
+        {% set kos = knowledge_objects %}
+
+        <!-- ═══ HEADER ═══ -->
+        <header class="kv-header">
+            <div class="kv-header-title">
+                <h1>{{ c.source_title or "Untitled" }}</h1>
+                {% if c.source_url %}
+                <a href="{{ c.source_url }}" class="kv-url" target="_blank">{{ c.source_url }}</a>
+                {% endif %}
+            </div>
+            <div class="kv-header-meta">
+                <span class="badge badge-type">{{ c.capture_type }}</span>
+                <span class="kv-meta-item">Saved: {{ c.saved_at[:19] }}</span>
+                {% if c.project %}
+                <span class="kv-meta-item">Project: {{ c.project }}</span>
+                {% endif %}
+                <span class="kv-meta-item">ID: {{ c.id }}</span>
+            </div>
+        </header>
+
+        <!-- ═══ TAB NAV ═══ -->
+        <div class="kv-tabs" role="tablist">
+            <button class="kv-tab active" data-tab="overview" role="tab">Overview</button>
+            <button class="kv-tab" data-tab="rendered" role="tab">Renderers</button>
+            <button class="kv-tab" data-tab="knowledge" role="tab">Knowledge ({{ kos|length }})</button>
+            <button class="kv-tab" data-tab="raw" role="tab">Raw</button>
+            <button class="kv-tab" data-tab="history" role="tab">History</button>
+        </div>
+
+        <!-- ═══ TAB: OVERVIEW ═══ -->
+        <section class="kv-panel active" id="panel-overview" role="tabpanel">
+
+            <!-- Quick Summary -->
+            <div class="kv-card">
+                <h3>Quick Summary</h3>
+                <table class="kv-summary-table">
+                    <tr><td>Title</td><td>{{ c.source_title or "—" }}</td></tr>
+                    <tr><td>URL</td><td><a href="{{ c.source_url }}" target="_blank">{{ c.source_url or "—" }}</a></td></tr>
+                    <tr><td>Site</td><td>{{ c.source_site_name or "—" }}</td></tr>
+                    <tr><td>Type</td><td><span class="badge badge-type">{{ c.capture_type }}</span></td></tr>
+                    <tr><td>Saved</td><td>{{ c.saved_at[:19] }}</td></tr>
+                    <tr><td>Captured</td><td>{{ c.captured_at[:19] or "—" }}</td></tr>
+                    {% if c.project %}
+                    <tr><td>Project</td><td>{{ c.project }}</td></tr>
+                    {% endif %}
+                    {% if c.tags %}
+                    <tr><td>Tags</td><td>{% for t in c.tags %}<span class="badge badge-tag">{{ t }}</span> {% endfor %}</td></tr>
+                    {% endif %}
+                </table>
+            </div>
+
+            <!-- Knowledge Stats -->
+            <div class="kv-card">
+                <h3>Knowledge Objects</h3>
+                {% if kos %}
+                {% set type_counts = {} %}
+                {% for ko in kos %}
+                    {% set _ = type_counts.update({ko.type: type_counts.get(ko.type, 0) + 1}) %}
+                {% endfor %}
+                <div class="kv-stats-grid">
+                    <div class="kv-stat">
+                        <span class="kv-stat-number">{{ kos|length }}</span>
+                        <span class="kv-stat-label">Total Objects</span>
+                    </div>
+                    {% for type_name, count in type_counts.items() %}
+                    <div class="kv-stat">
+                        <span class="kv-stat-number">{{ count }}</span>
+                        <span class="kv-stat-label"><span class="badge badge-{{ type_name }}">{{ type_name }}</span></span>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-muted">No knowledge objects extracted yet.</p>
+                {% endif %}
+            </div>
+
+            <!-- Anchor Info -->
+            {% if kos and kos[0].anchor is defined and kos[0].anchor %}
+            <div class="kv-card">
+                <h3>Anchor</h3>
+                {# Anchor is part of the capture, not knowledge objects; we'd need to load raw for it #}
+                <p class="text-muted">Anchor info available in Raw tab.</p>
+            </div>
+            {% endif %}
+
+            <!-- Actions -->
+            <div class="kv-card kv-actions">
+                <h3>Actions</h3>
+                <div class="kv-action-buttons">
+                    <a href="{{ c.source_url }}" class="btn btn-primary" target="_blank">🌐 Open Original Page</a>
+                    <button class="btn btn-secondary" data-action="export-markdown" data-id="{{ c.id }}">📥 Export Markdown</button>
+                    <button class="btn btn-secondary" data-action="download-raw" data-id="{{ c.id }}">📦 Download Raw</button>
+                    <button class="btn btn-secondary" data-action="rerun-extractor" data-id="{{ c.id }}">🔄 Re-run Extractor</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══ TAB: RENDERERS ═══ -->
+        <section class="kv-panel" id="panel-rendered" role="tabpanel">
+            <div class="kv-renderer-toolbar">
+                <label for="renderer-select">Renderer:</label>
+                <select id="renderer-select" class="kv-renderer-select">
+                    {% for r in renderers %}
+                    <option value="{{ r.name }}" {% if loop.first %}selected{% endif %}>
+                        {{ r.icon }} {{ r.label }} — {{ r.description }}
+                    </option>
+                    {% endfor %}
+                </select>
+                <button id="renderer-refresh" class="btn btn-small">Render</button>
+            </div>
+            <div id="kv-renderer-output" class="kv-renderer-output prose">
+                {{ rendered_html|safe }}
+            </div>
+        </section>
+
+        <!-- ═══ TAB: KNOWLEDGE ═══ -->
+        <section class="kv-panel" id="panel-knowledge" role="tabpanel">
+            {% if kos %}
+            {% set grouped = {} %}
+            {% for ko in kos %}
+                {% set type_list = grouped.get(ko.type, []) %}
+                {% set _ = type_list.append(ko) %}
+                {% set _ = grouped.update({ko.type: type_list}) %}
+            {% endfor %}
+            {% for type_name, type_kos in grouped.items() %}
+            <div class="kv-ko-group">
+                <h3 class="kv-ko-group-title">
+                    <span class="badge badge-{{ type_name }}">{{ type_name }}</span>
+                    <span class="kv-ko-count">{{ type_kos|length }}</span>
+                </h3>
+                {% for ko in type_kos %}
+                <div class="kv-ko-card">
+                    <div class="kv-ko-header">
+                        <span class="badge badge-{{ ko.type }}">{{ ko.type }}</span>
+                        <span class="kv-ko-confidence">{{ (ko.confidence * 100)|int }}%</span>
+                        <span class="kv-ko-extractor">{{ ko.extracted_by }}</span>
+                        <span class="kv-ko-position">#{{ ko.position }}</span>
+                    </div>
+                    <div class="kv-ko-body">
+                        {% if ko.type == "metadata" %}
+                            <table class="kv-props-table">
+                            {% for k, v in ko.properties.items() %}
+                                <tr><td>{{ k }}</td><td>{% if v is string %}{{ v }}{% elif v is sequence and v is not string %}{{ v|join(", ") }}{% else %}{{ v }}{% endif %}</td></tr>
+                            {% endfor %}
+                            </table>
+                        {% elif ko.type == "heading" %}
+                            <div class="kv-heading-preview h{{ ko.properties.level }}">
+                                {{ "  " * (ko.properties.level - 1) }}<strong>{{ ko.properties.text }}</strong>
+                                <span class="text-muted">(h{{ ko.properties.level }})</span>
+                            </div>
+                        {% elif ko.type == "link" %}
+                            <a href="{{ ko.properties.href }}" class="kv-link-preview" target="_blank">
+                                → {{ ko.properties.text or ko.properties.href }}
+                            </a>
+                        {% elif ko.type == "code_block" %}
+                            <div class="kv-code-preview">
+                                {% if ko.properties.language %}<div class="kv-code-lang">{{ ko.properties.language }}</div>{% endif %}
+                                <pre><code>{{ ko.properties.code[:300] }}{% if ko.properties.code|length > 300 %}...{% endif %}</code></pre>
+                            </div>
+                        {% elif ko.type == "image" %}
+                            <div class="kv-image-preview">
+                                <img src="{{ ko.properties.src }}" alt="{{ ko.properties.alt }}" loading="lazy">
+                                <span class="text-muted">{{ ko.properties.alt }}</span>
+                            </div>
+                        {% elif ko.type == "article" %}
+                            <div class="kv-article-preview">
+                                <p><strong>{{ ko.properties.title }}</strong></p>
+                                <p>{{ ko.properties.text[:200] }}{% if ko.properties.text|length > 200 %}...{% endif %}</p>
+                                <span class="text-muted">{{ ko.properties.word_count }} words</span>
+                            </div>
+                        {% else %}
+                            <pre class="kv-ko-raw">{{ ko.properties|tojson(indent=2) }}</pre>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endfor %}
+            {% else %}
+            <div class="kv-empty">
+                <p>No knowledge objects for this capture.</p>
+                <p class="text-muted">Extractors run automatically on save. Try saving a new capture or re-running the extractor.</p>
+            </div>
+            {% endif %}
+        </section>
+
+        <!-- ═══ TAB: RAW (lazy loaded) ═══ -->
+        <section class="kv-panel" id="panel-raw" role="tabpanel">
+            <div class="kv-raw-loading" id="raw-loading">
+                <p>Loading raw capture data...</p>
+            </div>
+            <div id="raw-content" style="display:none;">
+                <div class="kv-card">
+                    <h3>Capture Package</h3>
+                    <pre id="raw-json" class="json-preview"><code></code></pre>
+                </div>
+                <div class="kv-card">
+                    <h3>Page HTML</h3>
+                    <div class="kv-html-actions">
+                        <a id="raw-html-download" class="btn btn-secondary" download="page.html">📥 Download HTML</a>
+                        <a id="raw-html-view" class="btn btn-secondary" target="_blank">🌐 View HTML</a>
+                    </div>
+                    <p class="text-muted">HTML is loaded separately to keep the viewer fast.</p>
+                </div>
+            </div>
+            <div class="kv-card">
+                <h3>Raw Metadata</h3>
+                <table class="kv-summary-table" id="raw-meta">
+                    <tr><td>Raw Path</td><td><code>{{ c.raw_path }}</code></td></tr>
+                    <tr><td>Has HTML</td><td id="raw-has-html">Checking...</td></tr>
+                    <tr><td>Capture ID</td><td><code>{{ c.id }}</code></td></tr>
+                </table>
+            </div>
+        </section>
+
+        <!-- ═══ TAB: HISTORY (rezervēts) ═══ -->
+        <section class="kv-panel" id="panel-history" role="tabpanel">
+            <div class="kv-card">
+                <h3>Extractor & AI History</h3>
+                <p class="text-muted">This tab will show the history of extractor runs, AI enrichments, and version changes for this capture.</p>
+                <div class="kv-empty">
+                    <p>🔮 Reserved for future use.</p>
+                </div>
+            </div>
+        </section>
+
+        {% endif %}
+    </main>
+
+    <script src="/static/js/capture-view.js"></script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+# Reddit Post Extractor konfigurācija (old.reddit.com).
+# Izvelk post saturu no old.reddit.com struktūras.
+
+name: reddit_post
+version: 2
+
+match:
+  domains:
+    - old.reddit.com
+    - amp.reddit.com
+  patterns:
+    - "/comments/"
+
+sources: []
+
+objects:
+  # Post — galvenā satura vienība
+  - type: reddit_post
+    confidence: 0.85
+    condition:
+      exists: $meta:og:site_name
+    fields:
+      title:
+        - $css:a.title
+        - $meta:og:title
+      description:
+        - $meta:og:description
+        - $meta:description
+      author:
+        - $css:a.author
+        - $meta:author
+        - $css:[data-author]
+      subreddit:
+        - $meta:og:site_name
+      score:
+        - $css:[data-score]
+        - $css:.score.unvoted
+      timestamp:
+        - $css:time.live-timestamp@datetime
+        - $css:time@datetime
+      comments_count:
+        - $css:[data-comments-count]
+      url:
+        - $source.url
+
+  # Metadata
+  - type: metadata
+    confidence: 0.90
+    fields:
+      title:
+        - $meta:og:title
+        - $css:a.title
+      description:
+        - $meta:og:description
+        - $meta:description
+      site_name:
+        - $meta:og:site_name
+      image:
+        - $meta:og:image
+      author:
+        - $css:a.author
+        - $css:[data-author]
+        - $meta:author
+
+  # Link atpakaļ uz Reddit
+  - type: link
+    confidence: 1.0
+    fields:
+      href:
+        - $source.url
+      text:
+        - $meta:og:title
+        - $css:a.title
+        - "View on Reddit"

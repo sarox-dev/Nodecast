@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>Test Video - YouTube</title>
+  <meta property="og:title" content="Test Video - YouTube">
+  <meta property="og:description" content="A test video description">
+  <meta property="og:type" content="video">
+  <meta property="og:url" content="https://www.youtube.com/watch?v=test123">
+  <meta name="description" content="A test video description">
+  <meta name="author" content="TestChannel">
+</head>
+<body>
+  <div id="content">
+    <script>
+      var ytInitialPlayerResponse = {
+        "videoDetails": {
+          "videoId": "test123",
+          "title": "Test Video Title",
+          "lengthSeconds": "3600",
+          "keywords": ["test", "demo", "example"],
+          "author": "TestAuthor",
+          "channelId": "UCtest123",
+          "isLiveContent": false,
+          "shortDescription": "This is a test video for the Recollect extractor.",
+          "viewCount": "12345",
+          "thumbnail": {
+            "thumbnails": [
+              {"url": "https://i.ytimg.com/vi/test123/default.jpg", "width": 120, "height": 90},
+              {"url": "https://i.ytimg.com/vi/test123/hqdefault.jpg", "width": 480, "height": 360}
+            ]
+          }
+        },
+        "microformat": {
+          "playerMicroformatRenderer": {
+            "publishDate": "2024-01-15",
+            "uploadDate": "2024-01-15",
+            "category": "Education"
+          }
+        },
+        "streamingData": {
+          "expiresInSeconds": "21540"
+        }
+      };
+    </script>
+    <script>
+      var ytInitialData = {
+        "contents": {
+          "twoColumnWatchNextResults": {
+            "results": {
+              "results": {
+                "contents": [
+                  {
+                    "videoPrimaryInfoRenderer": {
+                      "title": {
+                        "runs": [{"text": "Test Video "}, {"text": "Title"}]
+                      },
+                      "viewCount": {
+                        "videoViewCountRenderer": {
+                          "viewCount": {"runs": [{"text": "12K views"}]}
+                        }
+                      },
+                      "dateText": {"runs": [{"text": "1 year ago"}]}
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      };
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "VideoObject",
+        "name": "Test Video Title",
+        "description": "This is a test video for the Recollect extractor.",
+        "thumbnailUrl": [
+          "https://i.ytimg.com/vi/test123/default.jpg",
+          "https://i.ytimg.com/vi/test123/hqdefault.jpg"
+        ],
+        "uploadDate": "2024-01-15",
+        "duration": "PT1H",
+        "author": {
+          "@type": "Person",
+          "name": "TestAuthor"
+        }
+      }
+    </script>
+  </div>
+</body>
+</html>

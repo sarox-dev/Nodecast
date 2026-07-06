@@ -1,0 +1,38 @@
+{
+  "expected_objects": [
+    {
+      "type": "video",
+      "properties": {
+        "video_id": "test123",
+        "title": "Test Video Title",
+        "description": "This is a test video for the Recollect extractor.",
+        "author": "TestAuthor",
+        "channel_id": "UCtest123",
+        "duration_seconds": 3600,
+        "view_count": 12345,
+        "keywords": ["test", "demo", "example"],
+        "is_live": false,
+        "thumbnail": "https://i.ytimg.com/vi/test123/hqdefault.jpg",
+        "publish_date": "2024-01-15",
+        "category": "Education"
+      }
+    },
+    {
+      "type": "metadata",
+      "properties": {
+        "title": "Test Video - YouTube",
+        "publish_date": "2024-01-15",
+        "category": "Education",
+        "keywords": ["test", "demo", "example"],
+        "thumbnail": "https://i.ytimg.com/vi/test123/hqdefault.jpg"
+      }
+    },
+    {
+      "type": "link",
+      "properties": {
+        "text": "Test Video Title",
+        "href": "https://www.youtube.com/watch?v=test123"
+      }
+    }
+  ]
+}

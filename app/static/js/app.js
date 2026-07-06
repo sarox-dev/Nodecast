@@ -588,6 +588,7 @@ window.addEventListener('DOMContentLoaded', async () => {
             : '';
         const chipHtml = chips.slice(0, 2).map(ch => `<span class="card-chip">${escapeHtml(ch)}</span>`).join('');
         const globalIndex = allResults.findIndex(r => r === item);
+        const viewLink = item._type === 'saved' ? `<a href="/capture/${item.id || item.capture_id}" class="card-view-link" title="Knowledge Viewer">🔍</a>` : '';
         return `
           <article class="result-card ${isSaved ? 'card-saved' : 'card-web'}" data-type="${isSaved ? 'saved' : 'web'}" data-index="${globalIndex}">
             <div class="card-meta">
@@ -596,6 +597,7 @@ window.addEventListener('DOMContentLoaded', async () => {
               <span class="card-badge ${badgeClass}">${badgeLabel}</span>
               ${enginesHtml}
               ${isSaved && ts ? `<span class="card-time">${ts}</span>` : ''}
+              ${viewLink}
             </div>
             <span class="card-title" data-url="${item.url || '#'}">${highlightedTitle}</span>
             ${content ? `<p class="card-content">${highlightedContent}</p>` : ''}

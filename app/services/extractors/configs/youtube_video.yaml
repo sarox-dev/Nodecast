@@ -1,0 +1,100 @@
+# YouTube Video Extractor konfigurācija.
+# Izvelk video informāciju no YouTube video lapām.
+name: youtube_video
+version: 1
+
+match:
+  domains:
+    - youtube.com
+    - www.youtube.com
+    - m.youtube.com
+    - youtu.be
+    - www.youtu.be
+  patterns:
+    - "/watch"
+    - "/shorts/"
+
+sources:
+  - type: json_var
+    name: ytInitialPlayerResponse
+    key: player
+  - type: json_var
+    name: ytInitialData
+    key: init
+  - type: json_ld
+    key: ld
+
+objects:
+  # Galvenais video objekts
+  - type: video
+    confidence: 0.98
+    condition:
+      exists: player.videoDetails.videoId
+    fields:
+      video_id:
+        path: player.videoDetails.videoId
+      title:
+        - player.videoDetails.title
+        - path: init.contents.twoColumnWatchNextResults.results.results.contents[0].videoPrimaryInfoRenderer.title.runs
+          transform: join_text
+        - $ld.name
+        - $meta:og:title
+        - $source.title
+      description:
+        - player.videoDetails.shortDescription
+        - $ld.description
+        - $meta:og:description
+        - $meta:description
+      author:
+        - player.videoDetails.author
+        - $ld.author
+        - $meta:author
+      channel_id:
+        - player.videoDetails.channelId
+      duration_seconds:
+        - path: player.videoDetails.lengthSeconds
+          transform: int
+      view_count:
+        - path: player.videoDetails.viewCount
+          transform: int
+      keywords:
+        - player.videoDetails.keywords
+      is_live:
+        path: player.videoDetails.isLiveContent
+      thumbnail:
+        - player.videoDetails.thumbnail.thumbnails[-1].url
+        - $ld.thumbnailUrl
+      publish_date:
+        - player.microformat.playerMicroformatRenderer.publishDate
+        - player.microformat.playerMicroformatRenderer.uploadDate
+        - $ld.uploadDate
+      category:
+        path: player.microformat.playerMicroformatRenderer.category
+
+  # Metadata
+  - type: metadata
+    confidence: 0.90
+    fields:
+      title:
+        - $source.title
+        - player.videoDetails.title
+        - $meta:og:title
+      publish_date:
+        path: player.microformat.playerMicroformatRenderer.publishDate
+      category:
+        path: player.microformat.playerMicroformatRenderer.category
+      keywords:
+        path: player.videoDetails.keywords
+      thumbnail:
+        path: player.videoDetails.thumbnail.thumbnails[-1].url
+
+  # Link
+  - type: link
+    confidence: 1.0
+    fields:
+      href:
+        - $source.url
+      text:
+        - player.videoDetails.title
+        - $meta:og:title
+        - "Watch on YouTube"

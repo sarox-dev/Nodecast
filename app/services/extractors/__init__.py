@@ -31,3 +31,22 @@ class BaseExtractor(ABC):
     def extract(self, package: CapturePackage, html: str | None) -> ExtractorResult:
         """Apstrādā CapturePackage un atgriež ExtractorResult ar KnowledgeObjects."""
         ...
+
+
+# ─── Automātiska Python extractoru reģistrācija ────────────────────
+
+_registered = False
+
+
+def ensure_extractors_registered():
+    """Reģistrē visus Python extractorus pipeline (lazy, vienreiz)."""
+    global _registered
+    if _registered:
+        return
+
+    from app.services.extractor_pipeline import register_extractor
+    from app.services.extractors.youtube import YouTubeExtractor
+
+    register_extractor(YouTubeExtractor())
+
+    _registered = True

@@ -1,0 +1,37 @@
+{
+  "expected_objects": [
+    {
+      "type": "metadata",
+      "properties_check": {
+        "title": "Test Article - The Example",
+        "description": "An example article for testing",
+        "author": "John Doe",
+        "og_title": "Test Article",
+        "og_description": "An example article",
+        "og_type": "article"
+      }
+    },
+    {
+      "type": "article",
+      "properties_check": {
+        "title": "Test Article - The Example"
+      }
+    },
+    {
+      "type": "heading",
+      "count": 4
+    },
+    {
+      "type": "link",
+      "minimum_count": 2
+    },
+    {
+      "type": "code_block",
+      "minimum_count": 1
+    },
+    {
+      "type": "image",
+      "minimum_count": 1
+    }
+  ]
+}

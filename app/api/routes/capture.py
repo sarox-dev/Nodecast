@@ -22,6 +22,8 @@ from app.services.raw_storage import (
     raw_exists,
 )
 from app.services.extractor_pipeline import extract_and_save
+from app.services.knowledge_store import delete_knowledge_for_capture
+from app.services.raw_storage import get_raw_html, load_raw_capture
 from app.services.auth import get_current_user
 
 router = APIRouter()
@@ -176,6 +178,39 @@ def delete_capture(capture_id: str, current_user: dict = Depends(get_current_use
     # Delete raw filesystem data (optional — keep for archive?)
     # For now, keep raw files. User can manually clean up.
     return {"success": True, "id": capture_id, "message": "Capture deleted (raw data retained)"}
+
+
+# ─── POST /api/capture/{capture_id}/reextract ─────────────────────
+
+@router.post("/capture/{capture_id}/reextract")
+def reextract_capture(capture_id: str, current_user: dict = Depends(get_current_user)):
+    """Pārlaiž Extractor pipeline — dzēš vecos KnowledgeObjects un izvelk no jauna."""
+    user_id = current_user["user_id"]
+    ref = get_capture_ref(user_id, capture_id)
+    if not ref:
+        raise HTTPException(404, "Capture not found")
+
+    raw = load_raw_capture(user_id, capture_id)
+    if not raw:
+        raise HTTPException(404, "Raw capture data not found")
+
+    # Get raw CapturePackage + HTML
+    html = get_raw_html(user_id, capture_id)
+
+    # Delete old knowledge objects
+    deleted = delete_knowledge_for_capture(user_id, capture_id)
+
+    # Re-run extractor
+    result = extract_and_save(user_id, raw, html=html)
+
+    return {
+        "success": True,
+        "id": capture_id,
+        "deleted": deleted,
+        "extracted": len(result.knowledge_objects),
+        "message": f"Re-extracted: {len(result.knowledge_objects)} knowledge objects",
+        "warnings": result.warnings,
+    }
 
 
 # ─── GET /api/capture ─────────────────────────────────────────────

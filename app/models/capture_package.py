@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # ─── Source ───────────────────────────────────────────────────────
@@ -33,6 +33,20 @@ class PageMetadata(BaseModel):
     open_graph: dict[str, Any] = Field(default_factory=dict)
     twitter_card: dict[str, Any] = Field(default_factory=dict)
     schema_org: list[dict[str, Any]] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_none_to_default(cls, data: Any) -> Any:
+        """Pārvērš null/None vērtības par noklusējuma tukšām vērtībām."""
+        if not isinstance(data, dict):
+            return data
+        if data.get("open_graph") is None:
+            data["open_graph"] = {}
+        if data.get("twitter_card") is None:
+            data["twitter_card"] = {}
+        if data.get("schema_org") is None:
+            data["schema_org"] = []
+        return data
 
 
 # ─── Anchor (replaces old selected_element) ──────────────────────
