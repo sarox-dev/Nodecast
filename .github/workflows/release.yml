@@ -3,54 +3,70 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 permissions:
   contents: write
 
 jobs:
-  release:
+ release:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Generate release notes
         id: notes
+        shell: bash
         run: |
-          PREV_TAG=$(git tag --sort=-version:refname | head -n 2 | tail -n 1)
-          if [ -z "$PREV_TAG" ]; then
-            NOTES="## What's changed\n\nInitial release."
-          else
-            NOTES=$(git log --pretty=format:"- %s (%h)" "$PREV_TAG..HEAD" | sed 's/#/#/g')
-            NOTES="## What's changed since $PREV_TAG\n\n$NOTES"
-          fi
-          echo "notes<<EOF" >> $GITHUB_OUTPUT
-          echo -e "$NOTES" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          CURRENT_TAG="${GITHUB_REF_NAME}"
+          PREV_TAG=$(git tag --sort=-version:refname | grep -vx "$CURRENT_TAG" | head -n1)
 
-      - name: Create Release
+          if [ -z "$PREV_TAG" ]; then
+            {
+              echo "notes<<EOF"
+              echo "## What's changed"
+              echo
+              echo "Initial release."
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "notes<<EOF"
+              echo "## What's changed since $PREV_TAG"
+              echo
+              git log "$PREV_TAG..HEAD" --pretty=format:"- %s (%h)"
+              echo
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_name }}
           name: Recollect ${{ github.ref_name }}
+
           body: |
             ${{ steps.notes.outputs.notes }}
 
-            ### Installation
+            ## Installation
 
-            **Linux / macOS:**
+            ### Linux / macOS
+
             ```bash
-            curl -fsSL https://raw.githubusercontent.com/sarox-dev/Recollect/${{ github.ref_name }}/install.sh | bash
+            curl -fsSL https://github.com/sarox-dev/Recollect/releases/latest/download/install.sh | bash
             ```
 
-            **Windows (PowerShell):**
+            ### Windows (PowerShell)
+
             ```powershell
-            irm https://raw.githubusercontent.com/sarox-dev/Recollect/${{ github.ref_name }}/install.ps1 | iex
+            irm https://github.com/sarox-dev/Recollect/releases/latest/download/install.ps1 | iex
             ```
 
-            ### Docker
+            ## Docker
 
             ```bash
             git clone https://github.com/sarox-dev/Recollect.git
@@ -59,8 +75,11 @@ jobs:
             cp .env.example .env
             docker compose up -d
             ```
+
           files: |
             install.sh
             install.ps1
+
+          overwrite_files: true
           draft: false
           prerelease: false
