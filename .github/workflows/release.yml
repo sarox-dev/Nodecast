@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          PREV_TAG=$(git tag --sort=-version:refname | head -n 2 | tail -n 1)
+          if [ -z "$PREV_TAG" ]; then
+            NOTES="## What's changed\n\nInitial release."
+          else
+            NOTES=$(git log --pretty=format:"- %s (%h)" "$PREV_TAG..HEAD" | sed 's/#/#/g')
+            NOTES="## What's changed since $PREV_TAG\n\n$NOTES"
+          fi
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$NOTES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Recollect ${{ github.ref_name }}
+          body: |
+            ${{ steps.notes.outputs.notes }}
+
+            ### Installation
+
+            **Linux / macOS:**
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/sarox-dev/Recollect/${{ github.ref_name }}/install.sh | bash
+            ```
+
+            **Windows (PowerShell):**
+            ```powershell
+            irm https://raw.githubusercontent.com/sarox-dev/Recollect/${{ github.ref_name }}/install.ps1 | iex
+            ```
+
+            ### Docker
+
+            ```bash
+            git clone https://github.com/sarox-dev/Recollect.git
+            cd Recollect
+            git checkout ${{ github.ref_name }}
+            cp .env.example .env
+            docker compose up -d
+            ```
+          files: |
+            install.sh
+            install.ps1
+          draft: false
+          prerelease: false
