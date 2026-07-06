@@ -164,6 +164,7 @@
 .badge-quote { background: var(--badge-code_block); }
 .badge-list_item { background: var(--badge-link); }
 .badge-document { background: var(--badge-article); }
+.badge-anchor { background: var(--badge-code_block); }
 
 /* Generic fallback for unknown badge types */
 .badge-generic { background: #21262d; border: 1px solid var(--border); }

@@ -209,6 +209,20 @@ class MarkdownRenderer(BaseRenderer):
                     lines.append(self._render_block(block))
                 lines.append('</div>')
 
+            elif ko_type == "anchor":
+                selected_text = props.get("selected_text", "")
+                if selected_text:
+                    lines.append("<section class='ko-section'>")
+                    lines.append("<h2>📌 Anchor — Selected Text</h2>")
+                    lines.append(f"<blockquote><p>{self._esc(selected_text)}</p></blockquote>")
+                    before = props.get("before_text", "")
+                    after = props.get("after_text", "")
+                    if before:
+                        lines.append(f'<p class="text-muted"><small>Before: {self._esc(before)}</small></p>')
+                    if after:
+                        lines.append(f'<p class="text-muted"><small>After: {self._esc(after)}</small></p>')
+                    lines.append("</section>")
+
             elif ko_type == "json_ld":
                 lines.append("<section class='ko-section'>")
                 schema_type = props.get("schema_type", "Thing")

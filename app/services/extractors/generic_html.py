@@ -512,6 +512,17 @@ class GenericHtmlExtractor(BaseExtractor):
             ))
             pos += 1
 
+        warnings = []
+        if not objects:
+            warnings.append("No content could be extracted from HTML")
+            confidence = 0.5
+        elif not blocks and len(objects) == 1 and objects[0].type == "metadata":
+            # Tikai metadata bez satura — iespējams SPA shell vai verification lapa
+            # Atgriežam tukšu, lai pipeline varētu mēģināt citu extractoru
+            return ExtractorResult(
+                warnings=["HTML appears to be a loading shell — no actual content found"],
+            )
+
         # 3. JSON-LD (ja atrasts)
         json_ld_objects = find_json_ld(html)
         for ld_obj in json_ld_objects:

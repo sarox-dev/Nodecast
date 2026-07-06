@@ -93,7 +93,7 @@
                     {% for type_name, count in type_counts.items() %}
                     <div class="kv-stat">
                         <span class="kv-stat-number">{{ count }}</span>
-                        <span class="kv-stat-label"><span class="badge badge-{{ type_name if type_name in ['metadata', 'article', 'heading', 'link', 'code_block', 'image', 'video', 'json_ld', 'quote', 'list_item', 'reddit_post', 'document', 'snippet', 'issue', 'thread'] else 'generic' }}">{{ type_name }}</span></span>
+                        <span class="kv-stat-label"><span class="badge badge-{{ type_name if type_name in ['metadata', 'article', 'heading', 'link', 'code_block', 'image', 'video', 'json_ld', 'quote', 'list_item', 'reddit_post', 'document', 'anchor', 'snippet', 'issue', 'thread'] else 'generic' }}">{{ type_name }}</span></span>
                     </div>
                     {% endfor %}
                 </div>
@@ -159,7 +159,7 @@
                 {% for ko in type_kos %}
                 <div class="kv-ko-card">
                     <div class="kv-ko-header">
-                        <span class="badge badge-{{ ko.type if ko.type in ['metadata', 'article', 'heading', 'link', 'code_block', 'image', 'video', 'json_ld', 'quote', 'list_item', 'reddit_post', 'document', 'snippet', 'issue', 'thread'] else 'generic' }}">{{ ko.type }}</span>
+                        <span class="badge badge-{{ ko.type if ko.type in ['metadata', 'article', 'heading', 'link', 'code_block', 'image', 'video', 'json_ld', 'quote', 'list_item', 'reddit_post', 'document', 'anchor', 'snippet', 'issue', 'thread'] else 'generic' }}">{{ ko.type }}</span>
                         <span class="kv-ko-confidence">{{ (ko.confidence * 100)|int }}%</span>
                         <span class="kv-ko-extractor">{{ ko.extracted_by }}</span>
                         <span class="kv-ko-position">#{{ ko.position }}</span>
@@ -237,6 +237,25 @@
                                 </tbody></table>
                                 {% endif %}
                             {% endfor %}
+                            </div>
+                        {% elif ko.type == "anchor" %}
+                            <div class="anchor-preview">
+                                <div class="anchor-selected-text">
+                                    <strong>📌 Selected text:</strong>
+                                    <blockquote>{{ ko.properties.selected_text }}</blockquote>
+                                </div>
+                                {% if ko.properties.before_text %}
+                                <div class="text-muted"><small>Before: {{ ko.properties.before_text }}</small></div>
+                                {% endif %}
+                                {% if ko.properties.after_text %}
+                                <div class="text-muted"><small>After: {{ ko.properties.after_text }}</small></div>
+                                {% endif %}
+                                {% if ko.properties.css_selector or ko.properties.xpath %}
+                                <div class="text-muted" style="margin-top:4px;">
+                                    {% if ko.properties.css_selector %}<small>CSS: <code>{{ ko.properties.css_selector }}</code></small><br>{% endif %}
+                                    {% if ko.properties.xpath %}<small>XPath: <code>{{ ko.properties.xpath }}</code></small>{% endif %}
+                                </div>
+                                {% endif %}
                             </div>
                         {% elif ko.type == "json_ld" %}
                             <div class="kv-article-preview">

@@ -100,4 +100,8 @@ KNOWLEDGE_OBJECT_TYPES: dict[str, dict[str, str]] = {
         "description": "DOM secīgi satura bloki — headings, paragraphs, images, code, tables, lists",
         "properties": "title, blocks[], block_count",
     },
+    "anchor": {
+        "description": "Lietotāja iezīmēts teksts — sākuma punkts AI apstrādei",
+        "properties": "selected_text, css_selector, xpath, before_text, after_text",
+    },
 }
