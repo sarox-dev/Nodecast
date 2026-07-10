@@ -83,6 +83,8 @@ The app runs at **http://localhost:5000**. On first run, register an admin accou
 | 📁 **Project organization** | Group saved content into projects for structured knowledge management |
 | 💾 **Local-first storage** | Your data stays on your machine. No cloud dependency |
 | 🔎 **Full-text search** | Search across everything you've saved |
+| 🧠 **AI Tagging** | Local or cloud AI models auto-generate tags, summaries, and key concepts |
+| 🔗 **AI Connections** | Connect any OpenAI-compatible API (LM Studio, Ollama, OpenAI, etc.) |
 | 📝 **Markdown & JSON export** | View extracted content as formatted Markdown or raw JSON |
 | 🌐 **Browser extension** | Save highlights directly from any webpage (see below) |
 
@@ -109,6 +111,10 @@ Browser Extension
   Knowledge Objects → SQLite
        ↓
   Renderer (Markdown/JSON/Knowledge Viewer)
+       ↓
+  AI Tagging (configurable provider + model)
+       ↓
+  Tags, Summary & Key Concepts → SQLite
 ```
 
 ### Generic HTML v3.0
@@ -274,13 +280,16 @@ Currently **48 automated tests** covering JSON extraction, URL matching, path re
 - Anchor as Knowledge Object (selected text preservation)
 - Markdown/JSON renderers
 - Knowledge Viewer UI (5 tabs)
+- AI Connections system (add/edit/delete providers, model fetch)
+- AI Tagging engine (Context Builder, local/cloud models)
+- Auto-tagging on capture save + bulk tag/retag
+- Tag normalization + existing tag awareness
+- AI Analysis card in Knowledge Viewer
 
 ### 🚧 In Progress
 
 - Full-text search across Knowledge Objects
 - Home page / capture listing improvements
-- More site configs (GitHub, Wikipedia, Medium)
-- AI enrichment (summarization, auto-tagging)
 
 ### 🔮 Future
 

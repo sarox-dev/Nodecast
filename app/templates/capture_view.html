@@ -77,6 +77,35 @@
                 </table>
             </div>
 
+            <!-- AI Tags -->
+            {% if ai_tags %}
+            <div class="kv-card">
+                <h3>AI Analysis</h3>
+                <table class="kv-summary-table">
+                    <tr>
+                        <td>AI Tags</td>
+                        <td>{% for t in ai_tags.tags %}<span class="badge badge-tag">{{ t }}</span> {% else %}<span class="text-muted">—</span>{% endfor %}</td>
+                    </tr>
+                    <tr>
+                        <td>Summary</td>
+                        <td>{{ ai_tags.summary or "—" }}</td>
+                    </tr>
+                    <tr>
+                        <td>Key Concepts</td>
+                        <td>{% for c in ai_tags.key_concepts %}<span class="badge badge-concept">{{ c }}</span> {% else %}<span class="text-muted">—</span>{% endfor %}</td>
+                    </tr>
+                    <tr>
+                        <td>Model</td>
+                        <td><code>{{ ai_tags.model or "—" }}</code></td>
+                    </tr>
+                    <tr>
+                        <td>Processed</td>
+                        <td>{{ ai_tags.processed_at[:19] or "—" }}</td>
+                    </tr>
+                </table>
+            </div>
+            {% endif %}
+
             <!-- Knowledge Stats -->
             <div class="kv-card">
                 <h3>Knowledge Objects</h3>
@@ -119,6 +148,7 @@
                     <button class="btn btn-secondary" data-action="export-markdown" data-id="{{ c.id }}">📥 Export Markdown</button>
                     <button class="btn btn-secondary" data-action="download-raw" data-id="{{ c.id }}">📦 Download Raw</button>
                     <button class="btn btn-secondary" data-action="rerun-extractor" data-id="{{ c.id }}">🔄 Re-run Extractor</button>
+                    <button class="btn btn-secondary" data-action="ai-tag" data-id="{{ c.id }}">🤖 AI Tag</button>
                 </div>
             </div>
         </section>

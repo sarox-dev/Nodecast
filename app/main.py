@@ -10,6 +10,7 @@ from app.api.routes.layouts import router as layouts_router
 from app.api.routes.knowledge import router as knowledge_router
 from app.api.routes.renderers import router as renderers_router
 from app.api.routes.capture_view import router as capture_view_router
+from app.api.routes.ai_providers import router as ai_providers_router
 from app.services.database import init_db, user_count
 
 app = FastAPI()
@@ -34,6 +35,7 @@ app.include_router(layouts_router)
 app.include_router(knowledge_router)
 app.include_router(renderers_router)
 app.include_router(capture_view_router)
+app.include_router(ai_providers_router)
 
 # ─── Auth status template variable ────────────────────────────────
 templates = Jinja2Templates(directory="app/templates")
@@ -77,7 +79,7 @@ def home(request: Request):
 # ─── API endpoints ────────────────────────────────────────────────
 @app.get("/api/version")
 def get_version():
-    return {"version": "0.1.0"}
+    return {"version": "0.2.0"}
 
 
 @app.get("/api/update/check")
@@ -91,7 +93,7 @@ def check_update():
         if resp.status_code == 200:
             data = resp.json()
             latest = data.get("tag_name", "").lstrip("v")
-            current = "0.1.0"
+            current = "0.2.0"
             return {
                 "current_version": current,
                 "latest_version": latest,

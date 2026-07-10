@@ -22,6 +22,7 @@ from app.services.raw_storage import (
     raw_exists,
 )
 from app.services.extractor_pipeline import extract_and_save
+from app.services.ai_tagging import tag_capture
 from app.services.knowledge_store import delete_knowledge_for_capture
 from app.services.raw_storage import get_raw_html, load_raw_capture
 from app.services.auth import get_current_user
@@ -89,6 +90,12 @@ def capture_item(
     msg = f"Saved to Recollect ({package.capture_type})"
     if extraction and extraction.knowledge_objects:
         msg += f" — extracted {len(extraction.knowledge_objects)} knowledge objects"
+
+    # Trigger AI tagging in background (don't block response)
+    try:
+        tag_capture(user_id, package.capture_id)
+    except Exception:
+        pass  # Tagging failure shouldn't break the save
 
     return CPResponse(
         success=True,

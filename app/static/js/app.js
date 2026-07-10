@@ -141,6 +141,11 @@ window.addEventListener('DOMContentLoaded', async () => {
             category: 'Account',
             description: 'Your account settings.',
             items: []  // Custom rendering
+        },
+        {
+            category: 'AI',
+            description: 'Connect AI providers and assign models to features like auto-tagging.',
+            items: []  // Custom rendering
         }
     ];
 
@@ -186,6 +191,8 @@ window.addEventListener('DOMContentLoaded', async () => {
         settingsCategoryDescription.textContent = category.description || '';
         if (category.category === 'Account') {
             renderAccountSettings();
+        } else if (category.category === 'AI') {
+            renderAISettings();
         } else {
             settingsList.innerHTML = category.items.map(item => createField({ ...item, category: category.category })).join('');
         }
@@ -374,6 +381,367 @@ window.addEventListener('DOMContentLoaded', async () => {
                 } catch { status.textContent = 'Error'; status.style.color = '#f87171'; }
             });
         });
+    }
+
+    // ─── AI Settings ─────────────────────────────────────────────────
+
+    let aiProviders = [];
+    let aiAssignments = [];
+
+    async function renderAISettings() {
+        const cat = settingsSchema.find(c => c.category === 'AI');
+        const desc = cat ? cat.description : '';
+        settingsCategoryDescription.textContent = desc;
+
+        // Fetch providers and assignments
+        try {
+            const rp = await fetch('/api/ai/providers');
+            aiProviders = rp.ok ? (await rp.json()).providers : [];
+        } catch { aiProviders = []; }
+        try {
+            const ra = await fetch('/api/ai/assignments');
+            aiAssignments = ra.ok ? (await ra.json()).assignments : [];
+        } catch { aiAssignments = []; }
+
+        let html = '<div class="settings-field-group">';
+
+        // ─── Providers section ────────────────────────────────────
+        html += '<div class="settings-section-header"><h3>AI Providers</h3></div>';
+        html += '<div class="settings-list" style="gap:0.3rem">';
+        if (aiProviders.length === 0) {
+            html += '<div style="color:var(--text-dim);font-size:0.85rem;padding:0.5rem 0">No AI providers configured. Add one below.</div>';
+        } else {
+            for (const p of aiProviders) {
+                const hasAssignment = aiAssignments.some(a => a.provider_id === p.id);
+                html += `<div class="settings-field" style="justify-content:space-between">
+                  <div>
+                    <span style="font-weight:600">${escapeHtml(p.name)}</span>
+                    <span style="color:var(--text-dim);font-size:0.78rem;margin-left:0.4rem">${escapeHtml(p.base_url)}</span>
+                    ${hasAssignment ? '<span class="ai-badge" style="background:var(--accent);color:#fff;font-size:0.7rem;padding:0.1rem 0.4rem;border-radius:4px;margin-left:0.4rem">assigned</span>' : ''}
+                    ${p.default_model ? `<span style="color:var(--text-dim);font-size:0.75rem;margin-left:0.3rem">· ${escapeHtml(p.default_model)}</span>` : ''}
+                  </div>
+                  <div style="display:flex;gap:0.3rem">
+                    <button class="ai-edit-provider modal-btn modal-btn-secondary" style="padding:0.25rem 0.5rem;font-size:0.75rem" data-id="${p.id}" data-name="${escapeHtml(p.name)}" data-url="${escapeHtml(p.base_url)}">Edit</button>
+                    <button class="ai-delete-provider modal-btn" style="padding:0.25rem 0.5rem;font-size:0.75rem;background:var(--danger,#f87171);color:#fff;border:none" data-id="${p.id}" data-name="${escapeHtml(p.name)}">Delete</button>
+                  </div>
+                </div>`;
+            }
+        }
+        html += '</div>';
+
+        // Add provider button
+        html += `<button id="ai-add-provider-btn" class="modal-btn modal-btn-primary" type="button" style="margin-top:0.4rem">+ Add Connection</button>`;
+
+        // ─── Feature assignments section ──────────────────────────
+        html += '<div class="settings-section-header" style="margin-top:1.2rem"><h3>Feature Assignments</h3></div>';
+        html += '<div class="settings-list" style="gap:0.6rem">';
+
+        // Fetch available features
+        let features = [];
+        try {
+            const rf = await fetch('/api/ai/features');
+            features = rf.ok ? (await rf.json()).features : [];
+        } catch {}
+
+        for (const feat of features) {
+            const assignment = aiAssignments.find(a => a.feature === feat.id);
+            const assignedProvider = assignment ? aiProviders.find(p => p.id === assignment.provider_id) : null;
+
+            html += `<div class="settings-field" style="flex-direction:column;align-items:stretch;gap:0.4rem">
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <div>
+                  <span style="font-weight:600">${escapeHtml(feat.name)}</span>
+                  <span style="color:var(--text-dim);font-size:0.78rem;margin-left:0.4rem">${escapeHtml(feat.description)}</span>
+                </div>
+                ${assignment ? `<span class="ai-badge" style="background:#22c55e;color:#fff;font-size:0.7rem;padding:0.15rem 0.5rem;border-radius:4px">active</span>` : `<span style="color:var(--text-dim);font-size:0.75rem">not configured</span>`}
+              </div>
+              <div style="display:flex;gap:0.4rem;align-items:center" data-feature="${feat.id}">
+                <select class="ai-assign-provider" style="flex:1;padding:0.35rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:0.82rem">
+                  <option value="">— Select provider —</option>
+                  ${aiProviders.map(p => `<option value="${p.id}" ${assignment && assignment.provider_id === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
+                </select>
+                <select class="ai-assign-model" style="flex:1;padding:0.35rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:0.82rem" ${assignment ? '' : 'disabled'}>
+                  ${assignment ? `<option value="${escapeHtml(assignment.model)}">${escapeHtml(assignment.model)}</option>` : '<option value="">— Select model —</option>'}
+                </select>
+                <button class="ai-save-assignment modal-btn modal-btn-primary" type="button" style="padding:0.35rem 0.6rem;font-size:0.78rem">Save</button>
+                ${assignment ? `<button class="ai-remove-assignment modal-btn modal-btn-secondary" type="button" style="padding:0.35rem 0.5rem;font-size:0.75rem" data-id="${assignment.id}">Remove</button>` : ''}
+              </div>
+              <span id="ai-assign-status-${feat.id}" class="note-status" hidden></span>
+            </div>`;
+        }
+        html += '</div>';
+
+        // ─── Bulk tagging section ────────────────────────────────
+        html += '<div class="settings-section-header" style="margin-top:1.2rem"><h3>Bulk Tagging</h3></div>';
+        html += '<div class="settings-list" style="gap:0.4rem">';
+        html += `<button id="ai-tag-untagged" class="modal-btn modal-btn-primary" type="button" style="padding:0.4rem 0.75rem;font-size:0.82rem">Tag all untagged captures</button>`;
+        html += `<button id="ai-retag-all" class="modal-btn" type="button" style="padding:0.4rem 0.75rem;font-size:0.82rem;background:var(--danger,#f87171);color:#fff;border:none">RETAG all captures (⚠ destructive)</button>`;
+        html += '<span id="ai-bulk-status" class="note-status" style="margin-top:0.4rem" hidden></span>';
+        html += '</div>';
+
+        html += '</div>';
+        settingsList.innerHTML = html;
+        attachAIHandlers();
+    }
+
+    function attachAIHandlers() {
+        // Add provider
+        document.getElementById('ai-add-provider-btn')?.addEventListener('click', () => openAIProviderModal(null));
+
+        // Edit provider
+        document.querySelectorAll('.ai-edit-provider').forEach(btn => {
+            btn.addEventListener('click', () => openAIProviderModal({
+                id: btn.dataset.id,
+                name: btn.dataset.name,
+                base_url: btn.dataset.url,
+            }));
+        });
+
+        // Delete provider
+        document.querySelectorAll('.ai-delete-provider').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                if (!confirm(`Delete provider "${btn.dataset.name}"? This will also remove any feature assignments using it.`)) return;
+                try {
+                    const r = await fetch(`/api/ai/providers/${btn.dataset.id}`, { method: 'DELETE' });
+                    if (r.ok) renderAISettings();
+                } catch {}
+            });
+        });
+
+        // Provider dropdown change → fetch models
+        document.querySelectorAll('.ai-assign-provider').forEach(sel => {
+            sel.addEventListener('change', async () => {
+                const container = sel.closest('[data-feature]');
+                const modelSel = container.querySelector('.ai-assign-model');
+                const providerId = sel.value;
+                if (!providerId) {
+                    modelSel.innerHTML = '<option value="">— Select model —</option>';
+                    modelSel.disabled = true;
+                    return;
+                }
+                modelSel.innerHTML = '<option value="">Loading models...</option>';
+                modelSel.disabled = false;
+                try {
+                    const r = await fetch(`/api/ai/providers/${providerId}/models`);
+                    const data = r.ok ? await r.json() : { models: [] };
+                    if (data.models && data.models.length > 0) {
+                        modelSel.innerHTML = data.models.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.id)}</option>`).join('');
+                    } else {
+                        modelSel.innerHTML = '<option value="manual">(type model name below)</option>';
+                        // Add a manual input as fallback
+                        const container = sel.closest('[data-feature]');
+                        const existingInput = container.querySelector('.ai-manual-model');
+                        if (!existingInput) {
+                            const input = document.createElement('input');
+                            input.type = 'text';
+                            input.className = 'ai-manual-model';
+                            input.placeholder = 'Enter model name...';
+                            input.style.cssText = 'flex:1;padding:0.35rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:0.82rem';
+                            modelSel.parentNode.insertBefore(input, modelSel.nextSibling);
+                            // When manual model changes, update the select
+                            input.addEventListener('input', () => {
+                                const opt = modelSel.querySelector('option[value="manual"]');
+                                if (opt) opt.text = input.value || '(type model name below)';
+                            });
+                        }
+                    }
+                } catch {
+                    modelSel.innerHTML = '<option value="manual">(connection failed — type model name)</option>';
+                    const container = sel.closest('[data-feature]');
+                    const existingInput = container.querySelector('.ai-manual-model');
+                    if (!existingInput) {
+                        const input = document.createElement('input');
+                        input.type = 'text';
+                        input.className = 'ai-manual-model';
+                        input.placeholder = 'Enter model name manually...';
+                        input.style.cssText = 'flex:1;padding:0.35rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:0.82rem';
+                        modelSel.parentNode.insertBefore(input, modelSel.nextSibling);
+                        input.addEventListener('input', () => {
+                            const opt = modelSel.querySelector('option[value="manual"]');
+                            if (opt) opt.text = input.value || '(connection failed — type model name)';
+                        });
+                    }
+                }
+            });
+        });
+
+        // Save assignment
+        document.querySelectorAll('.ai-save-assignment').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const container = btn.closest('[data-feature]');
+                const providerSel = container.querySelector('.ai-assign-provider');
+                const modelSel = container.querySelector('.ai-assign-model');
+                const feature = container.dataset.feature;
+                const status = document.getElementById(`ai-assign-status-${feature}`);
+                const providerId = providerSel.value;
+                let model = modelSel.value;
+                // Check for manual model input
+                const manualInput = container.querySelector('.ai-manual-model');
+                if (manualInput && manualInput.value.trim()) {
+                    model = manualInput.value.trim();
+                }
+                if (!providerId || !model) {
+                    status.textContent = 'Please select a provider and model.';
+                    status.style.color = '#f87171';
+                    status.hidden = false;
+                    return;
+                }
+                status.hidden = true;
+                try {
+                    const r = await fetch('/api/ai/assignments', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ feature, provider_id: providerId, model }),
+                    });
+                    if (r.ok) {
+                        status.textContent = 'Assignment saved ✓';
+                        status.style.color = '#22c55e';
+                        status.hidden = false;
+                        setTimeout(() => renderAISettings(), 1000);
+                    } else {
+                        const d = await r.json();
+                        status.textContent = d.detail || 'Failed';
+                        status.style.color = '#f87171';
+                        status.hidden = false;
+                    }
+                } catch {
+                    status.textContent = 'Error saving assignment';
+                    status.style.color = '#f87171';
+                    status.hidden = false;
+                }
+            });
+        });
+
+        // Remove assignment
+        document.querySelectorAll('.ai-remove-assignment').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                try {
+                    const r = await fetch(`/api/ai/assignments/${btn.dataset.id}`, { method: 'DELETE' });
+                    if (r.ok) renderAISettings();
+                } catch {}
+            });
+        });
+
+        // Tag all untagged
+        document.getElementById('ai-tag-untagged')?.addEventListener('click', async () => {
+            const status = document.getElementById('ai-bulk-status');
+            status.textContent = 'Tagging... this may take a while';
+            status.style.color = 'var(--text-dim)';
+            status.hidden = false;
+            try {
+                const r = await fetch('/api/ai/tag-all-untagged', { method: 'POST' });
+                const d = await r.json();
+                status.textContent = `Done: ${d.tagged} tagged, ${d.skipped} skipped, ${d.errors} errors (of ${d.total} total)`;
+                status.style.color = d.errors > 0 ? '#f87171' : '#22c55e';
+            } catch {
+                status.textContent = 'Error running bulk tagging';
+                status.style.color = '#f87171';
+            }
+        });
+
+        // RETAG all (dangerous)
+        document.getElementById('ai-retag-all')?.addEventListener('click', async () => {
+            const retagCode = prompt('Type "RETAG" to confirm re-tagging ALL captures. This will delete existing AI tags and regenerate them:');
+            if (retagCode !== 'RETAG') return;
+            const status = document.getElementById('ai-bulk-status');
+            status.textContent = 'Re-tagging all captures... this will take a while';
+            status.style.color = 'var(--text-dim)';
+            status.hidden = false;
+            try {
+                const r = await fetch('/api/ai/retag-all', { method: 'POST' });
+                const d = await r.json();
+                status.textContent = `Done: ${d.tagged} tagged, ${d.skipped} skipped, ${d.errors} errors (of ${d.total} total)`;
+                status.style.color = d.errors > 0 ? '#f87171' : '#22c55e';
+            } catch {
+                status.textContent = 'Error running retag';
+                status.style.color = '#f87171';
+            }
+        });
+    }
+
+    function openAIProviderModal(existing) {
+        // Create a simple modal for adding/editing provider
+        const name = existing ? existing.name : '';
+        const url = existing ? existing.base_url : '';
+        const isEdit = !!existing;
+
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.style.display = 'flex';
+        overlay.style.zIndex = '10000';
+        overlay.innerHTML = `<div class="modal-panel" role="dialog" aria-modal="true" style="max-width:450px">
+          <button class="modal-close ai-modal-close-btn" type="button" aria-label="Close">&times;</button>
+          <div class="modal-header"><h3 class="modal-title">${isEdit ? 'Edit' : 'Add'} AI Provider</h3></div>
+          <div class="note-form-body" style="gap:0.6rem">
+            <div class="note-field">
+              <label>Name <span class="required">*</span></label>
+              <input id="ai-provider-name" type="text" value="${escapeHtml(name)}" placeholder="e.g. localAI, OpenAI" autocomplete="off" />
+            </div>
+            <div class="note-field">
+              <label>Base URL <span class="required">*</span></label>
+              <input id="ai-provider-url" type="text" value="${escapeHtml(url)}" placeholder="e.g. http://localhost:1234/v1" autocomplete="off" />
+            </div>
+            <div class="note-field">
+              <label>API Key <span style="color:var(--text-dim);font-size:0.75rem">(optional for local)</span></label>
+              <input id="ai-provider-key" type="password" placeholder="sk-..." autocomplete="off" />
+            </div>
+            <div id="ai-provider-status" class="note-status" hidden></div>
+          </div>
+          <div class="modal-actions">
+            <button class="modal-btn modal-btn-secondary ai-modal-close-btn" type="button">Cancel</button>
+            <button id="ai-provider-save-btn" class="modal-btn modal-btn-primary" type="button">${isEdit ? 'Save' : 'Add'} Provider</button>
+          </div>
+        </div>`;
+        document.body.appendChild(overlay);
+
+        const close = () => { overlay.remove(); };
+        overlay.querySelectorAll('.ai-modal-close-btn').forEach(b => b.addEventListener('click', close));
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+
+        document.getElementById('ai-provider-save-btn')?.addEventListener('click', async () => {
+            const pName = document.getElementById('ai-provider-name').value.trim();
+            const pUrl = document.getElementById('ai-provider-url').value.trim();
+            const pKey = document.getElementById('ai-provider-key').value;
+            const status = document.getElementById('ai-provider-status');
+            if (!pName || !pUrl) {
+                status.textContent = 'Name and Base URL are required';
+                status.style.color = '#f87171';
+                status.hidden = false;
+                return;
+            }
+            status.hidden = true;
+            try {
+                if (isEdit) {
+                    const body = { name: pName, base_url: pUrl };
+                    if (pKey) body.api_key = pKey;
+                    const r = await fetch(`/api/ai/providers/${existing.id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body),
+                    });
+                    if (r.ok) { close(); renderAISettings(); }
+                    else { const d = await r.json(); status.textContent = d.detail || 'Failed'; status.style.color = '#f87171'; status.hidden = false; }
+                } else {
+                    const r = await fetch('/api/ai/providers', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name: pName, base_url: pUrl, api_key: pKey }),
+                    });
+                    if (r.ok) { close(); renderAISettings(); }
+                    else { const d = await r.json(); status.textContent = d.detail || 'Failed'; status.style.color = '#f87171'; status.hidden = false; }
+                }
+            } catch {
+                status.textContent = 'Error saving provider';
+                status.style.color = '#f87171';
+                status.hidden = false;
+            }
+        });
+    }
+
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
     }
 
     function filterSettings(query) {
