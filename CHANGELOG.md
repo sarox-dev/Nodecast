@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.0.0 — Nodecast rebrand (2026-07-13)
+
+### Breaking changes
+
+- Complete rebrand: **Recollect → Nodecast**
+- All code, URLs, Docker configs, DB files renamed
+- New website: [nodecast.dev](https://nodecast.dev)
+- GitHub: [sarox-dev/Nodecast](https://github.com/sarox-dev/Nodecast)
+- Extension rebranded as [Nodecast-Extension](https://github.com/sarox-dev/Nodecast-Extension)
+
+### Notes
+
+- Old `recollect.db` files automatically renamed to `nodecast.db`
+- Cookie name changed from `recollect_token` to `nodecast_token`
+- LocalStorage keys migrated from `recollect.*` to `nodecast.*`
+- All old data preserved — no migration needed
+
 ## v0.2.0 — AI Tagging & Connections (2026-07-10)
 
 ### New Features

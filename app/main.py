@@ -93,7 +93,7 @@ def check_update():
         if resp.status_code == 200:
             data = resp.json()
             latest = data.get("tag_name", "").lstrip("v")
-            current = "0.2.0"
+            current = "1.0.0"
             return {
                 "current_version": current,
                 "latest_version": latest,
