@@ -1,7 +1,7 @@
 """
 Capture Package — vienotais sūtīšanas formāts (Fāze 1).
 
-Pilna specifikācija: AI_Vault/Recollect/Architecture/CapturePackage.md
+Pilna specifikācija: AI_Vault/Nodecast/Architecture/CapturePackage.md
 """
 
 from datetime import datetime, timezone

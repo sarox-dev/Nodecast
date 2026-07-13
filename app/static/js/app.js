@@ -1583,7 +1583,7 @@ window.addEventListener('DOMContentLoaded', async () => {
             }
         } catch (err) {
             importProgress.hidden = true;
-            importResult.textContent = 'Server error — is Recollect running?';
+            importResult.textContent = 'Server error — is Nodecast running?';
             importResult.className = 'import-result error';
             importResult.hidden = false;
         }
@@ -1764,7 +1764,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     const bannerInstallLink = document.getElementById('banner-install-link');
     const installModal = document.getElementById('install-modal');
     const installClose = document.getElementById('install-close');
-    function checkExtensionInstalled() { if (localStorage.getItem('bannerDismissed') === 'true') return; const sentinel = document.querySelector('meta[name="recollect-extension"]'); if (!sentinel || sentinel.content !== 'installed') extBanner.hidden = false; }
+    function checkExtensionInstalled() { if (localStorage.getItem('bannerDismissed') === 'true') return; const sentinel = document.querySelector('meta[name="nodecast-extension"]'); if (!sentinel || sentinel.content !== 'installed') extBanner.hidden = false; }
     bannerClose.addEventListener('click', () => { extBanner.hidden = true; localStorage.setItem('bannerDismissed', 'true'); });
     bannerInstallLink.addEventListener('click', () => { extBanner.hidden = true; installModal.hidden = false; installModal.inert = false; });
     installClose.addEventListener('click', () => { installModal.hidden = true; installModal.inert = true; });
@@ -1783,8 +1783,8 @@ window.addEventListener('DOMContentLoaded', async () => {
         workspacePreview.style.width = `${previewWidth}px`;
     }
 
-    let sidebarWidth = Number(localStorage.getItem('recollect.sidebarWidth') || 280);
-    let previewWidth = Number(localStorage.getItem('recollect.previewWidth') || 360);
+    let sidebarWidth = Number(localStorage.getItem('nodecast.sidebarWidth') || 280);
+    let previewWidth = Number(localStorage.getItem('nodecast.previewWidth') || 360);
     applyPanelWidths();
 
     function startResize(side, startEvent) {
@@ -1802,8 +1802,8 @@ window.addEventListener('DOMContentLoaded', async () => {
             applyPanelWidths();
         };
         const onUp = () => {
-            localStorage.setItem('recollect.sidebarWidth', String(sidebarWidth));
-            localStorage.setItem('recollect.previewWidth', String(previewWidth));
+            localStorage.setItem('nodecast.sidebarWidth', String(sidebarWidth));
+            localStorage.setItem('nodecast.previewWidth', String(previewWidth));
             document.body.classList.remove('resizing');
             document.removeEventListener('mousemove', onMove);
             document.removeEventListener('mouseup', onUp);

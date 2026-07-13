@@ -1,10 +1,10 @@
 # Architecture Overview
 
-This document provides a high-level overview of Recollect's system architecture, components, and design decisions.
+This document provides a high-level overview of Nodecast's system architecture, components, and design decisions.
 
 ## 🏗️ System Architecture
 
-Recollect follows a microservices architecture with clear separation of concerns:
+Nodecast follows a microservices architecture with clear separation of concerns:
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐

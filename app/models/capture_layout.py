@@ -7,7 +7,7 @@ Nosaka:
 - Kādu capture_type nosūtīt backendam
 - Kādus CSS selektorus izmantot satura fokusēšanai
 
-Dokumentācija: AI_Vault/Recollect/Architecture/CaptureLayout.md
+Dokumentācija: AI_Vault/Nodecast/Architecture/CaptureLayout.md
 """
 
 from pathlib import Path

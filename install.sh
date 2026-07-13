@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -e
-REPO="sarox-dev/Recollect"
-INSTALL_DIR="${HOME}/Recollect"
+REPO="sarox-dev/Nodecast"
+INSTALL_DIR="${HOME}/Nodecast"
 
-echo "Installing Recollect..."
+echo "Installing Nodecast-*..."
 
 # Check Docker
 if ! command -v docker &>/dev/null 2>&1; then
@@ -29,15 +29,15 @@ cd "$INSTALL_DIR"
 curl -fsSL "https://github.com/$REPO/archive/refs/tags/$LATEST_TAG.zip" -o release.zip
 
 echo "Extracting..."
-unzip -o release.zip -d /tmp/recollect-extract/ >/dev/null 2>&1
-EXTRACTED_DIR=$(find /tmp/recollect-extract/ -maxdepth 1 -type d -name "Recollect-*" | head -1)
+unzip -o release.zip -d /tmp/nodecast-extract/ >/dev/null 2>&1
+EXTRACTED_DIR=$(find /tmp/nodecast-extract/ -maxdepth 1 -type d -name "Nodecast-**" | head -1)
 if [ -z "$EXTRACTED_DIR" ]; then
     echo "Error: Extraction failed."
     rm -f release.zip
     exit 1
 fi
 cp -r "$EXTRACTED_DIR"/. "$INSTALL_DIR/"
-rm -rf /tmp/recollect-extract/ release.zip
+rm -rf /tmp/nodecast-extract/ release.zip
 
 echo "Setting up configuration..."
 
@@ -63,10 +63,10 @@ else
 fi
 
 # Start
-echo "Starting Recollect..."
+echo "Starting Nodecast-*..."
 docker compose up -d
 echo ""
-echo "✓ Recollect is running at http://localhost:5000"
+echo "✓ Nodecast-* is running at http://localhost:5000"
 
 # Auto-open browser
 if command -v xdg-open &>/dev/null; then

@@ -1,10 +1,10 @@
 # User Guide
 
-Welcome to Recollect! This guide will help you get started with your self-hosted search engine.
+Welcome to Nodecast! This guide will help you get started with your self-hosted search engine.
 
-## 🎯 What is Recollect?
+## 🎯 What is Nodecast?
 
-Recollect is a privacy-focused, self-hosted search engine that combines web search with local knowledge management. It provides:
+Nodecast is a privacy-focused, self-hosted search engine that combines web search with local knowledge management. It provides:
 
 - **Unified Search**: Search across web, GitHub, and local files
 - **Privacy First**: No tracking, no data collection
@@ -14,9 +14,9 @@ Recollect is a privacy-focused, self-hosted search engine that combines web sear
 
 ## 🚀 Quick Start
 
-### Access Recollect
+### Access Nodecast
 
-Once deployed, access Recollect at:
+Once deployed, access Nodecast at:
 ```
 http://localhost:8000
 ```
@@ -25,7 +25,7 @@ Or your custom domain if configured.
 
 ### First Search
 
-1. Open Recollect in your browser
+1. Open Nodecast in your browser
 2. Type your search query in the search box
 3. Press Enter or click the search button
 4. Browse results using tabs (All/Images)
@@ -134,7 +134,7 @@ Configure privacy features:
 ```yaml
 general:
   debug: false
-  instance_name: "My Recollect"
+  instance_name: "My Nodecast"
   privacypolicy_url: false
 ```
 
@@ -142,7 +142,7 @@ general:
 
 ### Privacy Features
 
-- **No Tracking**: Recollect doesn't track your searches
+- **No Tracking**: Nodecast doesn't track your searches
 - **No Data Storage**: Search queries aren't stored
 - **Federated Search**: Uses multiple engines simultaneously
 - **Self-Hosted**: You control your data
@@ -156,7 +156,7 @@ general:
 
 ## 📱 Mobile Usage
 
-Recollect works great on mobile devices:
+Nodecast works great on mobile devices:
 
 ### Mobile Features
 - **Responsive Design**: Adapts to screen size
@@ -174,8 +174,8 @@ Recollect works great on mobile devices:
 
 #### Updates
 ```bash
-# Update Recollect
-cd recollect
+# Update Nodecast
+cd nodecast
 git pull
 docker compose build
 docker compose up -d
@@ -216,7 +216,7 @@ docker compose logs --tail=20
 ## 🔧 Customization
 
 ### Themes (Future)
-Recollect currently uses a clean, Google-inspired theme. Future versions may include:
+Nodecast currently uses a clean, Google-inspired theme. Future versions may include:
 - Dark mode
 - Custom color schemes
 - Theme customization
@@ -273,7 +273,7 @@ time curl -s "http://localhost:8000/search?q=test" > /dev/null
 ### Browser Integration
 
 #### Search Engine
-Add Recollect as a search engine in your browser:
+Add Nodecast as a search engine in your browser:
 - **Chrome**: Settings → Search Engines → Add
 - **Firefox**: Preferences → Search → Add
 
@@ -285,7 +285,7 @@ javascript:window.open('http://localhost:8000/?q='+encodeURIComponent(window.get
 
 ### API Usage
 
-Access Recollect programmatically:
+Access Nodecast programmatically:
 
 ```bash
 # Search API
@@ -306,7 +306,7 @@ curl "http://localhost:8000/search?q=cats&categories=images"
 
 ### Contributing
 
-Help improve Recollect:
+Help improve Nodecast:
 - **Report Issues**: Found a bug? Let us know
 - **Suggest Features**: Have an idea? Share it
 - **Contribute Code**: Fix bugs or add features
@@ -384,7 +384,7 @@ If you need help:
 ### Support Information
 
 When asking for help, include:
-- Recollect version/commit
+- Nodecast version/commit
 - Docker version
 - Browser and OS
 - Steps to reproduce
@@ -403,8 +403,8 @@ When asking for help, include:
 
 ### Roadmap
 
-Check our [GitHub Issues](https://github.com/sarox-dev/Recollect/issues) for planned features and vote on what matters most to you.
+Check our [GitHub Issues](https://github.com/sarox-dev/Nodecast/issues) for planned features and vote on what matters most to you.
 
 ---
 
-*Thank you for using Recollect! Your feedback helps make it better for everyone.*
+*Thank you for using Nodecast! Your feedback helps make it better for everyone.*

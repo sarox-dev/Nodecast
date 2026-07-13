@@ -1,6 +1,6 @@
 services:
   searxng:
-    container_name: searxng-recollect
+    container_name: searxng-nodecast
     image: searxng/searxng
     expose:
       - "${SEARXNG_PORT}"
@@ -12,7 +12,7 @@ services:
       - SEARXNG_BASE_URL=${SEARXNG_URL}
       - SEARXNG_METHOD=${SEARXNG_METHOD}
   app:
-    container_name: recollect-app
+    container_name: nodecast-app
     build: .
     extra_hosts:
       - "host.docker.internal:host-gateway"

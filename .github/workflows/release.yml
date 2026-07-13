@@ -47,7 +47,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: Recollect ${{ github.ref_name }}
+          name: Nodecast ${{ github.ref_name }}
 
           body: |
             ${{ steps.notes.outputs.notes }}
@@ -57,20 +57,20 @@ jobs:
             ### Linux / macOS
 
             ```bash
-            curl -fsSL https://github.com/sarox-dev/Recollect/releases/latest/download/install.sh | bash
+            curl -fsSL https://github.com/sarox-dev/Nodecast/releases/latest/download/install.sh | bash
             ```
 
             ### Windows (PowerShell)
 
             ```powershell
-            irm https://github.com/sarox-dev/Recollect/releases/latest/download/install.ps1 | iex
+            irm https://github.com/sarox-dev/Nodecast/releases/latest/download/install.ps1 | iex
             ```
 
             ## Docker
 
             ```bash
-            git clone https://github.com/sarox-dev/Recollect.git
-            cd Recollect
+            git clone https://github.com/sarox-dev/Nodecast.git
+            cd Nodecast
             git checkout ${{ github.ref_name }}
             cp .env.example .env
             docker compose up -d

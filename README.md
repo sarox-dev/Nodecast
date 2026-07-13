@@ -1,7 +1,7 @@
-<h1 align="center">Recollect</h1>
+<h1 align="center">Nodecast</h1>
 
 <p align="center">
-  <img src="app/static/logo.png" width="120" height="120" alt="Recollect logo" />
+  <img src="app/static/logo.png" width="120" height="120" alt="Nodecast logo" />
 </p>
 
 <div align="center">
@@ -17,17 +17,17 @@
 <p align="center"><strong>Search once. Reuse forever.</strong></p>
 
 <p align="center">
-  Recollect turns the web into your personal knowledge base —
+  Nodecast turns the web into your personal knowledge base —
   save content, not bookmarks, and find it again.
 </p>
 
 ---
 
-## What is Recollect?
+## What is Nodecast?
 
-**Recollect is a private, self-hosted research tool** that captures web pages as structured, searchable knowledge — not just URLs or screenshots.
+**Nodecast is a private, self-hosted research tool** that captures web pages as structured, searchable knowledge — not just URLs or screenshots.
 
-When you save a page, Recollect's extraction pipeline automatically parses the content into meaningful pieces: headings, paragraphs, images, code blocks, tables, videos, and metadata. Posts from sites like YouTube and Reddit get specialized extractors that pull out author, score, duration, comments — whatever matters. You can also highlight specific text before saving, which becomes an anchor point for future AI processing.
+When you save a page, Nodecast's extraction pipeline automatically parses the content into meaningful pieces: headings, paragraphs, images, code blocks, tables, videos, and metadata. Posts from sites like YouTube and Reddit get specialized extractors that pull out author, score, duration, comments — whatever matters. You can also highlight specific text before saving, which becomes an anchor point for future AI processing.
 
 Everything stays on your machine. No cloud, no tracking.
 
@@ -39,19 +39,19 @@ Everything stays on your machine. No cloud, no tracking.
 
 **Linux / macOS:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sarox-dev/Recollect/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sarox-dev/Nodecast/main/install.sh | bash
 ```
 
 **Windows (PowerShell):**
 ```powershell
-irm https://raw.githubusercontent.com/sarox-dev/Recollect/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/sarox-dev/Nodecast/main/install.ps1 | iex
 ```
 
 ### Manual setup
 
 ```bash
-git clone https://github.com/sarox-dev/Recollect.git
-cd Recollect
+git clone https://github.com/sarox-dev/Nodecast.git
+cd Nodecast
 
 # Configure environment
 cp .env.example .env
@@ -92,7 +92,7 @@ The app runs at **http://localhost:5000**. On first run, register an admin accou
 
 ## Extraction Pipeline
 
-When you save a page, Recollect runs a multi-stage extraction pipeline:
+When you save a page, Nodecast runs a multi-stage extraction pipeline:
 
 ```
 Browser Extension
@@ -178,7 +178,7 @@ Copy `.env.example` to `.env` and adjust as needed:
 ## Project Structure
 
 ```
-Recollect/
+Nodecast/
 ├── app/
 │   ├── api/routes/         — FastAPI endpoints (capture, knowledge, auth, etc.)
 │   ├── core/               — Security, config
@@ -216,8 +216,8 @@ Recollect/
 
 ## Browser Extension
 
-The [Recollect browser extension](https://github.com/sarox-dev/Recollect-Extension) lets you:
-- Select text on any webpage and save it directly to Recollect
+The [Nodecast browser extension](https://github.com/sarox-dev/Nodecast-Extension) lets you:
+- Select text on any webpage and save it directly to Nodecast
 - Use keyboard shortcuts (`Alt+Shift+R`) for quick saving
 - See how many highlights you've saved at a glance
 
@@ -229,7 +229,7 @@ The extension sends the full page HTML alongside any highlighted text, so you al
 
 ## Knowledge Objects — What Gets Saved
 
-When you open a saved capture in Recollect, you'll see structured data in three views:
+When you open a saved capture in Nodecast, you'll see structured data in three views:
 
 | Tab | Shows |
 |---|---|
@@ -317,8 +317,8 @@ The core is and always will be open source under AGPL-3.0. Premium features are 
 
 This project is in early development. Contributions, ideas, and feedback are welcome.
 
-- Open an [issue](https://github.com/sarox-dev/Recollect/issues)
-- Create a new [site config](https://github.com/sarox-dev/Recollect/tree/main/app/services/extractors/configs) for your favorite website
+- Open an [issue](https://github.com/sarox-dev/Nodecast/issues)
+- Create a new [site config](https://github.com/sarox-dev/Nodecast/tree/main/app/services/extractors/configs) for your favorite website
 - Join the [Discord](https://discord.gg/BXEDCJP7mT)
 
 ---
@@ -327,25 +327,25 @@ This project is in early development. Contributions, ideas, and feedback are wel
 
 Copyright (c) 2026 Saroxtech
 
-Recollect is licensed under the GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later). See the LICENSE file for details.
+Nodecast is licensed under the GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later). See the LICENSE file for details.
 
-Commercial licenses for proprietary use (for example, embedding Recollect in closed-source software or OEM distribution) are available from the copyright holder.
+Commercial licenses for proprietary use (for example, embedding Nodecast in closed-source software or OEM distribution) are available from the copyright holder.
 
 ---
 
 ## Links
 
-- 🌍 **Website**: [recollect.saroxtech.com](https://recollect.saroxtech.com)
-- 📖 **Docs**: [docs.saroxtech.com](https://docs.saroxtech.com)
+- 🌍 **Website**: [nodecast.dev](https://nodecast.dev)
+- 📖 **Docs**: [docs.nodecast.dev](https://docs.nodecast.dev)
 - 💬 **Discord**: [Join the community](https://discord.gg/BXEDCJP7mT)
-- 🐙 **GitHub**: [github.com/sarox-dev/Recollect](https://github.com/sarox-dev/Recollect)
-- 🔌 **Extension**: [Recollect-Extension](https://github.com/sarox-dev/Recollect-Extension)
-- 📺 **YouTube**: [@Recollect-dev](https://youtube.com/@Recollect-dev)
+- 🐙 **GitHub**: [github.com/sarox-dev/Nodecast](https://github.com/sarox-dev/Nodecast)
+- 🔌 **Extension**: [Nodecast-Extension](https://github.com/sarox-dev/Nodecast-Extension)
+- 📺 **YouTube**: [@Nodecast-dev](https://youtube.com/@Nodecast-dev)
 
 [license-badge]: https://img.shields.io/badge/License-AGPL--3.0-blue?logo=gnu
 [license-url]: LICENSE
-[stars-badge]: https://img.shields.io/github/stars/sarox-dev/Recollect?style=social
-[stars-url]: https://github.com/sarox-dev/Recollect
+[stars-badge]: https://img.shields.io/github/stars/sarox-dev/Nodecast?style=social
+[stars-url]: https://github.com/sarox-dev/Nodecast
 [python-badge]: https://img.shields.io/badge/Python-3.12+-blue?logo=python&logoColor=yellow
 [python-url]: https://python.org
 [docker-badge]: https://img.shields.io/badge/Docker-Compose-green?logo=docker

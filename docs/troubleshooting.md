@@ -1,6 +1,6 @@
 # Troubleshooting Guide
 
-This guide helps you diagnose and resolve common issues with Recollect deployment and usage.
+This guide helps you diagnose and resolve common issues with Nodecast deployment and usage.
 
 ## 🔍 Quick Diagnosis
 
@@ -8,7 +8,7 @@ This guide helps you diagnose and resolve common issues with Recollect deploymen
 
 ```bash
 #!/bin/bash
-echo "=== Recollect Health Check ==="
+echo "=== Nodecast Health Check ==="
 
 # Check Docker
 echo "Docker status:"
@@ -212,7 +212,7 @@ docker compose logs db
 
 Test connection:
 ```bash
-docker compose exec db psql -U recollect -d recollect
+docker compose exec db psql -U nodecast -d nodecast
 ```
 
 Reset database:
@@ -247,7 +247,7 @@ Check Docker networks:
 docker network ls
 
 # Inspect network
-docker network inspect recollect_default
+docker network inspect nodecast_default
 
 # Test connectivity
 docker compose exec app nslookup searxng_api
@@ -380,8 +380,8 @@ docker compose up -d
 docker compose stop app
 
 # Reset database
-docker compose exec db dropdb recollect
-docker compose exec db createdb recollect
+docker compose exec db dropdb nodecast
+docker compose exec db createdb nodecast
 
 # Run migrations
 docker compose exec app alembic upgrade head
@@ -493,4 +493,4 @@ docker compose logs --tail=50
 
 ---
 
-*This guide is continuously updated. Found a new issue? [Contribute a fix](https://github.com/sarox-dev/Recollect/blob/main/CONTRIBUTING.md)!*
+*This guide is continuously updated. Found a new issue? [Contribute a fix](https://github.com/sarox-dev/Nodecast/blob/main/CONTRIBUTING.md)!*

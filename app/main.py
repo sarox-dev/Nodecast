@@ -87,7 +87,7 @@ def check_update():
     import requests
     try:
         resp = requests.get(
-            "https://api.github.com/repos/sarox-dev/Recollect/releases/latest",
+            "https://api.github.com/repos/sarox-dev/Nodecast/releases/latest",
             timeout=10,
         )
         if resp.status_code == 200:
@@ -113,7 +113,7 @@ def install_update():
     try:
         result = subprocess.run(
             ["bash", "-c",
-             "curl -fsSL https://github.com/sarox-dev/Recollect/releases/latest/download/install.sh | bash"],
+             "curl -fsSL https://github.com/sarox-dev/Nodecast/releases/latest/download/install.sh | bash"],
             capture_output=True, text=True, timeout=120,
         )
         return {

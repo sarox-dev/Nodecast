@@ -246,7 +246,7 @@ class MarkdownRenderer(BaseRenderer):
         captured = capture_ref.get("captured_at", "")
         if captured:
             lines.append("<hr>")
-            lines.append(f'<p class="text-muted"><em>Extracted by Recollect — {captured}</em></p>')
+            lines.append(f'<p class="text-muted"><em>Extracted by Nodecast — {captured}</em></p>')
 
         lines.append("</div>")
 

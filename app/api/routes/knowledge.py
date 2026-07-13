@@ -191,7 +191,7 @@ def render_knowledge_to_markdown(objects: list, capture_ref: dict) -> str:
 
     # Footer
     lines.append("---")
-    lines.append(f"*Extracted by Recollect — {capture_ref.get('captured_at', '')}*")
+    lines.append(f"*Extracted by Nodecast — {capture_ref.get('captured_at', '')}*")
     lines.append("")
 
     return "\n".join(lines)

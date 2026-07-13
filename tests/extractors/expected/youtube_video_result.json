@@ -5,7 +5,7 @@
       "properties": {
         "video_id": "test123",
         "title": "Test Video Title",
-        "description": "This is a test video for the Recollect extractor.",
+        "description": "This is a test video for the Nodecast extractor.",
         "author": "TestAuthor",
         "channel_id": "UCtest123",
         "duration_seconds": 3600,

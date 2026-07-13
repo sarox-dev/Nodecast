@@ -170,7 +170,7 @@ def get_user_db_path(user_id: str) -> Path:
     """Path to a user's data directory and database."""
     user_dir = USERS_DATA_DIR / user_id
     os.makedirs(str(user_dir), exist_ok=True)
-    return user_dir / "recollect.db"
+    return user_dir / "nodecast.db"
 
 
 def init_user_db(user_id: str):

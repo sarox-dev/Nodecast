@@ -1,6 +1,6 @@
 # Deployment Guide
 
-This guide covers deploying Recollect in various environments, from local development to production servers.
+This guide covers deploying Nodecast in various environments, from local development to production servers.
 
 ## 🚀 Quick Deployment
 
@@ -8,8 +8,8 @@ This guide covers deploying Recollect in various environments, from local develo
 
 ```bash
 # Clone repository
-git clone https://github.com/sarox-dev/Recollect.git
-cd recollect
+git clone https://github.com/sarox-dev/Nodecast.git
+cd nodecast
 
 # Configure environment
 cp .env.example .env
@@ -37,9 +37,9 @@ sudo usermod -aG docker $USER
 sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
 sudo chmod +x /usr/local/bin/docker-compose
 
-# Deploy Recollect
-git clone https://github.com/sarox-dev/Recollect.git
-cd recollect
+# Deploy Nodecast
+git clone https://github.com/sarox-dev/Nodecast.git
+cd nodecast
 cp .env.example .env
 # Edit .env for production settings
 
@@ -63,7 +63,7 @@ APP_PORT=8000
 # SearXNG Configuration
 SEARXNG_PORT=8080
 SEARXNG_BASE_URL=http://searxng_api:8080
-SEARXNG_INSTANCE_NAME=Recollect Search
+SEARXNG_INSTANCE_NAME=Nodecast Search
 ```
 
 ### SearXNG Configuration
@@ -73,7 +73,7 @@ Customize `searxng/settings.yml`:
 ```yaml
 general:
   debug: false
-  instance_name: "Recollect Search"
+  instance_name: "Nodecast Search"
   privacypolicy_url: false
   contact_url: false
 
@@ -97,7 +97,7 @@ engines:
 ### Nginx Reverse Proxy
 
 ```nginx
-# /etc/nginx/sites-available/recollect
+# /etc/nginx/sites-available/nodecast
 server {
     listen 80;
     server_name your-domain.com;
@@ -131,7 +131,7 @@ server {
 
 Enable site:
 ```bash
-sudo ln -s /etc/nginx/sites-available/recollect /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/nodecast /etc/nginx/sites-enabled/
 sudo nginx -t
 sudo systemctl reload nginx
 ```
@@ -139,7 +139,7 @@ sudo systemctl reload nginx
 ### Apache Reverse Proxy
 
 ```apache
-# /etc/apache2/sites-available/recollect.conf
+# /etc/apache2/sites-available/nodecast.conf
 <VirtualHost *:80>
     ServerName your-domain.com
 
@@ -155,7 +155,7 @@ sudo systemctl reload nginx
 Enable modules and site:
 ```bash
 sudo a2enmod proxy proxy_http
-sudo a2ensite recollect
+sudo a2ensite nodecast
 sudo systemctl reload apache2
 ```
 
@@ -218,10 +218,10 @@ For multi-node deployment:
 docker swarm init
 
 # Deploy stack
-docker stack deploy -c docker-compose.yml recollect
+docker stack deploy -c docker-compose.yml nodecast
 
 # Check services
-docker stack services recollect
+docker stack services nodecast
 ```
 
 ## ☁️ Cloud Deployment
@@ -242,9 +242,9 @@ docker stack services recollect
 curl -fsSL https://get.docker.com -o get-docker.sh
 sudo sh get-docker.sh
 
-# Deploy Recollect
-git clone https://github.com/sarox-dev/Recollect.git
-cd recollect
+# Deploy Nodecast
+git clone https://github.com/sarox-dev/Nodecast.git
+cd nodecast
 docker compose up -d
 
 # Setup domain (Route 53)
@@ -261,8 +261,8 @@ curl -fsSL https://get.docker.com -o get-docker.sh
 sudo sh get-docker.sh
 
 # Deploy
-git clone https://github.com/sarox-dev/Recollect.git
-cd recollect
+git clone https://github.com/sarox-dev/Nodecast.git
+cd nodecast
 docker compose up -d
 
 # Setup firewall
@@ -278,18 +278,18 @@ sudo ufw enable
 # cloudbuild.yaml
 steps:
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/$PROJECT_ID/recollect', '.']
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/nodecast', '.']
 
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/recollect']
+    args: ['push', 'gcr.io/$PROJECT_ID/nodecast']
 
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
     args:
       - run
       - deploy
-      - recollect
-      - --image=gcr.io/$PROJECT_ID/recollect
+      - nodecast
+      - --image=gcr.io/$PROJECT_ID/nodecast
       - --platform=managed
       - --port=8000
       - --allow-unauthenticated
@@ -329,8 +329,8 @@ services:
 ### Updates
 
 ```bash
-# Update Recollect
-cd recollect
+# Update Nodecast
+cd nodecast
 git pull origin main
 docker compose build
 docker compose up -d
@@ -469,8 +469,8 @@ services:
   db:
     image: postgres:15
     environment:
-      POSTGRES_DB: recollect
-      POSTGRES_USER: recollect
+      POSTGRES_DB: nodecast
+      POSTGRES_USER: nodecast
       POSTGRES_PASSWORD: secure_password
 ```
 
@@ -540,7 +540,7 @@ services:
 ### Load Balancing
 
 ```nginx
-upstream recollect_app {
+upstream nodecast_app {
     server localhost:8000;
     server localhost:8001;
     server localhost:8002;
@@ -549,7 +549,7 @@ upstream recollect_app {
 server {
     listen 80;
     location / {
-        proxy_pass http://recollect_app;
+        proxy_pass http://nodecast_app;
     }
 }
 ```
@@ -562,7 +562,7 @@ server {
 # Backup script
 #!/bin/bash
 DATE=$(date +%Y%m%d_%H%M%S)
-tar -czf backup_$DATE.tar.gz recollect/
+tar -czf backup_$DATE.tar.gz nodecast/
 # Upload to cloud storage
 ```
 
@@ -571,7 +571,7 @@ tar -czf backup_$DATE.tar.gz recollect/
 ```bash
 # Restore from backup
 tar -xzf backup_latest.tar.gz
-cd recollect
+cd nodecast
 docker compose up -d
 ```
 

@@ -1,6 +1,6 @@
 # Development Guide
 
-This guide covers everything you need to know to set up a development environment and contribute to Recollect.
+This guide covers everything you need to know to set up a development environment and contribute to Nodecast.
 
 ## 🚀 Quick Setup
 
@@ -15,8 +15,8 @@ This guide covers everything you need to know to set up a development environmen
 
 ```bash
 # Clone the repository
-git clone https://github.com/sarox-dev/Recollect.git
-cd recollect
+git clone https://github.com/sarox-dev/Nodecast.git
+cd nodecast
 
 # Copy environment configuration
 cp .env.example .env
@@ -76,7 +76,7 @@ docker compose logs app
 
 ```bash
 # Run basic functionality tests
-curl -s http://localhost:8000 | grep "Recollect"
+curl -s http://localhost:8000 | grep "Nodecast"
 
 # Test search API
 curl -s "http://localhost:8000/search?q=open%20source" | jq '.results | length'
@@ -109,7 +109,7 @@ git push origin feature/your-feature-name
 ## 📁 Project Structure
 
 ```
-recollect/
+nodecast/
 ├── app/                    # Main application
 │   ├── app.py             # FastAPI application
 │   └── templates/         # HTML templates (future)
@@ -304,8 +304,8 @@ SEARXNG_PORT=9090 APP_PORT=3000 docker compose up -d
 
 ```bash
 # Clone on server
-git clone https://github.com/sarox-dev/Recollect.git
-cd recollect
+git clone https://github.com/sarox-dev/Nodecast.git
+cd nodecast
 
 # Configure environment
 cp .env.example .env
@@ -386,7 +386,7 @@ curl -w "@curl-format.txt" -o /dev/null -s "http://localhost:8000/search?q=test"
 - **Discord**: Real-time chat and support
 
 ### Documentation Issues
-- Found a documentation bug? [Open an issue](https://github.com/sarox-dev/Recollect/issues/new?labels=documentation)
+- Found a documentation bug? [Open an issue](https://github.com/sarox-dev/Nodecast/issues/new?labels=documentation)
 - Suggest improvements to this guide
 
 ---

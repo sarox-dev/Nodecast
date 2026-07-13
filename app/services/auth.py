@@ -33,7 +33,7 @@ def decode_token(token: str) -> dict | None:
         return None
 
 # ─── Dependencies ─────────────────────────────────────────────────
-COOKIE_NAME = "recollect_token"
+COOKIE_NAME = "nodecast_token"
 bearer_scheme = HTTPBearer(auto_error=False)
 
 async def get_user_from_cookie(request: Request) -> dict | None:

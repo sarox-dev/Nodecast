@@ -1,8 +1,8 @@
 #!/usr/bin/env pwsh
-$Repo = "sarox-dev/Recollect"
-$InstallDir = Join-Path $HOME "Recollect"
+$Repo = "sarox-dev/Nodecast"
+$InstallDir = Join-Path $HOME "Nodecast"
 
-Write-Host "Installing Recollect..."
+Write-Host "Installing Nodecast..."
 
 # Check Docker
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
@@ -30,8 +30,8 @@ Set-Location $InstallDir
 Invoke-WebRequest -Uri "https://github.com/$Repo/archive/refs/tags/$latestTag.zip" -OutFile "release.zip"
 
 Write-Host "Extracting..."
-Expand-Archive -Path "release.zip" -DestinationPath "/tmp/recollect-extract" -Force
-$extracted = Get-ChildItem "/tmp/recollect-extract/Recollect-*" | Select-Object -First 1
+Expand-Archive -Path "release.zip" -DestinationPath "/tmp/nodecast-extract" -Force
+$extracted = Get-ChildItem "/tmp/nodecast-extract/Nodecast-*" | Select-Object -First 1
 if (-not $extracted) {
     Write-Host "Error: Extraction failed."
     Remove-Item "release.zip" -Force
@@ -39,7 +39,7 @@ if (-not $extracted) {
 }
 Copy-Item -Path "$($extracted.FullName)\*" -Destination $InstallDir -Recurse -Force
 Remove-Item -Path "release.zip" -Force
-Remove-Item -Path "/tmp/recollect-extract" -Recurse -Force
+Remove-Item -Path "/tmp/nodecast-extract" -Recurse -Force
 
 Write-Host "Setting up configuration..."
 
@@ -67,10 +67,10 @@ if (-not (Test-Path ".env")) {
 }
 
 # Start
-Write-Host "Starting Recollect..."
+Write-Host "Starting Nodecast..."
 docker compose up -d
 Write-Host ""
-Write-Host "✓ Recollect is running at http://localhost:5000"
+Write-Host "✓ Nodecast is running at http://localhost:5000"
 
 # Auto-open browser
 Start-Process "http://localhost:5000"

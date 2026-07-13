@@ -30,7 +30,7 @@ If applicable, add screenshots or logs to help explain your problem.
 - **OS**: [e.g., Ubuntu 22.04, macOS 12.0]
 - **Browser**: [e.g., Chrome 100, Firefox 99]
 - **Docker Version**: [e.g., 24.0.1]
-- **Recollect Version**: [e.g., commit hash or version]
+- **Nodecast Version**: [e.g., commit hash or version]
 
 ## 📊 Additional Context
 
@@ -46,4 +46,4 @@ Add any other context about the problem here, such as:
 - [ ] I have included all relevant information
 - [ ] I have included steps to reproduce
 - [ ] I have included environment details</content>
-<parameter name="filePath">/home/deltauser/Desktop/code/web/Recollect/.github/ISSUE_TEMPLATE/bug-report.md
+<parameter name="filePath">/home/deltauser/Desktop/code/web/Nodecast/.github/ISSUE_TEMPLATE/bug-report.md

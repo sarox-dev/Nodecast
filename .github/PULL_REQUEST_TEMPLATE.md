@@ -76,4 +76,4 @@ Related to #[issue_number]
 ### 💡 Additional Notes
 
 [Any additional context, considerations, or notes for reviewers]</content>
-<parameter name="filePath">/home/deltauser/Desktop/code/web/Recollect/.github/PULL_REQUEST_TEMPLATE.md
+<parameter name="filePath">/home/deltauser/Desktop/code/web/Nodecast/.github/PULL_REQUEST_TEMPLATE.md

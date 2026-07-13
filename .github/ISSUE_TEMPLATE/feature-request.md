@@ -53,6 +53,6 @@ Add any other context, screenshots, or examples that help illustrate the feature
 
 - [ ] This feature doesn't already exist
 - [ ] I've searched for similar feature requests
-- [ ] The feature aligns with Recollect's goals
+- [ ] The feature aligns with Nodecast's goals
 - [ ] I've provided sufficient detail for implementation</content>
-<parameter name="filePath">/home/deltauser/Desktop/code/web/Recollect/.github/ISSUE_TEMPLATE/feature-request.md
+<parameter name="filePath">/home/deltauser/Desktop/code/web/Nodecast/.github/ISSUE_TEMPLATE/feature-request.md

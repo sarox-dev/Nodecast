@@ -87,7 +87,7 @@ def capture_item(
     except Exception:
         pass  # Extraction failure shouldn't break the save
 
-    msg = f"Saved to Recollect ({package.capture_type})"
+    msg = f"Saved to Nodecast ({package.capture_type})"
     if extraction and extraction.knowledge_objects:
         msg += f" — extracted {len(extraction.knowledge_objects)} knowledge objects"
 

@@ -1,6 +1,6 @@
 # API Reference
 
-This document provides detailed information about Recollect's API endpoints, request/response formats, and usage examples.
+This document provides detailed information about Nodecast's API endpoints, request/response formats, and usage examples.
 
 ## 🌐 Base URL
 
@@ -227,7 +227,7 @@ async function search(query, category = 'general', page = 1) {
 ```python
 import requests
 
-def search_recollect(query, category='general', page=1):
+def search_nodecast(query, category='general', page=1):
     url = "http://localhost:8000/search"
     params = {
         'q': query,

@@ -1,11 +1,11 @@
-# Recollect Documentation
+# Nodecast Documentation
 
-Welcome to the Recollect documentation! This folder contains comprehensive guides for understanding, developing, and deploying Recollect.
+Welcome to the Nodecast documentation! This folder contains comprehensive guides for understanding, developing, and deploying Nodecast.
 
 ## 📚 Documentation Index
 
 ### For Users
-- **[User Guide](user-guide.md)** - How to use Recollect as an end user
+- **[User Guide](user-guide.md)** - How to use Nodecast as an end user
 - **[Deployment](deployment.md)** - Installation and deployment instructions
 - **[Troubleshooting](troubleshooting.md)** - Common issues and solutions
 
@@ -21,7 +21,7 @@ Welcome to the Recollect documentation! This folder contains comprehensive guide
 
 ## 🚀 Quick Start
 
-If you're new to Recollect, start with the [User Guide](user-guide.md) to understand what Recollect does, then follow the [Deployment](deployment.md) guide to get it running.
+If you're new to Nodecast, start with the [User Guide](user-guide.md) to understand what Nodecast does, then follow the [Deployment](deployment.md) guide to get it running.
 
 For developers looking to contribute, check out the [Development](development.md) guide after reading the [Architecture](architecture.md) overview.
 
@@ -33,8 +33,8 @@ For developers looking to contribute, check out the [Development](development.md
 
 ## 🤝 Community
 
-- **Issues**: [GitHub Issues](https://github.com/sarox-dev/Recollect/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/sarox-dev/Recollect/discussions)
+- **Issues**: [GitHub Issues](https://github.com/sarox-dev/Nodecast/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/sarox-dev/Nodecast/discussions)
 - **Discord**: Join our [Discord server](https://discord.gg/BXEDCJP7mT)
 
 ## 📝 Documentation Standards
@@ -45,4 +45,4 @@ This documentation follows these standards:
 - **Up-to-date**: Maintained alongside code changes
 - **Structured**: Consistent formatting and organization
 
-Found an issue with the documentation? [Open an issue](https://github.com/sarox-dev/Recollect/issues/new?labels=documentation) or submit a pull request!
+Found an issue with the documentation? [Open an issue](https://github.com/sarox-dev/Nodecast/issues/new?labels=documentation) or submit a pull request!
