@@ -42,8 +42,6 @@ window.addEventListener('DOMContentLoaded', async () => {
     const emptyState = document.getElementById('empty-state');
     const statusBar = document.getElementById('status-bar');
     const resultCount = document.getElementById('result-count');
-    const browseBtn = document.getElementById('browse-btn');
-    const filterBar = document.getElementById('filter-bar');
     const settingsButton = document.getElementById('settings-button');
     const loadingIndicator = document.getElementById('loading-indicator');
     const previewPane = document.getElementById('preview-content');
@@ -58,21 +56,17 @@ window.addEventListener('DOMContentLoaded', async () => {
     scrollTopButton.textContent = '↑';
     document.body.appendChild(scrollTopButton);
 
-    let currentMode = 'all';
+    let webMode = false;
     let currentQuery = '';
     let currentPage = 1;
     let loading = false;
     let hasMore = false;
     let allResults = [];
-    let browseMode = false;
-    let searchActive = false;
     let activeProject = '';
     let activeTags = [];
     let previewItem = null;
     let pinnedPreviewItem = null;
     let previewHoverTimer = null;
-    let renderSequence = 0;
-    let renderedIndices = new Set();
 
     const settingsOverlay = document.getElementById('settings-overlay');
     const settingsClose = document.getElementById('settings-close');
@@ -813,20 +807,26 @@ window.addEventListener('DOMContentLoaded', async () => {
     function getHoverPreviewEnabled() { return settingsState.hoverPreview !== false; }
     function getAnimationSpeedStr() { return settingsState.animationSpeed || 'fast'; }
 
-    function setSearchActive(active) {
-        searchActive = active;
-        pageShell.classList.toggle('search-active', active);
-    }
-
-    function renderFilterTabs(mode) {
-        filterBar.hidden = false;
-        filterBar.querySelectorAll('.filter-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.mode === mode));
-    }
-
-    function setFilter(mode) {
-        currentMode = mode;
-        renderFilterTabs(mode);
-        renderResults(false);
+    function setWebMode(web) {
+        webMode = web;
+        pageShell.classList.toggle('web-search-mode', web);
+        queryInput.placeholder = web ? 'Search the web...' : 'Search your library...';
+        // Switch active sidebar button
+        document.getElementById('sidebar-library-nav')?.classList.toggle('active', !web);
+        document.getElementById('sidebar-web-nav')?.classList.toggle('active', web);
+        // Reload depending on mode
+        if (!web) {
+            loadLibrary();
+        } else {
+            // Web mode — show empty state
+            allResults = [];
+            resultsContainer.innerHTML = '<div class="empty-state" style="display:flex"><div class="empty-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg></div><h3>Web Search</h3><p>Enter a query to search the web. Results come from SearXNG meta search.</p></div>';
+            statusBar.hidden = true;
+            emptyState.hidden = true;
+            currentQuery = '';
+            queryInput.value = '';
+            queryInput.focus();
+        }
     }
 
     function clearSkeletons() {
@@ -857,11 +857,6 @@ window.addEventListener('DOMContentLoaded', async () => {
             clearSkeletons();
         }
     }
-
-    filterBar.addEventListener('click', (e) => {
-        const btn = e.target.closest('.filter-btn');
-        if (btn) setFilter(btn.dataset.mode);
-    });
 
     function parseDate(isoStr) {
         if (!isoStr) return null;
@@ -985,11 +980,6 @@ window.addEventListener('DOMContentLoaded', async () => {
         if (activeTags.length > 0) {
             filtered = filtered.filter(item => Array.isArray(item.tags) && item.tags.some(t => activeTags.includes(t)));
         }
-        if (currentMode === 'saved') {
-            filtered = filtered.filter(item => item._type === 'saved');
-        } else if (currentMode === 'web') {
-            filtered = filtered.filter(item => item._type === 'web');
-        }
         return filtered;
     }
 
@@ -997,16 +987,10 @@ window.addEventListener('DOMContentLoaded', async () => {
         statusBar.hidden = false;
         const total = allResults._total || allResults.length;
         const visible = items.length;
-        if (browseMode) {
-            resultCount.textContent = `${total} saved item${total !== 1 ? 's' : ''}`;
-        } else if (currentQuery) {
-            if (currentMode === 'all') {
-                resultCount.textContent = `${visible} result${visible !== 1 ? 's' : ''} (${allResults.filter(r => r._type === 'saved').length} saved)`;
-            } else if (currentMode === 'saved') {
-                resultCount.textContent = `${visible} saved result${visible !== 1 ? 's' : ''}`;
-            } else {
-                resultCount.textContent = `${visible} web result${visible !== 1 ? 's' : ''}`;
-            }
+        if (!webMode && currentQuery) {
+            resultCount.textContent = `${visible} result${visible !== 1 ? 's' : ''} in library`;
+        } else if (webMode && currentQuery) {
+            resultCount.textContent = `${visible} web result${visible !== 1 ? 's' : ''}`;
         } else {
             statusBar.hidden = true;
         }
@@ -1014,7 +998,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 
     function updatePaginationControls() {
         const autoLoad = settingsState.autoLoad !== false;
-        const isActive = !browseMode && currentQuery;
+        const isActive = currentQuery;
         const showLoadMore = !autoLoad && hasMore && isActive;
         const showSentinel = autoLoad && hasMore && isActive;
         const showEndMessage = !hasMore && isActive && allResults.length > 0;
@@ -1061,76 +1045,68 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
 
     function renderResults(append = false) {
-        const items = getFilteredItems(allResults);
-        if (!append) {
-            renderedIndices = new Set();
-            resultsContainer.innerHTML = '';
-            const sections = [];
-            const savedItems = items.filter(item => item._type === 'saved');
-            const webItems = items.filter(item => item._type === 'web');
-            if (currentMode === 'all') {
-                if (savedItems.length > 0) sections.push(`<div class="results-group"><div class="results-group-header">Your Library</div>${savedItems.map(createCard).join('')}</div>`);
-                if (webItems.length > 0) sections.push(`<div class="results-group"><div class="results-group-header">Web Results</div>${webItems.map(createCard).join('')}</div>`);
+            const items = getFilteredItems(allResults);
+            let renderedIndices = new Set();
+            if (!append) {
+                renderedIndices = new Set();
+                resultsContainer.innerHTML = items.map(createCard).join('');
+                attachCardHandlers();
+                const cards = resultsContainer.querySelectorAll('.result-card');
+                const animSpeed = settingsState.animationSpeed || 'fast';
+                const delayStep = animSpeed === 'fast' ? 30 : animSpeed === 'slow' ? 100 : animSpeed === 'instant' ? 0 : 50;
+                resultsContainer.style.setProperty('--card-transition', animSpeed === 'instant' ? '0s' : '');
+                cards.forEach((card, idx) => {
+                    const delay = idx * delayStep;
+                    if (delayStep === 0) {
+                        card.classList.add('visible');
+                    } else {
+                        setTimeout(() => card.classList.add('visible'), delay);
+                    }
+                });
             } else {
-                const header = currentMode === 'saved' ? 'Saved Results' : 'Web Results';
-                sections.push(`<div class="results-group"><div class="results-group-header">${header}</div>${items.map(createCard).join('')}</div>`);
+                const newItems = items.filter(item => !renderedIndices.has(allResults.findIndex(r => r === item)));
+                if (!newItems.length) { updatePaginationControls(); return; }
+                const html = newItems.map(createCard).join('');
+                resultsContainer.insertAdjacentHTML('beforeend', html);
+                newItems.forEach(item => renderedIndices.add(allResults.findIndex(r => r === item)));
+                attachCardHandlers();
+                const newCards = resultsContainer.querySelectorAll('.result-card:not(.visible)');
+                const animSpeed = settingsState.animationSpeed || 'fast';
+                const delayStep = animSpeed === 'fast' ? 30 : animSpeed === 'slow' ? 100 : animSpeed === 'instant' ? 0 : 50;
+                resultsContainer.style.setProperty('--card-transition', animSpeed === 'instant' ? '0s' : '');
+                newCards.forEach((card, idx) => {
+                    const delay = idx * delayStep;
+                    if (delayStep === 0) {
+                        card.classList.add('visible');
+                    } else {
+                        setTimeout(() => card.classList.add('visible'), delay);
+                    }
+                });
             }
-            resultsContainer.innerHTML = sections.join('');
-            attachCardHandlers();
-            const cards = resultsContainer.querySelectorAll('.result-card');
-            const animSpeed = settingsState.animationSpeed || 'fast';
-            const delayStep = animSpeed === 'fast' ? 30 : animSpeed === 'slow' ? 100 : animSpeed === 'instant' ? 0 : 50;
-            resultsContainer.style.setProperty('--card-transition', animSpeed === 'instant' ? '0s' : '');
-            cards.forEach((card, idx) => {
-                const delay = idx * delayStep;
-                if (delayStep === 0) {
-                    card.classList.add('visible');
-                } else {
-                    setTimeout(() => card.classList.add('visible'), delay);
-                }
-            });
-        } else {
-            const newItems = items.filter(item => !renderedIndices.has(allResults.findIndex(r => r === item)));
-            if (!newItems.length) { updatePaginationControls(); return; }
-            const html = newItems.map(createCard).join('');
-            resultsContainer.insertAdjacentHTML('beforeend', html);
-            newItems.forEach(item => renderedIndices.add(allResults.findIndex(r => r === item)));
-            attachCardHandlers();
-            const newCards = resultsContainer.querySelectorAll('.result-card:not(.visible)');
-            const animSpeed = settingsState.animationSpeed || 'fast';
-            const delayStep = animSpeed === 'fast' ? 30 : animSpeed === 'slow' ? 100 : animSpeed === 'instant' ? 0 : 50;
-            resultsContainer.style.setProperty('--card-transition', animSpeed === 'instant' ? '0s' : '');
-            newCards.forEach((card, idx) => {
-                const delay = idx * delayStep;
-                if (delayStep === 0) {
-                    card.classList.add('visible');
-                } else {
-                    setTimeout(() => card.classList.add('visible'), delay);
-                }
-            });
-        }
 
-        updateStatusBar(items);
-        const total = allResults._total || allResults.length;
-        if (total === 0 && currentQuery) {
-            emptyState.hidden = false;
-            emptyState.innerHTML = `
-                <div class="empty-icon">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></svg>
-                </div>
-                <h3>No results for "${escapeHtml(currentQuery)}"</h3>
-                <p>Try different keywords. Saved content stays in your workspace while web results are layered beneath.</p>`;
-        } else {
-            emptyState.hidden = true;
+            updateStatusBar(items);
+            const total = allResults._total || allResults.length;
+            if (total === 0 && currentQuery) {
+                emptyState.hidden = false;
+                const modeText = webMode ? 'web' : 'your library';
+                emptyState.innerHTML = `
+                    <div class="empty-icon">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></svg>
+                    </div>
+                    <h3>No results for "${escapeHtml(currentQuery)}"</h3>
+                    <p>Try different keywords. No matches in ${modeText}.</p>`;
+            } else {
+                emptyState.hidden = true;
+            }
+            updatePaginationControls();
         }
-        updatePaginationControls();
-    }
 
     async function doSearch(query, page) {
         if (loading) return;
         loading = true;
         showLoading(true, page);
-        const url = `/search?q=${encodeURIComponent(query)}&page=${page}&engines=${getEngines()}${activeProject ? `&project=${encodeURIComponent(activeProject)}` : ''}`;
+        const sourceParam = webMode ? 'web' : 'local';
+        const url = `/search?q=${encodeURIComponent(query)}&page=${page}&source=${sourceParam}${activeProject ? `&project=${encodeURIComponent(activeProject)}` : ''}`;
         try {
             const resp = await fetch(url);
             const data = await resp.json();
@@ -1147,9 +1123,7 @@ window.addEventListener('DOMContentLoaded', async () => {
                 showLoading(false, page);
                 renderResults(false);
             } else {
-                const existingUrls = new Set(allResults.map(r => r.url));
-                const newWeb = fetched.filter(r => r._type === 'web' && !existingUrls.has(r.url));
-                allResults = allResults.concat(newWeb);
+                allResults = allResults.concat(fetched);
                 allResults._total = total;
                 showLoading(false, page);
                 renderResults(true);
@@ -1168,21 +1142,20 @@ window.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    async function loadBrowse() {
+    async function loadLibrary() {
         loading = true;
-        browseMode = true;
+        webMode = false;
         currentQuery = '';
-        setSearchActive(false);
         try {
             const url = activeProject ? `/browse?project=${encodeURIComponent(activeProject)}` : '/browse';
             const resp = await fetch(url);
             const data = await resp.json();
-            allResults = Array.isArray(data) ? data.filter(r => r._type === 'saved') : [];
+            allResults = Array.isArray(data) ? data : [];
             hasMore = false;
             currentPage = 1;
             renderResults(false);
         } catch (err) {
-            console.error('Browse failed:', err);
+            console.error('Library load failed:', err);
             resultsContainer.innerHTML = '<div class="message error">Could not load saved content.</div>';
         }
         loading = false;
@@ -1192,28 +1165,18 @@ window.addEventListener('DOMContentLoaded', async () => {
         e.preventDefault();
         const query = queryInput.value.trim();
         if (!query) return;
-        browseMode = false;
         currentQuery = query;
         currentPage = 1;
         hasMore = true;
         loading = false;
         allResults = [];
         emptyState.hidden = true;
-        setSearchActive(true);
-        filterBar.hidden = false;
-        renderFilterTabs('all');
         await doSearch(query, 1);
         queryInput.blur();
     });
 
-    browseBtn.addEventListener('click', () => {
-        queryInput.value = '';
-        currentQuery = '';
-        currentMode = 'all';
-        filterBar.hidden = true;
-        setSearchActive(false);
-        loadBrowse();
-    });
+    document.getElementById('sidebar-library-nav')?.addEventListener('click', () => setWebMode(false));
+    document.getElementById('sidebar-web-nav')?.addEventListener('click', () => setWebMode(true));
 
     const observer = new IntersectionObserver((entries) => {
         if (entries[0].isIntersecting && !loading && hasMore && currentQuery && settingsState.autoLoad !== false) {
@@ -1510,7 +1473,6 @@ window.addEventListener('DOMContentLoaded', async () => {
     });
 
     sidebarNewProject.addEventListener('keydown', (e) => { if (e.key === 'Enter') sidebarAddBtn.click(); });
-    document.getElementById('sidebar-search-nav')?.addEventListener('click', () => queryInput.focus());
 
     const noteModal = document.getElementById('note-modal');
     const noteClose = document.getElementById('note-close');
@@ -1867,7 +1829,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 
     showPreview(null);
     renderSettings();
-    loadBrowse();
+    loadLibrary();
     loadProjects();
     renderResults(false);
     updatePaginationControls();

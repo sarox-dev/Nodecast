@@ -72,6 +72,7 @@ def search_route(
     page: int = Query(1, ge=1),
     engines: str | None = Query(None),
     project: str | None = Query(None),
+    source: str | None = Query(None),
     current_user: dict = Depends(get_current_user),
 ):
     if not q:
@@ -79,6 +80,22 @@ def search_route(
     if engines is not None:
         engines = engines.strip() or None
     page1 = page == 1
+
+    # source=local: only local results (Library mode)
+    if source == "local":
+        saved = local_search(q, project=project, user_id=current_user["user_id"])
+        return {"results": saved, "total": len(saved)}
+
+    # source=web: only web results (Web Search mode)
+    if source == "web":
+        web = searxng_search(q, page, engines, "images" if type == "images" else "general") or {}
+        wr = web.get("results", [])
+        for r in wr:
+            r["_type"] = "web"
+            r["source"] = "web"
+        return {"results": wr, "total": web.get("total", 0)}
+
+    # Default: merged local + web (backward compat)
     saved = local_search(q, project=project, user_id=current_user["user_id"]) if page1 else []
     if project and page1:
         return {"results": saved, "total": len(saved)}

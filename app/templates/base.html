@@ -34,8 +34,8 @@
             <div class="sidebar-section">
               <div class="sidebar-section-label">Navigate</div>
               <div class="sidebar-collapse">
-              <button id="sidebar-search-nav" class="sidebar-nav-btn active" type="button">Search</button>
-              <button id="sidebar-browse-nav" class="sidebar-nav-btn" type="button">Browse</button>
+              <button id="sidebar-library-nav" class="sidebar-nav-btn active" type="button">📚 Library</button>
+              <button id="sidebar-web-nav" class="sidebar-nav-btn" type="button">🌐 Web Search</button>
               </div>
             </div>
 
@@ -77,7 +77,7 @@
         <main class="workspace-center">
           <form id="search-form" class="search-form" autocomplete="off">
             <div class="search-bar-wrapper" id="search-bar-wrapper">
-              <input id="query" name="q" type="search" placeholder="Search your notes and the web..." autocomplete="off" spellcheck="false" />
+              <input id="query" name="q" type="search" placeholder="Search your library..." autocomplete="off" spellcheck="false" />
               <button type="submit" class="search-submit" aria-label="Search">
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   <circle cx="11" cy="11" r="8" />
@@ -89,21 +89,16 @@
 
           <div id="loading-indicator" class="loading-indicator" hidden>
             <div class="spinner"></div>
-            <span>Searching your knowledge layers...</span>
+            <span>Searching your library...</span>
           </div>
 
-          <div id="filter-bar" class="filter-bar" hidden>
-            <button data-mode="all" class="filter-btn active">All</button>
-            <button data-mode="saved" class="filter-btn">Saved</button>
-            <button data-mode="web" class="filter-btn">Web</button>
-          </div>
+          <div id="filter-bar" class="filter-bar" hidden></div>
 
           <div id="status-bar" class="status-bar" hidden>
             <span class="status-left">
               <span class="status-dot"></span>
               <span id="result-count"></span>
             </span>
-            <button id="browse-btn" class="browse-btn" type="button">Browse all saved</button>
           </div>
 
           <div class="results-area">
