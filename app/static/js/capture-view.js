@@ -163,33 +163,93 @@
   });
 
   // AI Tag button
-      document.querySelectorAll('[data-action="ai-tag"]').forEach(btn => {
-        btn.addEventListener('click', function () {
-          const id = this.dataset.id;
-          if (!id) return;
-          this.textContent = '⏳ Tagging...';
-          this.disabled = true;
+  document.querySelectorAll('[data-action="ai-tag"]').forEach(btn => {
+    btn.addEventListener('click', function () {
+      const id = this.dataset.id;
+      if (!id) return;
+      this.textContent = '⏳ Tagging...';
+      this.disabled = true;
 
-          fetch(`${BASE_URL}/api/ai/tag/${id}`, { method: 'POST' })
-            .then(res => res.json())
-            .then(data => {
-              if (data.status === 'success') {
-                this.textContent = `✅ Tagged (${data.data.tags.length} tags)`;
-                setTimeout(() => window.location.reload(), 2000);
-              } else if (data.status === 'no_assignment') {
-                this.textContent = '⚠️ No AI configured';
-                this.disabled = false;
-              } else {
-                this.textContent = '❌ Failed';
-                this.disabled = false;
-              }
-            })
-            .catch(err => {
-              this.textContent = '❌ Error';
-              this.disabled = false;
-              console.error('AI tag error:', err);
-            });
+      fetch(`${BASE_URL}/api/ai/tag/${id}`, { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+          if (data.status === 'success') {
+            this.textContent = `✅ Tagged (${data.data.tags.length} tags)`;
+            setTimeout(() => window.location.reload(), 2000);
+          } else if (data.status === 'no_assignment') {
+            this.textContent = '⚠️ No AI configured';
+            this.disabled = false;
+          } else {
+            this.textContent = '❌ Failed';
+            this.disabled = false;
+          }
+        })
+        .catch(err => {
+          this.textContent = '❌ Error';
+          this.disabled = false;
+          console.error('AI tag error:', err);
         });
-      });
+    });
+  });
 
-    })();
+  // AI Summarize button
+  document.querySelectorAll('[data-action="ai-summarize"]').forEach(btn => {
+    btn.addEventListener('click', function () {
+      const id = this.dataset.id;
+      if (!id) return;
+      this.textContent = '⏳ Summarizing...';
+      this.disabled = true;
+
+      fetch(`${BASE_URL}/api/ai/summarize/${id}`, { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+          if (data.status === 'success') {
+            this.textContent = '✅ Summarized';
+            setTimeout(() => window.location.reload(), 2000);
+          } else if (data.status === 'no_assignment') {
+            this.textContent = '⚠️ No AI configured';
+            this.disabled = false;
+          } else {
+            this.textContent = '❌ Failed';
+            this.disabled = false;
+          }
+        })
+        .catch(err => {
+          this.textContent = '❌ Error';
+          this.disabled = false;
+          console.error('AI summarize error:', err);
+        });
+    });
+  });
+
+  // AI Extract Entities button
+  document.querySelectorAll('[data-action="ai-entities"]').forEach(btn => {
+    btn.addEventListener('click', function () {
+      const id = this.dataset.id;
+      if (!id) return;
+      this.textContent = '⏳ Extracting...';
+      this.disabled = true;
+
+      fetch(`${BASE_URL}/api/ai/extract-entities/${id}`, { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+          if (data.status === 'success') {
+            this.textContent = '✅ Entities extracted';
+            setTimeout(() => window.location.reload(), 2000);
+          } else if (data.status === 'no_assignment') {
+            this.textContent = '⚠️ No AI configured';
+            this.disabled = false;
+          } else {
+            this.textContent = '❌ Failed';
+            this.disabled = false;
+          }
+        })
+        .catch(err => {
+          this.textContent = '❌ Error';
+          this.disabled = false;
+          console.error('AI entities error:', err);
+        });
+    });
+  });
+
+})();

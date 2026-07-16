@@ -96,10 +96,6 @@
                         <td>{% for c in ai_tags.key_concepts %}<span class="badge badge-concept">{{ c }}</span> {% else %}<span class="text-muted">—</span>{% endfor %}</td>
                     </tr>
                     <tr>
-                        <td>Model</td>
-                        <td><code>{{ ai_tags.model or "—" }}</code></td>
-                    </tr>
-                    <tr>
                         <td>Processed</td>
                         <td>{{ ai_tags.processed_at[:19] or "—" }}</td>
                     </tr>
@@ -150,6 +146,8 @@
                     <button class="btn btn-secondary" data-action="download-raw" data-id="{{ c.id }}">📦 Download Raw</button>
                     <button class="btn btn-secondary" data-action="rerun-extractor" data-id="{{ c.id }}">🔄 Re-run Extractor</button>
                     <button class="btn btn-secondary" data-action="ai-tag" data-id="{{ c.id }}">🤖 AI Tag</button>
+                    <button class="btn btn-secondary" data-action="ai-summarize" data-id="{{ c.id }}">📝 Summarize</button>
+                    <button class="btn btn-secondary" data-action="ai-entities" data-id="{{ c.id }}">📊 Extract Entities</button>
                 </div>
             </div>
         </section>

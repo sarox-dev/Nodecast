@@ -510,6 +510,23 @@ window.addEventListener('DOMContentLoaded', async () => {
         html += '<span id="ai-bulk-status" class="note-status" style="margin-top:0.4rem" hidden></span>';
         html += '</div>';
 
+        // ─── Batch processing section ────────────────────────────
+        const batchInterval = localStorage.getItem('aiBatchInterval') ?? '60';
+        const processOnOpen = localStorage.getItem('aiProcessOnOpen') !== 'false';
+        html += '<div class="settings-section-header" style="margin-top:1.2rem"><h3>Batch Processing</h3></div>';
+        html += '<div class="settings-list" style="gap:0.4rem">';
+        html += `<label class="settings-field"><span>Process pending every</span><select id="ai-batch-interval" data-key="aiBatchInterval">
+          <option value="0" ${batchInterval === '0' ? 'selected' : ''}>disabled (manual only)</option>
+          <option value="15" ${batchInterval === '15' ? 'selected' : ''}>every 15 minutes</option>
+          <option value="30" ${batchInterval === '30' ? 'selected' : ''}>every 30 minutes</option>
+          <option value="60" ${batchInterval === '60' ? 'selected' : ''}>every 1 hour</option>
+          <option value="360" ${batchInterval === '360' ? 'selected' : ''}>every 6 hours</option>
+          <option value="1440" ${batchInterval === '1440' ? 'selected' : ''}>every 24 hours</option>
+        </select></label>`;
+        html += `<label class="settings-field toggle-field"><span>Process on page open</span><input type="checkbox" id="ai-process-on-open" ${processOnOpen ? 'checked' : ''} /></label>`;
+        html += `<div id="ai-pending-status" class="settings-field" style="font-size:0.85rem;color:var(--text-dim)"><span id="ai-pending-count">—</span> <button id="ai-process-now-btn" class="modal-btn modal-btn-primary" type="button" style="padding:0.25rem 0.6rem;font-size:0.78rem">Process now</button></div>`;
+        html += '</div>';
+
         html += '</div>';
         settingsList.innerHTML = html;
         attachAIHandlers();
@@ -707,7 +724,72 @@ window.addEventListener('DOMContentLoaded', async () => {
             }
         });
         });
+
+        // ─── Batch processing handlers ───────────────────────────
+        // Save interval on change
+        document.getElementById('ai-batch-interval')?.addEventListener('change', function () {
+            localStorage.setItem('aiBatchInterval', this.value);
+            updateBatchInterval();
+        });
+
+        // Save process-on-open toggle
+        document.getElementById('ai-process-on-open')?.addEventListener('change', function () {
+            localStorage.setItem('aiProcessOnOpen', this.checked ? 'true' : 'false');
+        });
+
+        // Process now button
+        document.getElementById('ai-process-now-btn')?.addEventListener('click', async function () {
+            this.textContent = '⏳ Processing...';
+            this.disabled = true;
+            await triggerAIBatch();
+            this.textContent = 'Process now';
+            this.disabled = false;
+            updatePendingCount();
+        });
+
+        // Update pending count
+        updatePendingCount();
     }
+
+    function triggerAIBatch() {
+        return fetch('/api/ai/trigger-batch', { method: 'POST' })
+            .then(r => {
+                if (!r.ok) console.warn('Batch trigger returned', r.status);
+                return r.json().catch(() => ({}));
+            })
+            .then(data => {
+                if (data.pending !== undefined) {
+                    const el = document.getElementById('ai-pending-count');
+                    if (el) el.textContent = data.pending;
+                }
+            })
+            .catch(err => console.error('Batch trigger failed:', err));
+    }
+
+    async function updatePendingCount() {
+        try {
+            const r = await fetch('/api/ai/pending-count');
+            if (r.ok) {
+                const data = await r.json();
+                const el = document.getElementById('ai-pending-count');
+                if (el) el.textContent = data.pending ?? data.count ?? '?';
+            }
+        } catch {}
+    }
+
+    let batchIntervalId = null;
+    function updateBatchInterval() {
+        if (batchIntervalId) {
+            clearInterval(batchIntervalId);
+            batchIntervalId = null;
+        }
+        const minutes = parseInt(localStorage.getItem('aiBatchInterval'), 10) || 0;
+        if (minutes > 0) {
+            batchIntervalId = setInterval(triggerAIBatch, minutes * 60 * 1000);
+        }
+    }
+    // Initialise batch interval
+    updateBatchInterval();
 
     function openAIProviderModal(existing) {
         // Create a simple modal for adding/editing provider
@@ -2127,5 +2209,9 @@ window.addEventListener('DOMContentLoaded', async () => {
         tagManageNew.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); tagManageAddBtn.click(); } });
     }
 
+    // ─── AI batch processing on page load ───────────────────────
+    if (localStorage.getItem('aiProcessOnOpen') !== 'false') {
+        triggerAIBatch();
+    }
 
-});
+})();

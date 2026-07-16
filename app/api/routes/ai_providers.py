@@ -326,6 +326,21 @@ def api_process_all_captures(current_user: dict = Depends(get_current_user)):
     return results
 
 
+@router.get("/pending-count")
+def api_pending_count(current_user: dict = Depends(get_current_user)):
+    """Return count of pending AI jobs."""
+    from app.services.database import count_pending_ai_jobs
+    return {"count": count_pending_ai_jobs(current_user["user_id"])}
+
+
+@router.post("/trigger-batch")
+def api_trigger_batch(current_user: dict = Depends(get_current_user)):
+    """Trigger batch processing of all pending AI jobs (grouped by model)."""
+    from app.services.ai_batch import process_batch
+    result = process_batch(current_user["user_id"])
+    return {"status": "done", **result}
+
+
 @router.get("/tags/{capture_id}")
 def api_get_capture_tags(capture_id: str, current_user: dict = Depends(get_current_user)):
     """Get AI tags for a capture."""

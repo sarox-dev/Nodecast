@@ -24,6 +24,7 @@ from app.services.raw_storage import (
 from app.services.extractor_pipeline import extract_and_save
 from app.services.ai_tagging import tag_capture, summarize_capture
 from app.services.entity_extraction import extract_entities
+from app.services.ai_batch import add_pending_jobs_on_save
 from app.services.knowledge_store import delete_knowledge_for_capture
 from app.services.raw_storage import get_raw_html, load_raw_capture
 from app.services.auth import get_current_user
@@ -92,19 +93,11 @@ def capture_item(
     if extraction and extraction.knowledge_objects:
         msg += f" — extracted {len(extraction.knowledge_objects)} knowledge objects"
 
-    # Trigger AI processing in background (don't block response)
+    # Enqueue AI processing jobs (processed in batch by model group)
     try:
-        tag_capture(user_id, package.capture_id)
+        add_pending_jobs_on_save(user_id, package.capture_id)
     except Exception:
-        pass
-    try:
-        summarize_capture(user_id, package.capture_id)
-    except Exception:
-        pass
-    try:
-        extract_entities(user_id, package.capture_id)
-    except Exception:
-        pass
+        pass  # Enqueue failure shouldn't break the save
 
     return CPResponse(
         success=True,

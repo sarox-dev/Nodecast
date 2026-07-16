@@ -317,6 +317,19 @@ def _migrate_ai_tables(conn):
         );
         CREATE INDEX IF NOT EXISTS idx_cap_entity_capture ON capture_entities(capture_id);
         CREATE INDEX IF NOT EXISTS idx_cap_entity_entity ON capture_entities(entity_id);
+
+        CREATE TABLE IF NOT EXISTS pending_ai_jobs (
+            id TEXT PRIMARY KEY,
+            capture_id TEXT NOT NULL,
+            feature TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            error_message TEXT DEFAULT '',
+            created_at TEXT NOT NULL,
+            processed_at TEXT DEFAULT '',
+            FOREIGN KEY (capture_id) REFERENCES captures(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_pending_jobs_status ON pending_ai_jobs(status);
+        CREATE INDEX IF NOT EXISTS idx_pending_jobs_feature ON pending_ai_jobs(feature);
     """)
     conn.commit()
 
@@ -671,5 +684,90 @@ def list_captures_without_ai_tags(user_id: str, limit: int = 100) -> list[dict]:
             (limit,),
         ).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+# ─── Pending AI Jobs ──────────────────────────────────────────────
+
+
+def add_ai_job(user_id: str, capture_id: str, feature: str) -> dict:
+    """Add a pending AI job for a capture. If a pending job for this
+    capture+feature already exists, skip (no-op)."""
+    import uuid
+    from datetime import datetime, timezone
+    conn = get_db(user_id)
+    try:
+        existing = conn.execute(
+            "SELECT id FROM pending_ai_jobs WHERE capture_id=? AND feature=? AND status='pending'",
+            (capture_id, feature),
+        ).fetchone()
+        if existing:
+            return {"id": existing["id"], "capture_id": capture_id, "feature": feature, "status": "pending"}
+        job_id = uuid.uuid4().hex[:12]
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "INSERT INTO pending_ai_jobs (id, capture_id, feature, status, created_at) VALUES (?,?,?,?,?)",
+            (job_id, capture_id, feature, "pending", now),
+        )
+        conn.commit()
+        return {"id": job_id, "capture_id": capture_id, "feature": feature, "status": "pending"}
+    finally:
+        conn.close()
+
+
+def get_pending_ai_jobs_grouped(user_id: str) -> list[dict]:
+    """Get all pending AI jobs joined with their feature assignments,
+    ordered by (provider_id, model) for efficient batch processing.
+    Returns empty list if no assignments exist for the feature."""
+    conn = get_db(user_id)
+    try:
+        rows = conn.execute(
+            """SELECT j.id, j.capture_id, j.feature, j.created_at,
+                      a.provider_id, a.model
+               FROM pending_ai_jobs j
+               JOIN ai_feature_assignments a ON j.feature = a.feature
+               WHERE j.status = 'pending'
+               ORDER BY a.provider_id, a.model, j.created_at"""
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def count_pending_ai_jobs(user_id: str) -> int:
+    """Count pending AI jobs for a user."""
+    conn = get_db(user_id)
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) as cnt FROM pending_ai_jobs WHERE status='pending'"
+        ).fetchone()
+        return row["cnt"] if row else 0
+    finally:
+        conn.close()
+
+
+def mark_ai_job_done(user_id: str, job_id: str):
+    """Mark a job as done."""
+    from datetime import datetime, timezone
+    conn = get_db(user_id)
+    try:
+        conn.execute(
+            "UPDATE pending_ai_jobs SET status='done', processed_at=? WHERE id=?",
+            (datetime.now(timezone.utc).isoformat(), job_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def mark_ai_job_error(user_id: str, job_id: str, error: str = ""):
+    """Mark a job as errored."""
+    from datetime import datetime, timezone
+    conn = get_db(user_id)
+    try:
+        conn.execute(
+            "UPDATE pending_ai_jobs SET status='error', error_message=?, processed_at=? WHERE id=?",
+            (error[:500], datetime.now(timezone.utc).isoformat(), job_id),
+        )
+        conn.commit()
     finally:
         conn.close()
