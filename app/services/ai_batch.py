@@ -227,6 +227,62 @@ def process_single(user_id: str, capture_id: str, feature: str) -> dict:
 # ─── Enqueue jobs on save ─────────────────────────────────────────
 
 
+def process_capture(user_id: str, capture_id: str) -> dict:
+    """Process ALL configured AI features for a single capture, grouped by model.
+    Loads each model only once, running all features that use it sequentially.
+
+    Used by the Knowledge Viewer "AI Analysis" button.
+
+    Returns
+    -------
+    dict with keys: results (per-feature), errors, total
+    """
+    from app.services.database import list_ai_assignments
+
+    assignments = list_ai_assignments(user_id)
+    if not assignments:
+        return {"status": "no_assignment", "message": "No AI features configured. Go to Settings → AI.", "results": []}
+
+    # Group assignments by (provider_id, model)
+    groups: dict[tuple[str, str], list[dict]] = {}
+    for a in assignments:
+        feature = a.get("feature", "")
+        if feature not in FEATURE_MAP:
+            continue
+        key = (a["provider_id"], a["model"])
+        groups.setdefault(key, []).append(a)
+
+    if not groups:
+        return {"status": "no_assignment", "message": "No supported AI features configured.", "results": []}
+
+    results = []
+    errors = 0
+
+    for (provider_id, model), group_assignments in groups.items():
+        logger.info(
+            "Processing capture=%s with model=%s (%d features)",
+            capture_id, model, len(group_assignments),
+        )
+        for assignment in group_assignments:
+            feature = assignment["feature"]
+            handler = FEATURE_MAP.get(feature)
+            if handler is None:
+                continue
+            func, _ = handler
+            try:
+                result = func(user_id, capture_id)
+                status = result.get("status", "unknown")
+                results.append({"feature": feature, "status": status, "result": result})
+                if status == "error":
+                    errors += 1
+            except Exception as exc:
+                logger.exception("process_capture: feature=%s failed: %s", feature, exc)
+                results.append({"feature": feature, "status": "error", "message": str(exc)})
+                errors += 1
+
+    return {"results": results, "errors": errors, "total": len(results)}
+
+
 def add_pending_jobs_on_save(user_id: str, capture_id: str):
     """Called when a capture is saved.  Adds pending AI jobs for *all*
     features that have a valid ``ai_feature_assignments`` entry.

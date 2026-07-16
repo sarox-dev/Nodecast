@@ -273,6 +273,18 @@ def api_extract_entities(capture_id: str, current_user: dict = Depends(get_curre
     return result
 
 
+@router.post("/process-capture/{capture_id}")
+def api_process_capture(capture_id: str, current_user: dict = Depends(get_current_user)):
+    """Process ALL configured AI features for a single capture (grouped by model).
+    One button in Knowledge Viewer that runs everything."""
+    ref = get_capture_ref(current_user["user_id"], capture_id)
+    if not ref:
+        raise HTTPException(404, "Capture not found")
+    from app.services.ai_batch import process_capture
+    result = process_capture(current_user["user_id"], capture_id)
+    return result
+
+
 @router.post("/process-all")
 def api_process_all_captures(current_user: dict = Depends(get_current_user)):
     """Process ALL captures: tag + summarize + extract entities.

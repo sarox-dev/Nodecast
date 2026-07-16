@@ -162,92 +162,33 @@
     });
   });
 
-  // AI Tag button
-  document.querySelectorAll('[data-action="ai-tag"]').forEach(btn => {
+  // AI Analysis button — runs all configured features grouped by model
+  document.querySelectorAll('[data-action="ai-analyze"]').forEach(btn => {
     btn.addEventListener('click', function () {
       const id = this.dataset.id;
       if (!id) return;
-      this.textContent = '⏳ Tagging...';
+      this.textContent = '⏳ AI Analysis...';
       this.disabled = true;
 
-      fetch(`${BASE_URL}/api/ai/tag/${id}`, { method: 'POST' })
+      fetch(`${BASE_URL}/api/ai/process-capture/${id}`, { method: 'POST' })
         .then(res => res.json())
         .then(data => {
-          if (data.status === 'success') {
-            this.textContent = `✅ Tagged (${data.data.tags.length} tags)`;
-            setTimeout(() => window.location.reload(), 2000);
-          } else if (data.status === 'no_assignment') {
+          if (data.status === 'no_assignment') {
             this.textContent = '⚠️ No AI configured';
             this.disabled = false;
-          } else {
-            this.textContent = '❌ Failed';
+          } else if (data.errors > 0) {
+            this.textContent = `⚠️ ${data.total - data.errors}/${data.total} done`;
             this.disabled = false;
+            setTimeout(() => window.location.reload(), 2000);
+          } else {
+            this.textContent = `✅ ${data.total} features done`;
+            setTimeout(() => window.location.reload(), 2000);
           }
         })
         .catch(err => {
           this.textContent = '❌ Error';
           this.disabled = false;
-          console.error('AI tag error:', err);
-        });
-    });
-  });
-
-  // AI Summarize button
-  document.querySelectorAll('[data-action="ai-summarize"]').forEach(btn => {
-    btn.addEventListener('click', function () {
-      const id = this.dataset.id;
-      if (!id) return;
-      this.textContent = '⏳ Summarizing...';
-      this.disabled = true;
-
-      fetch(`${BASE_URL}/api/ai/summarize/${id}`, { method: 'POST' })
-        .then(res => res.json())
-        .then(data => {
-          if (data.status === 'success') {
-            this.textContent = '✅ Summarized';
-            setTimeout(() => window.location.reload(), 2000);
-          } else if (data.status === 'no_assignment') {
-            this.textContent = '⚠️ No AI configured';
-            this.disabled = false;
-          } else {
-            this.textContent = '❌ Failed';
-            this.disabled = false;
-          }
-        })
-        .catch(err => {
-          this.textContent = '❌ Error';
-          this.disabled = false;
-          console.error('AI summarize error:', err);
-        });
-    });
-  });
-
-  // AI Extract Entities button
-  document.querySelectorAll('[data-action="ai-entities"]').forEach(btn => {
-    btn.addEventListener('click', function () {
-      const id = this.dataset.id;
-      if (!id) return;
-      this.textContent = '⏳ Extracting...';
-      this.disabled = true;
-
-      fetch(`${BASE_URL}/api/ai/extract-entities/${id}`, { method: 'POST' })
-        .then(res => res.json())
-        .then(data => {
-          if (data.status === 'success') {
-            this.textContent = '✅ Entities extracted';
-            setTimeout(() => window.location.reload(), 2000);
-          } else if (data.status === 'no_assignment') {
-            this.textContent = '⚠️ No AI configured';
-            this.disabled = false;
-          } else {
-            this.textContent = '❌ Failed';
-            this.disabled = false;
-          }
-        })
-        .catch(err => {
-          this.textContent = '❌ Error';
-          this.disabled = false;
-          console.error('AI entities error:', err);
+          console.error('AI analysis error:', err);
         });
     });
   });
