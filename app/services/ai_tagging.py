@@ -27,25 +27,31 @@ from app.services.raw_storage import load_raw_capture
 logger = logging.getLogger(__name__)
 
 FEATURE_TAGGING = "tagging"
+FEATURE_SUMMARY = "summary"
 
 # Token budget: approximate chars (1 token ~ 4 chars for most models)
 MAX_CHARS = 8000  # ~2000 tokens
 
-BASE_SYSTEM_PROMPT = """You are a knowledge base tagging assistant. Given captured web content with priority markers, generate structured output.
+BASE_TAGGING_PROMPT = """You are a knowledge base tagging assistant. Given captured web content with priority markers, generate structured output.
 
 IMPORTANT RULES:
 - **Reuse existing tags** from the list below when they fit well, but create new specific tags when needed.
 - **Do NOT** add the website/source name as a tag (e.g., "reddit", "medium", "youtube", "wikipedia", "quora").
 - Use **consistent format**: lowercase, hyphen-separated (e.g., "public-speaking" not "public speaking" or "public_speaking").
 - Aim for 3-5 tags. Be specific — prefer meaningful content tags over generic ones.
-- summary: ONE sentence (max 20 words) capturing the core topic.
-- key_concepts: 2-3 core concepts from the content.
-
-Output ONLY valid JSON with no markdown fences or extra text:
-{"tags": ["tag1", "tag2", "tag3"], "summary": "...", "key_concepts": ["concept1", "concept2"]}
+- Output ONLY valid JSON with no markdown fences or extra text:
+{"tags": ["tag1", "tag2", "tag3"]}
 
 Existing tags available for reuse (use them when applicable, but don't limit yourself):
 {existing_tags_list}"""
+
+BASE_SUMMARY_PROMPT = """You are a knowledge base summarisation assistant. Given captured web content with priority markers, generate a concise summary.
+
+IMPORTANT RULES:
+- summary: ONE sentence (max 20 words) capturing the core topic.
+- key_concepts: 2-3 core concepts from the content.
+- Output ONLY valid JSON with no markdown fences or extra text:
+{"summary": "...", "key_concepts": ["concept1", "concept2"]}"""
 
 
 # ─── Existing tags ──────────────────────────────────────────────────
@@ -88,13 +94,18 @@ def _get_existing_tags(user_id: str) -> list[str]:
 
 
 def _build_system_prompt(user_id: str) -> str:
-    """Build the system prompt with current existing tags."""
+    """Build the taggging system prompt with current existing tags."""
     existing = _get_existing_tags(user_id)
     if existing:
         tags_str = ", ".join(existing)
     else:
         tags_str = "(none yet — create initial tags)"
-    return BASE_SYSTEM_PROMPT.replace("{existing_tags_list}", tags_str)
+    return BASE_TAGGING_PROMPT.replace("{existing_tags_list}", tags_str)
+
+
+def _build_summary_prompt() -> str:
+    """Build the summary system prompt (no dynamic tags needed)."""
+    return BASE_SUMMARY_PROMPT
 
 
 # ─── Tag normalization ──────────────────────────────────────────────
@@ -380,6 +391,72 @@ def tag_capture(user_id: str, capture_id: str) -> dict:
         user_id=user_id,
         capture_id=capture_id,
         tags=normalized_tags,
+        summary="",
+        key_concepts=[],
+        model=assignment["model"],
+        ai_tags_source=source_tags,
+    )
+
+    return {"status": "success", "data": saved}
+
+
+def summarize_capture(user_id: str, capture_id: str) -> dict:
+    """Summarize a single capture using the configured AI provider.
+
+    Returns dict with status: 'success', 'skipped', 'error', 'no_assignment'.
+    """
+    assignment = get_ai_assignment_for_feature(user_id, FEATURE_SUMMARY)
+    if not assignment:
+        return {"status": "no_assignment", "message": "No AI provider assigned for summary. Go to Settings → AI to configure."}
+
+    provider = get_ai_provider(user_id, assignment["provider_id"])
+    if not provider:
+        return {"status": "error", "message": "AI provider not found"}
+
+    # Build context (same context builder)
+    context, site_name = _build_context(user_id, capture_id)
+    if not context:
+        return {"status": "skipped", "message": "No content to analyze"}
+
+    # Build system prompt
+    system_prompt = _build_summary_prompt()
+
+    # Decrypt API key
+    api_key = decrypt_api_key(provider.get("api_key_encrypted", ""))
+
+    # Call AI
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": context},
+    ]
+    result = _call_ai_model(
+        base_url=provider["base_url"],
+        api_key=api_key,
+        model=assignment["model"],
+        messages=messages,
+    )
+
+    if not result:
+        return {"status": "error", "message": "AI model returned no valid response"}
+
+    # Get existing AI tags for this capture to preserve any existing tags
+    from app.services.database import get_capture_ai_tags
+    existing = get_capture_ai_tags(user_id, capture_id)
+    existing_tags = []
+    existing_summary = result.get("summary", "")
+    existing_concepts = result.get("key_concepts", [])
+    if existing:
+        try:
+            existing_tags = json.loads(existing["tags"]) if isinstance(existing["tags"], str) else existing.get("tags", [])
+        except Exception:
+            existing_tags = []
+        # Don't overwrite summary from existing tags — the new AI result is what we want
+
+    source_tags = [f"ai:{assignment['model']}"]
+    saved = upsert_capture_ai_tags(
+        user_id=user_id,
+        capture_id=capture_id,
+        tags=existing_tags,  # preserve existing tags
         summary=result.get("summary", ""),
         key_concepts=result.get("key_concepts", []),
         model=assignment["model"],
@@ -391,5 +468,7 @@ def tag_capture(user_id: str, capture_id: str) -> dict:
 
 def get_available_features() -> list[dict]:
     return [
-        {"id": FEATURE_TAGGING, "name": "Tag Knowledge Objects", "description": "Automatically generate tags, summary, and key concepts for saved captures."},
+        {"id": FEATURE_TAGGING, "name": "Tag Captures", "description": "Automatically generate tags for saved captures."},
+        {"id": FEATURE_SUMMARY, "name": "Generate Summary", "description": "Generate a one-sentence summary and key concepts."},
+        {"id": "entity_extraction", "name": "Extract Entities", "description": "Extract named entities (tools, people, concepts, etc.) from captures."},
     ]

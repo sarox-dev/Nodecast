@@ -169,6 +169,23 @@
 /* Generic fallback for unknown badge types */
 .badge-generic { background: #21262d; border: 1px solid var(--border); }
 
+/* ─── Entity type badges ──────────────────────────────────────── */
+
+.badge-entity {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+}
+.badge-tool { background: #1f6feb; color: #fff; }
+.badge-person { background: #8250df; color: #fff; }
+.badge-framework { background: #9e6a03; color: #fff; }
+.badge-language { background: #da3633; color: #fff; }
+.badge-platform { background: #238636; color: #fff; }
+.badge-company { background: #d29922; color: #fff; }
+
 .badge-tag {
   background: #21262d;
   color: var(--text-muted);

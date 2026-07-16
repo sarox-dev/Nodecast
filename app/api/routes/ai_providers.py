@@ -10,7 +10,8 @@ from pydantic import BaseModel
 
 from app.services.auth import get_current_user
 from app.services.ai_crypto import decrypt_api_key, normalize_url_for_docker
-from app.services.ai_tagging import tag_capture, get_available_features, FEATURE_TAGGING
+from app.services.ai_tagging import tag_capture, summarize_capture, get_available_features, FEATURE_TAGGING, FEATURE_SUMMARY
+from app.services.entity_extraction import extract_entities, FEATURE_ENTITY_EXTRACTION
 from app.services.database import (
     list_ai_providers,
     get_ai_provider,
@@ -244,6 +245,81 @@ def api_retag_all(current_user: dict = Depends(get_current_user)):
                 results["skipped"] += 1
             else:
                 results["errors"] += 1
+        except Exception:
+            results["errors"] += 1
+
+    return results
+
+
+@router.post("/summarize/{capture_id}")
+def api_summarize_capture(capture_id: str, current_user: dict = Depends(get_current_user)):
+    """Summarize a single capture with AI."""
+    ref = get_capture_ref(current_user["user_id"], capture_id)
+    if not ref:
+        raise HTTPException(404, "Capture not found")
+
+    result = summarize_capture(current_user["user_id"], capture_id)
+    return result
+
+
+@router.post("/extract-entities/{capture_id}")
+def api_extract_entities(capture_id: str, current_user: dict = Depends(get_current_user)):
+    """Extract entities from a single capture."""
+    ref = get_capture_ref(current_user["user_id"], capture_id)
+    if not ref:
+        raise HTTPException(404, "Capture not found")
+
+    result = extract_entities(current_user["user_id"], capture_id)
+    return result
+
+
+@router.post("/process-all")
+def api_process_all_captures(current_user: dict = Depends(get_current_user)):
+    """Process ALL captures: tag + summarize + extract entities.
+    Only runs features that have an AI assignment configured.
+    Skips captures that already have data for a given feature (unless retag is needed).
+    """
+    user_id = current_user["user_id"]
+    conn = get_db(user_id)
+    try:
+        rows = conn.execute("SELECT id FROM captures").fetchall()
+        capture_ids = [r["id"] for r in rows]
+    finally:
+        conn.close()
+
+    if not capture_ids:
+        return {"status": "done", "message": "No captures to process."}
+
+    results = {
+        "total": len(capture_ids),
+        "tagged": 0,
+        "summarized": 0,
+        "entities_extracted": 0,
+        "errors": 0,
+    }
+
+    for cid in capture_ids:
+        try:
+            # Tag
+            r = tag_capture(user_id, cid)
+            if r["status"] == "success":
+                results["tagged"] += 1
+        except Exception:
+            results["errors"] += 1
+
+        try:
+            # Summarize
+            r = summarize_capture(user_id, cid)
+            if r["status"] == "success":
+                results["summarized"] += 1
+        except Exception:
+            results["errors"] += 1
+
+        try:
+            # Extract entities
+            r = extract_entities(user_id, cid)
+            if r["status"] == "success":
+                results["entities_extracted"] += 1
         except Exception:
             results["errors"] += 1
 

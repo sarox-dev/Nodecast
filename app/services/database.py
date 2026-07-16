@@ -226,6 +226,28 @@ def init_user_db(user_id: str):
             ai_tags_source TEXT DEFAULT '[]',
             FOREIGN KEY (capture_id) REFERENCES captures(id)
         );
+
+        CREATE TABLE IF NOT EXISTS entities (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            type TEXT NOT NULL DEFAULT 'concept',
+            aliases TEXT DEFAULT '[]',
+            description TEXT DEFAULT '',
+            capture_count INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name);
+
+        CREATE TABLE IF NOT EXISTS capture_entities (
+            capture_id TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            confidence REAL DEFAULT 1.0,
+            PRIMARY KEY (capture_id, entity_id),
+            FOREIGN KEY (capture_id) REFERENCES captures(id),
+            FOREIGN KEY (entity_id) REFERENCES entities(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_cap_entity_capture ON capture_entities(capture_id);
+        CREATE INDEX IF NOT EXISTS idx_cap_entity_entity ON capture_entities(entity_id);
     """)
     conn.commit()
     conn.close()
@@ -275,6 +297,26 @@ def _migrate_ai_tables(conn):
             ai_tags_source TEXT DEFAULT '[]',
             FOREIGN KEY (capture_id) REFERENCES captures(id)
         );
+        CREATE TABLE IF NOT EXISTS entities (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            type TEXT NOT NULL DEFAULT 'concept',
+            aliases TEXT DEFAULT '[]',
+            description TEXT DEFAULT '',
+            capture_count INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name);
+        CREATE TABLE IF NOT EXISTS capture_entities (
+            capture_id TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            confidence REAL DEFAULT 1.0,
+            PRIMARY KEY (capture_id, entity_id),
+            FOREIGN KEY (capture_id) REFERENCES captures(id),
+            FOREIGN KEY (entity_id) REFERENCES entities(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_cap_entity_capture ON capture_entities(capture_id);
+        CREATE INDEX IF NOT EXISTS idx_cap_entity_entity ON capture_entities(entity_id);
     """)
     conn.commit()
 
@@ -566,6 +608,29 @@ def get_capture_ai_tags(user_id: str, capture_id: str) -> dict | None:
                 r["ai_tags_source"] = json.loads(r["ai_tags_source"])
             return r
         return None
+    finally:
+        conn.close()
+
+
+def get_entities_for_capture(user_id: str, capture_id: str) -> list[dict]:
+    """Get all entities linked to a capture, with their details."""
+    conn = get_db(user_id)
+    try:
+        rows = conn.execute(
+            """SELECT e.id, e.name, e.type, e.aliases, e.description, ce.confidence
+               FROM entities e
+               JOIN capture_entities ce ON e.id = ce.entity_id
+               WHERE ce.capture_id=?
+               ORDER BY ce.confidence DESC, e.name ASC""",
+            (capture_id,),
+        ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            if isinstance(d.get("aliases"), str):
+                d["aliases"] = json.loads(d["aliases"])
+            result.append(d)
+        return result
     finally:
         conn.close()
 

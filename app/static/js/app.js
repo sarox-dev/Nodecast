@@ -469,6 +469,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         html += '<div class="settings-section-header" style="margin-top:1.2rem"><h3>Bulk Tagging</h3></div>';
         html += '<div class="settings-list" style="gap:0.4rem">';
         html += `<button id="ai-tag-untagged" class="modal-btn modal-btn-primary" type="button" style="padding:0.4rem 0.75rem;font-size:0.82rem">Tag all untagged captures</button>`;
+        html += `<button id="ai-process-all" class="modal-btn modal-btn-primary" type="button" style="padding:0.4rem 0.75rem;font-size:0.82rem">Process all (tag + summarize + extract entities)</button>`;
         html += `<button id="ai-retag-all" class="modal-btn" type="button" style="padding:0.4rem 0.75rem;font-size:0.82rem;background:var(--danger,#f87171);color:#fff;border:none">RETAG all captures (⚠ destructive)</button>`;
         html += '<span id="ai-bulk-status" class="note-status" style="margin-top:0.4rem" hidden></span>';
         html += '</div>';
@@ -635,7 +636,10 @@ window.addEventListener('DOMContentLoaded', async () => {
 
         // RETAG all (dangerous)
         document.getElementById('ai-retag-all')?.addEventListener('click', async () => {
-            const retagCode = prompt('Type "RETAG" to confirm re-tagging ALL captures. This will delete existing AI tags and regenerate them:');
+            const retagCode = await showConfirmDialog(
+                'This will delete existing AI tags and regenerate them for ALL captures.',
+                { prompt: 'Type "RETAG" to confirm:', defaultValue: '' }
+            );
             if (retagCode !== 'RETAG') return;
             const status = document.getElementById('ai-bulk-status');
             status.textContent = 'Re-tagging all captures... this will take a while';
@@ -650,6 +654,22 @@ window.addEventListener('DOMContentLoaded', async () => {
                 status.textContent = 'Error running retag';
                 status.style.color = '#f87171';
             }
+        // Process all (tag + summarize + extract entities)
+        document.getElementById('ai-process-all')?.addEventListener('click', async () => {
+            const status = document.getElementById('ai-bulk-status');
+            status.textContent = 'Processing all captures (tag + summarize + extract entities)... this will take a while';
+            status.style.color = 'var(--text-dim)';
+            status.hidden = false;
+            try {
+                const r = await fetch('/api/ai/process-all', { method: 'POST' });
+                const d = await r.json();
+                status.textContent = `Done: ${d.tagged} tagged, ${d.summarized} summarized, ${d.entities_extracted} entities extracted, ${d.errors} errors (of ${d.total} total)`;
+                status.style.color = d.errors > 0 ? '#f87171' : '#22c55e';
+            } catch {
+                status.textContent = 'Error running process all';
+                status.style.color = '#f87171';
+            }
+        });
         });
     }
 
@@ -1598,12 +1618,35 @@ window.addEventListener('DOMContentLoaded', async () => {
     const confirmCancel = document.getElementById('confirm-cancel');
     const confirmDelete = document.getElementById('confirm-delete');
 
-    function showConfirmDialog(msg) {
+    function showConfirmDialog(msg, opts = {}) {
+        const { prompt: promptLabel, defaultValue } = opts;
         return new Promise((resolve) => {
             confirmMessage.textContent = msg;
             confirmOverlay.hidden = false;
             confirmOverlay.removeAttribute('aria-hidden');
-            
+
+            const inputGroup = document.getElementById('confirm-input-group');
+            const inputLabel = document.getElementById('confirm-input-label');
+            const inputEl = document.getElementById('confirm-input');
+            const deleteBtn = document.getElementById('confirm-delete');
+
+            if (promptLabel) {
+                inputGroup.hidden = false;
+                inputLabel.textContent = promptLabel;
+                inputEl.value = defaultValue || '';
+                inputEl.focus();
+                deleteBtn.textContent = 'Confirm';
+                deleteBtn.style.background = 'var(--danger,#f87171)';
+                deleteBtn.style.color = '#fff';
+                deleteBtn.style.border = 'none';
+            } else {
+                inputGroup.hidden = true;
+                deleteBtn.textContent = 'Delete';
+                deleteBtn.style.background = '';
+                deleteBtn.style.color = '';
+                deleteBtn.style.border = '';
+            }
+
             function cleanup() {
                 confirmOverlay.hidden = true;
                 confirmOverlay.setAttribute('aria-hidden', 'true');
@@ -1611,15 +1654,29 @@ window.addEventListener('DOMContentLoaded', async () => {
                 confirmClose.removeEventListener('click', rejectClick);
                 confirmCancel.removeEventListener('click', rejectClick);
                 confirmDelete.removeEventListener('click', acceptClick);
+                inputEl.value = '';
             }
-            function acceptClick() { cleanup(); resolve(true); }
+            function acceptClick() {
+                if (promptLabel) {
+                    resolve(inputEl.value);
+                } else {
+                    resolve(true);
+                }
+                cleanup();
+            }
             function rejectClick() { cleanup(); resolve(false); }
             function overlayClick(e) { if (e.target === confirmOverlay) { cleanup(); resolve(false); } }
-            
+
             confirmDelete.addEventListener('click', acceptClick);
             confirmCancel.addEventListener('click', rejectClick);
             confirmClose.addEventListener('click', rejectClick);
             confirmOverlay.addEventListener('click', overlayClick);
+            
+            if (promptLabel) {
+                inputEl.addEventListener('keydown', function inputKeydown(e) {
+                    if (e.key === 'Enter') { acceptClick(); }
+                });
+            }
         });
     }
 
