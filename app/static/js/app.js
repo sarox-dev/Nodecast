@@ -2251,4 +2251,4 @@ window.addEventListener('DOMContentLoaded', async () => {
         triggerAIBatch();
     }
 
-})();
+});
