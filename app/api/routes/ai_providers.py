@@ -347,10 +347,17 @@ def api_pending_count(current_user: dict = Depends(get_current_user)):
 
 @router.post("/trigger-batch")
 def api_trigger_batch(current_user: dict = Depends(get_current_user)):
-    """Trigger batch processing of all pending AI jobs (grouped by model)."""
-    from app.services.ai_batch import process_batch
-    result = process_batch(current_user["user_id"])
-    return {"status": "done", **result}
+    """Trigger batch processing of all pending AI jobs (background, grouped by model)."""
+    from app.services.ai_batch import start_background_batch
+    result = start_background_batch(current_user["user_id"])
+    return result
+
+
+@router.get("/batch-status")
+def api_batch_status(current_user: dict = Depends(get_current_user)):
+    """Get current background batch processing status."""
+    from app.services.ai_batch import get_batch_status
+    return get_batch_status(current_user["user_id"])
 
 
 @router.get("/tags/{capture_id}")

@@ -758,12 +758,49 @@ window.addEventListener('DOMContentLoaded', async () => {
                 return r.json().catch(() => ({}));
             })
             .then(data => {
-                if (data.pending !== undefined) {
-                    const el = document.getElementById('ai-pending-count');
-                    if (el) el.textContent = data.pending;
+                if (data.status === 'started' || data.status === 'already_running') {
+                    // Start polling for progress
+                    pollBatchProgress();
                 }
+                updatePendingCount();
             })
             .catch(err => console.error('Batch trigger failed:', err));
+    }
+
+    let batchPollId = null;
+
+    function pollBatchProgress() {
+        if (batchPollId) return;  // already polling
+        const bar = document.getElementById('ai-progress-bar');
+        const fill = document.getElementById('ai-progress-fill');
+        const text = document.getElementById('ai-progress-text');
+        if (!bar || !fill || !text) return;
+
+        function poll() {
+            fetch('/api/ai/batch-status')
+                .then(r => r.json())
+                .then(status => {
+                    if (status.running) {
+                        bar.hidden = false;
+                        const total = status.total || 1;
+                        const done = (status.processed || 0) + (status.errors || 0) + (status.skipped || 0);
+                        const pct = Math.round((done / total) * 100);
+                        fill.style.width = Math.min(pct, 100) + '%';
+                        text.textContent = `AI: ${done}/${total} (${status.current || 'processing...'})`;
+                        batchPollId = setTimeout(poll, 2000);
+                    } else {
+                        // Done
+                        bar.hidden = true;
+                        fill.style.width = '0%';
+                        batchPollId = null;
+                        updatePendingCount();
+                    }
+                })
+                .catch(() => {
+                    batchPollId = setTimeout(poll, 5000);
+                });
+        }
+        poll();
     }
 
     async function updatePendingCount() {

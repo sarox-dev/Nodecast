@@ -9,6 +9,50 @@ Provides:
 """
 
 import logging
+import threading
+from datetime import datetime, timezone
+
+# ─── Background batch status (in-memory, per-user) ────────────────
+_batch_status: dict[str, dict] = {}
+_batch_lock = threading.Lock()
+
+
+def _update_progress(user_id: str, **kwargs):
+    with _batch_lock:
+        if user_id not in _batch_status:
+            _batch_status[user_id] = {}
+        _batch_status[user_id].update(kwargs)
+
+
+def get_batch_status(user_id: str) -> dict:
+    with _batch_lock:
+        return _batch_status.get(user_id, {
+            "running": False, "total": 0, "processed": 0,
+            "errors": 0, "skipped": 0, "current": "",
+        })
+
+
+def start_background_batch(user_id: str) -> dict:
+    """Start batch processing in a background daemon thread."""
+    with _batch_lock:
+        existing = _batch_status.get(user_id, {})
+        if existing.get("running"):
+            return {"status": "already_running"}
+    thread = threading.Thread(target=_run_batch_thread, args=(user_id,), daemon=True)
+    thread.start()
+    return {"status": "started"}
+
+
+def _run_batch_thread(user_id: str):
+    """Run process_batch in a thread and clear status when done."""
+    try:
+        process_batch(user_id)
+    except Exception as exc:
+        _update_progress(user_id, running=False, current=f"Error: {exc}")
+        logger.exception("Background batch failed for user %s", user_id)
+    finally:
+        _update_progress(user_id, running=False)
+
 
 from app.services.ai_tagging import (
     tag_capture,
@@ -109,6 +153,7 @@ def process_batch(user_id: str) -> dict:
                 if status == "success":
                     mark_ai_job_done(user_id, job_id)
                     processed += 1
+                    _update_progress(user_id, processed=processed, errors=errors, skipped=skipped, current=f"{feature} on {capture_id[:8]}...")
                     logger.info(
                         "Job %s | capture=%s | feature=%s | status=%s",
                         job_id,

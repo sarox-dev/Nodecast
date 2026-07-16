@@ -470,6 +470,44 @@ body::before {
 
 .status-bar[hidden] { display: none; }
 
+/* ─── AI Batch Progress Bar ────────────────────────────────────── */
+
+.ai-progress-bar {
+  display: flex;
+  align-items: center;
+  padding: 0.3rem 0.75rem;
+  background: var(--surface, #161b22);
+  border: 1px solid var(--border, #30363d);
+  border-radius: 6px;
+  margin: 0.25rem 0;
+  font-size: 0.78rem;
+}
+.ai-progress-bar[hidden] { display: none; }
+.ai-progress-inner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+}
+.ai-progress-track {
+  flex: 1;
+  height: 6px;
+  background: var(--border, #30363d);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.ai-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #1f6feb, #58a6ff);
+  border-radius: 3px;
+  transition: width 0.5s ease;
+}
+#ai-progress-text {
+  color: var(--text-secondary, #8b949e);
+  white-space: nowrap;
+  min-width: 130px;
+}
+
 .status-left {
   display: flex;
   align-items: center;
