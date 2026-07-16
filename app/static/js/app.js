@@ -103,6 +103,23 @@ window.addEventListener('DOMContentLoaded', async () => {
     let accountData = null;
     const settingsSchema = [
         {
+            category: 'Account',
+            description: 'Your account settings.',
+            items: []  // Custom rendering
+        },
+        {
+            category: 'AI',
+            description: 'Connect AI providers and assign models to features like auto-tagging, summarization, and entity extraction.',
+            items: []  // Custom rendering
+        },
+        {
+            category: 'Updates',
+            description: 'Check for new versions and manage auto-updates.',
+            items: [
+                { key: 'autoUpdate', label: 'Auto update when available', type: 'checkbox', default: false },
+            ]
+        },
+        {
             category: 'Appearance',
             description: 'Appearance and animation settings.',
             items: [
@@ -123,23 +140,6 @@ window.addEventListener('DOMContentLoaded', async () => {
             category: 'Search engines',
             description: 'Choose which search engines are included in your queries.',
             items: searchEngineFields.map(field => ({ key: field.key, label: field.label, type: 'checkbox', default: field.default }))
-        },
-        {
-            category: 'Updates',
-            description: 'Check for new versions and manage auto-updates.',
-            items: [
-                { key: 'autoUpdate', label: 'Auto update when available', type: 'checkbox', default: false },
-            ]
-        },
-        {
-            category: 'Account',
-            description: 'Your account settings.',
-            items: []  // Custom rendering
-        },
-        {
-            category: 'AI',
-            description: 'Connect AI providers and assign models to features like auto-tagging.',
-            items: []  // Custom rendering
         }
     ];
 
@@ -397,6 +397,22 @@ window.addEventListener('DOMContentLoaded', async () => {
             aiAssignments = ra.ok ? (await ra.json()).assignments : [];
         } catch { aiAssignments = []; }
 
+        // Fetch models for ALL providers in parallel (shows online status + pre-populates dropdowns)
+        const providerModels = new Map();
+        await Promise.all(aiProviders.map(async (p) => {
+            try {
+                const r = await fetch(`/api/ai/providers/${p.id}/models`);
+                if (r.ok) {
+                    const data = await r.json();
+                    providerModels.set(p.id, { models: data.models || [], online: true });
+                } else {
+                    providerModels.set(p.id, { models: [], online: false });
+                }
+            } catch {
+                providerModels.set(p.id, { models: [], online: false });
+            }
+        }));
+
         let html = '<div class="settings-field-group">';
 
         // ─── Providers section ────────────────────────────────────
@@ -406,13 +422,20 @@ window.addEventListener('DOMContentLoaded', async () => {
             html += '<div style="color:var(--text-dim);font-size:0.85rem;padding:0.5rem 0">No AI providers configured. Add one below.</div>';
         } else {
             for (const p of aiProviders) {
+                const info = providerModels.get(p.id);
+                const online = info ? info.online : false;
                 const hasAssignment = aiAssignments.some(a => a.provider_id === p.id);
+                const statusBadge = online
+                    ? '<span class="ai-badge" style="background:#22c55e;color:#fff;font-size:0.7rem;padding:0.1rem 0.4rem;border-radius:4px;margin-left:0.4rem">● online</span>'
+                    : '<span class="ai-badge" style="background:#f87171;color:#fff;font-size:0.7rem;padding:0.1rem 0.4rem;border-radius:4px;margin-left:0.4rem">● offline</span>';
+                const modelCount = info && info.models ? `· ${info.models.length} models` : '';
                 html += `<div class="settings-field" style="justify-content:space-between">
                   <div>
                     <span style="font-weight:600">${escapeHtml(p.name)}</span>
-                    <span style="color:var(--text-dim);font-size:0.78rem;margin-left:0.4rem">${escapeHtml(p.base_url)}</span>
-                    ${hasAssignment ? '<span class="ai-badge" style="background:var(--accent);color:#fff;font-size:0.7rem;padding:0.1rem 0.4rem;border-radius:4px;margin-left:0.4rem">assigned</span>' : ''}
-                    ${p.default_model ? `<span style="color:var(--text-dim);font-size:0.75rem;margin-left:0.3rem">· ${escapeHtml(p.default_model)}</span>` : ''}
+                    ${statusBadge}
+                    <span style="color:var(--text-dim);font-size:0.78rem;margin-left:0.3rem">${escapeHtml(p.base_url)}</span>
+                    ${modelCount ? `<span style="color:var(--text-dim);font-size:0.75rem;margin-left:0.3rem">${modelCount}</span>` : ''}
+                    ${hasAssignment ? '<span class="ai-badge" style="background:var(--accent);color:#fff;font-size:0.7rem;padding:0.1rem 0.4rem;border-radius:4px;margin-left:0.3rem">assigned</span>' : ''}
                   </div>
                   <div style="display:flex;gap:0.3rem">
                     <button class="ai-edit-provider modal-btn modal-btn-secondary" style="padding:0.25rem 0.5rem;font-size:0.75rem" data-id="${p.id}" data-name="${escapeHtml(p.name)}" data-url="${escapeHtml(p.base_url)}">Edit</button>
@@ -441,6 +464,19 @@ window.addEventListener('DOMContentLoaded', async () => {
             const assignment = aiAssignments.find(a => a.feature === feat.id);
             const assignedProvider = assignment ? aiProviders.find(p => p.id === assignment.provider_id) : null;
 
+            // Build model options — pre-populate from fetched models for the assigned provider
+            let modelOptions = '<option value="">— Select model —</option>';
+            if (assignment) {
+                const info = providerModels.get(assignment.provider_id);
+                if (info && info.models && info.models.length > 0) {
+                    modelOptions = info.models.map(m =>
+                        `<option value="${escapeHtml(m.id)}" ${m.id === assignment.model ? 'selected' : ''}>${escapeHtml(m.id)}</option>`
+                    ).join('');
+                } else {
+                    modelOptions = `<option value="${escapeHtml(assignment.model)}" selected>${escapeHtml(assignment.model)}</option>`;
+                }
+            }
+
             html += `<div class="settings-field" style="flex-direction:column;align-items:stretch;gap:0.4rem">
               <div style="display:flex;justify-content:space-between;align-items:center">
                 <div>
@@ -455,7 +491,7 @@ window.addEventListener('DOMContentLoaded', async () => {
                   ${aiProviders.map(p => `<option value="${p.id}" ${assignment && assignment.provider_id === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
                 </select>
                 <select class="ai-assign-model" style="flex:1;padding:0.35rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:0.82rem" ${assignment ? '' : 'disabled'}>
-                  ${assignment ? `<option value="${escapeHtml(assignment.model)}">${escapeHtml(assignment.model)}</option>` : '<option value="">— Select model —</option>'}
+                  ${modelOptions}
                 </select>
                 <button class="ai-save-assignment modal-btn modal-btn-primary" type="button" style="padding:0.35rem 0.6rem;font-size:0.78rem">Save</button>
                 ${assignment ? `<button class="ai-remove-assignment modal-btn modal-btn-secondary" type="button" style="padding:0.35rem 0.5rem;font-size:0.75rem" data-id="${assignment.id}">Remove</button>` : ''}

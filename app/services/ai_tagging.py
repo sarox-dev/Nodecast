@@ -386,13 +386,23 @@ def tag_capture(user_id: str, capture_id: str) -> dict:
     raw_tags = result.get("tags", [])
     normalized_tags = _normalize_tags(raw_tags, site_name=site_name)
 
+    # Preserve any existing summary/key_concepts from previous runs
+    existing_tags = get_capture_ai_tags(user_id, capture_id)
+    existing_summary = ""
+    existing_concepts = []
+    existing_source = []
+    if existing_tags:
+        existing_summary = existing_tags.get("summary", "")
+        existing_concepts = existing_tags.get("key_concepts", [])
+        existing_source = existing_tags.get("ai_tags_source", [])
+
     source_tags = [f"ai:{assignment['model']}"]
     saved = upsert_capture_ai_tags(
         user_id=user_id,
         capture_id=capture_id,
         tags=normalized_tags,
-        summary="",
-        key_concepts=[],
+        summary=existing_summary,
+        key_concepts=existing_concepts,
         model=assignment["model"],
         ai_tags_source=source_tags,
     )
