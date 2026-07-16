@@ -304,7 +304,11 @@ def _call_ai_model(
             resp = client.post(url, json=payload, headers=headers)
             resp.raise_for_status()
             data = resp.json()
-            content = data["choices"][0]["message"]["content"]
+            content = data["choices"][0]["message"]["content"] or ""
+            # Some models (e.g. Gemma, DeepSeek R1) put the response
+            # in "reasoning_content" when "content" is empty
+            if not content.strip():
+                content = data["choices"][0]["message"].get("reasoning_content", "") or ""
             return _parse_ai_response(content)
     except httpx.ConnectError:
         logger.error(f"AI tagging: Connection refused to {base_url}")
