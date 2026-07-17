@@ -747,6 +747,17 @@ window.addEventListener('DOMContentLoaded', async () => {
         return m > 0 ? `${h}h ${m}min` : `${h}h`;
     }
 
+    function triggerProcessUnprocessed() {
+        fetch('/api/ai/process-unprocessed', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'started') {
+                    pollBatchProgress();
+                }
+            })
+            .catch(() => {});
+    }
+
     function triggerAIBatch() {
         return fetch('/api/ai/trigger-batch', { method: 'POST' })
             .then(r => {
@@ -838,11 +849,16 @@ window.addEventListener('DOMContentLoaded', async () => {
         }
         const minutes = parseInt(localStorage.getItem('aiBatchInterval'), 10) || 0;
         if (minutes > 0) {
-            batchIntervalId = setInterval(triggerAIBatch, minutes * 60 * 1000);
+            batchIntervalId = setInterval(triggerProcessUnprocessed, minutes * 60 * 1000);
         }
     }
     // Initialise batch interval
     updateBatchInterval();
+
+    // Auto-process unprocessed captures on page load
+    setTimeout(() => {
+        triggerProcessUnprocessed();
+    }, 1000);
 
     function openProviderSelector() {
         // Fetch provider presets from backend
