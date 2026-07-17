@@ -379,7 +379,40 @@
   font-family: inherit;
   font-size: 0.85rem;
   font-weight: 500;
-  transition: background var(--transition-fast), box-shadow var(--transition-fast);
+  transition: background var(--transition-fast), box-shadow var(--transition-fast), opacity 0.2s;
+}
+
+.settings-actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.settings-actions button:disabled:hover {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.settings-actions #settings-revert {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+  margin-right: 0.3rem;
+}
+
+.settings-actions #settings-revert:hover:not(:disabled) {
+  background: var(--surface);
+  border-color: var(--text-dim);
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-3px); }
+  20%, 40%, 60%, 80% { transform: translateX(3px); }
+}
+
+.settings-actions button.shake {
+  animation: shake 0.4s ease-in-out;
+  box-shadow: 0 0 0 2px var(--danger, #f87171);
 }
 
 .settings-actions button:hover {

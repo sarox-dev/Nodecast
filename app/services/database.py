@@ -204,6 +204,8 @@ def init_user_db(user_id: str):
             base_url TEXT NOT NULL,
             api_key_encrypted TEXT DEFAULT '',
             default_model TEXT DEFAULT '',
+            provider_key TEXT DEFAULT '',
+            api_style TEXT DEFAULT '',
             created_at TEXT DEFAULT ''
         );
 
@@ -246,11 +248,23 @@ def init_user_db(user_id: str):
             FOREIGN KEY (capture_id) REFERENCES captures(id),
             FOREIGN KEY (entity_id) REFERENCES entities(id)
         );
-        CREATE INDEX IF NOT EXISTS idx_cap_entity_capture ON capture_entities(capture_id);
-        CREATE INDEX IF NOT EXISTS idx_cap_entity_entity ON capture_entities(entity_id);
     """)
+    # Migration: add api_style column if missing
+    try:
+        conn.execute("ALTER TABLE ai_providers ADD COLUMN api_style TEXT DEFAULT ''")
+    except Exception:
+        pass
+    try:
+        conn.execute("ALTER TABLE ai_providers ADD COLUMN provider_key TEXT DEFAULT ''")
+    except Exception:
+        pass
+    # Ensure indexes exist
+    try:
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_cap_entity_capture ON capture_entities(capture_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_cap_entity_entity ON capture_entities(entity_id)")
+    except Exception:
+        pass
     conn.commit()
-    conn.close()
 
 
 def get_db(user_id: str):
@@ -277,6 +291,8 @@ def _migrate_ai_tables(conn):
             base_url TEXT NOT NULL,
             api_key_encrypted TEXT DEFAULT '',
             default_model TEXT DEFAULT '',
+            provider_key TEXT DEFAULT '',
+            api_style TEXT DEFAULT '',
             created_at TEXT DEFAULT ''
         );
         CREATE TABLE IF NOT EXISTS ai_feature_assignments (
@@ -489,7 +505,8 @@ def get_ai_provider(user_id: str, provider_id: str) -> dict | None:
 
 
 def create_ai_provider(
-    user_id: str, name: str, base_url: str, api_key_encrypted: str, provider_type: str = "openai_compatible"
+    user_id: str, name: str, base_url: str, api_key_encrypted: str, provider_type: str = "openai_compatible",
+    provider_key: str = "", api_style: str = "",
 ) -> dict:
     from app.services.ai_crypto import encrypt_api_key
 
@@ -499,11 +516,11 @@ def create_ai_provider(
     conn = get_db(user_id)
     try:
         conn.execute(
-            "INSERT INTO ai_providers (id, name, provider_type, base_url, api_key_encrypted, default_model, created_at) VALUES (?,?,?,?,?,?,?)",
-            (pid, name.strip(), provider_type, base_url.strip(), encrypted, "", now),
+            "INSERT INTO ai_providers (id, name, provider_type, base_url, api_key_encrypted, default_model, created_at, provider_key, api_style) VALUES (?,?,?,?,?,?,?,?,?)",
+            (pid, name.strip(), provider_type, base_url.strip(), encrypted, "", now, provider_key, api_style),
         )
         conn.commit()
-        return {"id": pid, "name": name.strip(), "provider_type": provider_type, "base_url": base_url.strip(), "default_model": "", "created_at": now}
+        return {"id": pid, "name": name.strip(), "provider_type": provider_type, "base_url": base_url.strip(), "default_model": "", "created_at": now, "provider_key": provider_key, "api_style": api_style}
     finally:
         conn.close()
 

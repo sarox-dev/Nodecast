@@ -46,6 +46,8 @@ class ProviderCreate(BaseModel):
     base_url: str
     api_key: str = ""
     provider_type: str = "openai_compatible"
+    provider_key: str = ""
+    api_style: str = "openai"
 
 
 class ProviderUpdate(BaseModel):
@@ -59,6 +61,56 @@ class AssignmentSet(BaseModel):
     feature: str
     provider_id: str
     model: str
+
+
+# ─── Provider presets ──────────────────────────────────────────────
+
+PROVIDER_PRESETS = [
+    {"key": "openai", "name": "OpenAI", "default_base_url": "https://api.openai.com/v1", "requires_api_key": True, "api_style": "openai"},
+    {"key": "openrouter", "name": "OpenRouter", "default_base_url": "https://openrouter.ai/api/v1", "requires_api_key": True, "api_style": "openai"},
+    {"key": "anthropic", "name": "Anthropic", "default_base_url": "https://api.anthropic.com/v1", "requires_api_key": True, "api_style": "anthropic"},
+    {"key": "gemini", "name": "Google Gemini", "default_base_url": "https://generativelanguage.googleapis.com/v1beta", "requires_api_key": True, "api_style": "gemini"},
+    {"key": "lmstudio", "name": "LM Studio", "default_base_url": "http://host.docker.internal:1234/v1", "requires_api_key": False, "api_style": "openai"},
+    {"key": "ollama", "name": "Ollama", "default_base_url": "http://host.docker.internal:11434/v1", "requires_api_key": False, "api_style": "openai"},
+    {"key": "custom", "name": "Custom OpenAI Compatible", "default_base_url": "", "requires_api_key": False, "api_style": "openai"},
+]
+
+
+@router.get("/provider-presets")
+def api_provider_presets():
+    """Return list of available provider presets."""
+    return {"presets": PROVIDER_PRESETS}
+
+
+@router.post("/providers/test-connection")
+def api_test_provider_connection(body: ProviderCreate):
+    """Test connection to an AI provider by calling the models endpoint."""
+    base_url = normalize_url_for_docker(body.base_url.rstrip("/"))
+    api_key = body.api_key or ""
+
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    try:
+        with httpx.Client(timeout=10) as client:
+            resp = client.get(f"{base_url}/models", headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                model_count = len(data.get("data", []))
+                return {"status": "ok", "message": f"Connected. {model_count} models available."}
+            elif resp.status_code == 401 or resp.status_code == 403:
+                return {"status": "error", "message": "Authentication failed. Check your API key."}
+            elif resp.status_code == 404:
+                return {"status": "error", "message": "Models endpoint not found at this URL."}
+            else:
+                return {"status": "error", "message": f"HTTP {resp.status_code}"}
+    except httpx.ConnectError:
+        return {"status": "error", "message": "Cannot connect. Check the Base URL."}
+    except httpx.TimeoutException:
+        return {"status": "error", "message": "Connection timed out."}
+    except Exception as e:
+        return {"status": "error", "message": str(e)[:200]}
 
 
 # ─── Provider CRUD ──────────────────────────────────────────────────
@@ -87,6 +139,8 @@ def api_create_provider(body: ProviderCreate, current_user: dict = Depends(get_c
         base_url=normalize_url_for_docker(body.base_url),
         api_key_encrypted=body.api_key,
         provider_type=body.provider_type or "openai_compatible",
+        provider_key=body.provider_key or "",
+        api_style=body.api_style or "openai",
     )
     return prov
 
