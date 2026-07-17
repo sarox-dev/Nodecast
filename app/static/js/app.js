@@ -815,6 +815,17 @@ window.addEventListener('DOMContentLoaded', async () => {
             const status = await r.json();
             if (status.running) {
                 pollBatchProgress();
+            } else {
+                // No batch running — trigger processing if anything is unprocessed
+                // (silent — only starts if there's work to do)
+                fetch('/api/ai/process-unprocessed', { method: 'POST' })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.status === 'started') {
+                            pollBatchProgress();
+                        }
+                    })
+                    .catch(() => {});
             }
         } catch {}
     }
@@ -1129,6 +1140,8 @@ window.addEventListener('DOMContentLoaded', async () => {
         settingsSchema.forEach(cat => cat.items.forEach(item => { settingsState[item.key] = getValue(item); }));
     }
     initSettings();
+    // Check for running or pending AI processing on page load
+    setTimeout(() => checkRunningBatch(), 500);
 
     function applyTheme() {
         const theme = settingsState.theme || 'dark';
