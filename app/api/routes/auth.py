@@ -38,6 +38,18 @@ class AdminDeleteUserRequest(BaseModel):
     action: str  # "delete" or "clear_data"
 
 
+# ─── API Token ────────────────────────────────────────────────────
+
+@router.post("/api-token")
+def get_api_token(req: LoginRequest, response: Response):
+    """Generate an API token for extension use. Accepts login credentials."""
+    user = get_user_by_username(req.username.strip().lower())
+    if not user or not verify_password(req.password, user["password_hash"]):
+        raise HTTPException(401, "Invalid username or password")
+    token = create_token(user["id"], user["username"])
+    return {"token": token, "user_id": user["id"], "username": user["username"]}
+
+
 # ─── Check ───────────────────────────────────────────────────────
 @router.get("/check")
 def check_users():

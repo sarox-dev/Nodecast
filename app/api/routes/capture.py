@@ -27,7 +27,7 @@ from app.services.entity_extraction import extract_entities
 from app.services.ai_batch import add_pending_jobs_on_save
 from app.services.knowledge_store import delete_knowledge_for_capture
 from app.services.raw_storage import get_raw_html, load_raw_capture
-from app.services.auth import get_current_user
+from app.services.auth import get_current_user, get_optional_user
 
 router = APIRouter()
 
