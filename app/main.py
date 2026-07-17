@@ -12,6 +12,7 @@ from app.api.routes.renderers import router as renderers_router
 from app.api.routes.capture_view import router as capture_view_router
 from app.api.routes.ai_providers import router as ai_providers_router
 from app.services.database import init_db, user_count
+from app.services.auto_processor import start_auto_processor
 
 app = FastAPI()
 
@@ -19,6 +20,8 @@ app = FastAPI()
 def startup():
     # Auto-migrate existing data to per-user structure
     init_db()
+    # Start background AI auto-processor
+    start_auto_processor()
 
 app.add_middleware(
     CORSMiddleware,

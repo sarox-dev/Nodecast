@@ -264,6 +264,13 @@ def init_user_db(user_id: str):
         conn.execute("CREATE INDEX IF NOT EXISTS idx_cap_entity_entity ON capture_entities(entity_id)")
     except Exception:
         pass
+    # Migration: create user_settings table
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL DEFAULT ''
+        )
+    """)
     conn.commit()
 
 
@@ -348,6 +355,12 @@ def _migrate_ai_tables(conn):
         CREATE INDEX IF NOT EXISTS idx_pending_jobs_feature ON pending_ai_jobs(feature);
     """)
     conn.commit()
+    # Migration: create user_settings table (for existing DBs)
+    try:
+        conn.execute("CREATE TABLE IF NOT EXISTS user_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')")
+        conn.commit()
+    except Exception:
+        pass
 
 
 # ─── Capture CRUD helpers ─────────────────────────────────────────
@@ -711,6 +724,31 @@ def list_captures_without_ai_tags(user_id: str, limit: int = 100) -> list[dict]:
             (limit,),
         ).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_user_setting(user_id: str, key: str, default: str = "") -> str:
+    """Get a user setting value, or default if not set."""
+    conn = get_db(user_id)
+    try:
+        row = conn.execute(
+            "SELECT value FROM user_settings WHERE key=?", (key,)
+        ).fetchone()
+        return row["value"] if row else default
+    finally:
+        conn.close()
+
+
+def set_user_setting(user_id: str, key: str, value: str):
+    """Set a user setting value (upsert)."""
+    conn = get_db(user_id)
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO user_settings (key, value) VALUES (?,?)",
+            (key, value),
+        )
+        conn.commit()
     finally:
         conn.close()
 

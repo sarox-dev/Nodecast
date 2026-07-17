@@ -30,6 +30,8 @@ from app.services.database import (
     upsert_capture_ai_tags,
     get_capture_ref,
     get_db,
+    get_user_setting,
+    set_user_setting,
 )
 
 import httpx
@@ -407,6 +409,22 @@ def api_process_capture(capture_id: str, current_user: dict = Depends(get_curren
     from app.services.ai_batch import process_capture
     result = process_capture(current_user["user_id"], capture_id)
     return result
+
+
+@router.get("/auto-process-settings")
+def api_auto_process_settings(current_user: dict = Depends(get_current_user)):
+    """Get auto-process interval setting (in minutes). Default 60."""
+    val = get_user_setting(current_user["user_id"], "ai_auto_process_interval", "60")
+    return {"interval_minutes": int(val)}
+
+
+@router.put("/auto-process-settings")
+def api_set_auto_process_settings(body: dict, current_user: dict = Depends(get_current_user)):
+    """Set auto-process interval (in minutes). Pass {\"interval_minutes\": 15}."""
+    minutes = int(body.get("interval_minutes", 60))
+    minutes = max(1, min(720, minutes))  # clamp 1min–12h
+    set_user_setting(current_user["user_id"], "ai_auto_process_interval", str(minutes))
+    return {"interval_minutes": minutes}
 
 
 @router.get("/pending-count")

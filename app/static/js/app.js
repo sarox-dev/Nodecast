@@ -104,6 +104,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     let accountData = null;
     let _dirty = false;
     let _tabSnapshot = {};
+    let _savedInterval = 60;
     const settingsSchema = [
         {
             category: 'Account',
@@ -453,6 +454,15 @@ window.addEventListener('DOMContentLoaded', async () => {
 
         let html = '<div class="settings-field-group">';
 
+        // Fetch saved interval from server
+        try {
+            const r = await fetch('/api/ai/auto-process-settings');
+            if (r.ok) {
+                const data = await r.json();
+                _savedInterval = data.interval_minutes || 60;
+            }
+        } catch {}
+
         // ─── Providers section ────────────────────────────────────
         html += '<div class="settings-section-header"><h3>AI Providers</h3></div>';
 
@@ -553,11 +563,11 @@ window.addEventListener('DOMContentLoaded', async () => {
         html += `<button id="ai-regenerate-all" class="modal-btn" type="button" style="padding:0.4rem 0.75rem;font-size:0.82rem;background:var(--danger,#f87171);color:#fff;border:none">Regenerate all data (⚠ destructive)</button>`;
         html += '<span id="ai-bulk-status" class="note-status" style="margin-top:0.4rem" hidden></span>';
 
-        // Auto-process slider
-        const batchInterval = parseInt(localStorage.getItem('aiBatchInterval'), 10) || 60;
+        // Auto-process slider — saves to server
+        const batchInterval = getSavedInterval();
         html += `<label class="settings-field" style="flex-direction:column;align-items:stretch;gap:0.3rem;margin-top:0.5rem">
           <div style="display:flex;justify-content:space-between;font-size:0.8rem">
-            <span>Auto-process every</span>
+            <span>Auto-process on server every</span>
             <span id="ai-batch-interval-label">${_formatInterval(batchInterval)}</span>
           </div>
           <input type="range" id="ai-batch-interval" min="5" max="120" step="5" value="${batchInterval}" style="width:100%;accent-color:var(--accent);" />
@@ -723,16 +733,20 @@ window.addEventListener('DOMContentLoaded', async () => {
         });
 
         // ─── Batch processing handlers ───────────────────────────
-        // Save interval on change (range slider)
+        // Save interval to server
         document.getElementById('ai-batch-interval')?.addEventListener('input', function () {
             const val = parseInt(this.value, 10);
-            localStorage.setItem('aiBatchInterval', val.toString());
             const label = document.getElementById('ai-batch-interval-label');
             if (label) label.textContent = _formatInterval(val);
-            updateBatchInterval();
+            // Save to server
+            fetch('/api/ai/auto-process-settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ interval_minutes: val }),
+            }).catch(() => {});
         });
 
-        // Check if AI processing is already running (e.g. after page refresh)
+        // Check if AI processing is already running (progress bar)
         checkRunningBatch();
     }
 
@@ -740,38 +754,15 @@ window.addEventListener('DOMContentLoaded', async () => {
         _markDirty();
     }
 
+    function getSavedInterval() {
+        return _savedInterval;
+    }
+
     function _formatInterval(minutes) {
         if (minutes < 60) return `${minutes}min`;
         const h = Math.floor(minutes / 60);
         const m = minutes % 60;
         return m > 0 ? `${h}h ${m}min` : `${h}h`;
-    }
-
-    function triggerProcessUnprocessed() {
-        fetch('/api/ai/process-unprocessed', { method: 'POST' })
-            .then(r => r.json())
-            .then(data => {
-                if (data.status === 'started') {
-                    pollBatchProgress();
-                }
-            })
-            .catch(() => {});
-    }
-
-    function triggerAIBatch() {
-        return fetch('/api/ai/trigger-batch', { method: 'POST' })
-            .then(r => {
-                if (!r.ok) console.warn('Batch trigger returned', r.status);
-                return r.json().catch(() => ({}));
-            })
-            .then(data => {
-                if (data.status === 'started' || data.status === 'already_running') {
-                    // Start polling for progress
-                    pollBatchProgress();
-                }
-                updatePendingCount();
-            })
-            .catch(err => console.error('Batch trigger failed:', err));
     }
 
     let batchPollId = null;
@@ -817,19 +808,6 @@ window.addEventListener('DOMContentLoaded', async () => {
         poll();
     }
 
-    async function updatePendingCount() {
-        try {
-            const r = await fetch('/api/ai/pending-count');
-            if (r.ok) {
-                const data = await r.json();
-                const el = document.getElementById('ai-pending-count');
-                if (el) el.textContent = data.pending ?? data.count ?? '?';
-            }
-        } catch {}
-        // Also check if AI processing is already running (e.g. after page refresh)
-        checkRunningBatch();
-    }
-
     async function checkRunningBatch() {
         if (batchPollId) return;  // already polling
         try {
@@ -840,25 +818,6 @@ window.addEventListener('DOMContentLoaded', async () => {
             }
         } catch {}
     }
-
-    let batchIntervalId = null;
-    function updateBatchInterval() {
-        if (batchIntervalId) {
-            clearInterval(batchIntervalId);
-            batchIntervalId = null;
-        }
-        const minutes = parseInt(localStorage.getItem('aiBatchInterval'), 10) || 0;
-        if (minutes > 0) {
-            batchIntervalId = setInterval(triggerProcessUnprocessed, minutes * 60 * 1000);
-        }
-    }
-    // Initialise batch interval
-    updateBatchInterval();
-
-    // Auto-process unprocessed captures on page load
-    setTimeout(() => {
-        triggerProcessUnprocessed();
-    }, 1000);
 
     function openProviderSelector() {
         // Fetch provider presets from backend
