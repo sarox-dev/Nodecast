@@ -27,18 +27,25 @@ FEATURE_ENTITY_EXTRACTION = "entity_extraction"
 
 ENTITY_TYPES = ("tool", "person", "concept", "framework", "language", "platform", "company")
 
-ENTITY_SYSTEM_PROMPT = """You are a knowledge base entity extraction assistant. Given captured web content with priority markers, extract the key entities mentioned.
+ENTITY_SYSTEM_PROMPT = """You are a knowledge base entity extraction assistant. Given captured web content with priority markers, extract the key entities mentioned as plain text.
 
 IMPORTANT RULES:
 - Extract REAL entities only — specific tools, people, concepts, frameworks, languages, platforms, companies.
 - Do NOT invent entities. Only extract what is explicitly mentioned or clearly referenced.
-- Each entity should have: name, type (one of: tool, person, concept, framework, language, platform, company), aliases (alternative names or spellings), description (one sentence).
 - Prefer existing entities from the list below when they match — reuse their name and type.
 - Only create new entities when no existing match is found (match by name or aliases).
-- Description should be a concrete, specific one-sentence summary of what this entity is.
 
-Output ONLY valid JSON with no markdown fences or extra text:
-{"entities": [{"name": "...", "type": "...", "aliases": [...], "description": "..."}]}
+Output ONE line per entity in this exact format (NO markdown, NO JSON, NO extra text):
+Entity: <name> | <type> | <aliases> | <description>
+
+Where:
+- type is one of: tool, person, concept, framework, language, platform, company
+- aliases are comma-separated (or leave empty)
+- description is one sentence (or leave empty)
+
+Example:
+Entity: Python | language | python3, CPython | A high-level programming language
+Entity: FastAPI | framework | | A Python web framework
 
 Existing entities available for reuse (match by name or aliases, reuse their name and type):
 {existing_entities_list}"""
@@ -70,9 +77,9 @@ def _build_entity_system_prompt(user_id: str) -> str:
                 aliases = json.loads(aliases)
             alias_str = ", ".join(aliases) if aliases else ""
             if alias_str:
-                lines.append(f'  - {e["name"]} (type: {e["type"]}, aliases: {alias_str})')
+                lines.append(f'Entity: {e["name"]} | {e["type"]} | {alias_str} | {e.get("description", "")}')
             else:
-                lines.append(f'  - {e["name"]} (type: {e["type"]})')
+                lines.append(f'Entity: {e["name"]} | {e["type"]} | | {e.get("description", "")}')
         entities_str = "\n".join(lines)
     else:
         entities_str = "(none yet — create new entities)"
@@ -186,6 +193,53 @@ def _link_entity_to_capture(
 # ─── Main API ────────────────────────────────────────────────────
 
 
+def _parse_entities_text(text: str) -> list[dict]:
+    """Parse entities from plain text format.
+    Expected: Entity: <name> | <type> | <aliases> | <description>
+    Also handles lines without "Entity:" prefix (just pipe-delimited).
+    """
+    if not text:
+        return []
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[-1] if "\n" in text else text[3:]
+        if text.endswith("```"):
+            text = text[:-3]
+        text = text.strip()
+
+    entities = []
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        # Accept "Entity:" prefix OR just straight pipe-delimited lines
+        if line.upper().startswith("ENTITY"):
+            # Handle "Entity:" or "Entity" variations
+            after_prefix = line[6:].lstrip(": ").strip()
+        else:
+            after_prefix = line
+
+        # Must have at least a name (something before the first |)
+        parts = [p.strip() for p in after_prefix.split("|")]
+        name = parts[0] if len(parts) > 0 else ""
+        if not name:
+            continue
+
+        type_ = parts[1].lower().strip() if len(parts) > 1 else "concept"
+        aliases_str = parts[2].strip() if len(parts) > 2 else ""
+        aliases = [a.strip() for a in aliases_str.split(",") if a.strip()]
+        description = parts[3].strip() if len(parts) > 3 else ""
+
+        valid_types = ("tool", "person", "concept", "framework", "language", "platform", "company")
+        entities.append({
+            "name": name,
+            "type": type_ if type_ in valid_types else "concept",
+            "aliases": aliases,
+            "description": description,
+        })
+    return entities
+
+
 def extract_entities(user_id: str, capture_id: str) -> dict:
     """Extract entities from a capture using the configured AI provider.
 
@@ -228,7 +282,7 @@ def extract_entities(user_id: str, capture_id: str) -> dict:
     if not result:
         return {"status": "error", "message": "AI model returned no valid response"}
 
-    raw_entities = result.get("entities", [])
+    raw_entities = _parse_entities_text(result)
     if not raw_entities:
         return {"status": "success", "data": {"entities": [], "linked": 0}}
 

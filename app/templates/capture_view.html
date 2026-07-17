@@ -92,8 +92,8 @@
                         <td>{{ ai_tags.summary or "—" }}</td>
                     </tr>
                     <tr>
-                        <td>Key Concepts</td>
-                        <td>{% for c in ai_tags.key_concepts %}<span class="badge badge-concept">{{ c }}</span> {% else %}<span class="text-muted">—</span>{% endfor %}</td>
+                        <td>Entities</td>
+                        <td>{% for e in entities %}<span class="badge badge-entity badge-{{ e.type }}">{{ e.name }}</span> {% else %}<span class="text-muted">—</span>{% endfor %}</td>
                     </tr>
                     <tr>
                         <td>Processed</td>

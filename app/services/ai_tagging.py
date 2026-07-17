@@ -32,26 +32,27 @@ FEATURE_SUMMARY = "summary"
 # Token budget: approximate chars (1 token ~ 4 chars for most models)
 MAX_CHARS = 8000  # ~2000 tokens
 
-BASE_TAGGING_PROMPT = """You are a knowledge base tagging assistant. Given captured web content with priority markers, generate structured output.
+BASE_TAGGING_PROMPT = """You are a knowledge base tagging assistant. Given captured web content with priority markers, generate tags as plain text.
 
 IMPORTANT RULES:
-- **Reuse existing tags** from the list below when they fit well, but create new specific tags when needed.
-- **Do NOT** add the website/source name as a tag (e.g., "reddit", "medium", "youtube", "wikipedia", "quora").
-- Use **consistent format**: lowercase, hyphen-separated (e.g., "public-speaking" not "public speaking" or "public_speaking").
+- Reuse existing tags from the list below when they fit well, but create new specific tags when needed.
+- Do NOT add the website/source name as a tag (e.g., reddit, medium, youtube, wikipedia, quora).
+- Use consistent format: lowercase, hyphen-separated (e.g., public-speaking not "public speaking").
 - Aim for 3-5 tags. Be specific — prefer meaningful content tags over generic ones.
-- Output ONLY valid JSON with no markdown fences or extra text:
-{"tags": ["tag1", "tag2", "tag3"]}
+- Output ONLY tags separated by commas, nothing else. NO markdown fences, NO JSON, NO extra text.
+- Example: tag1, tag2, tag3
 
 Existing tags available for reuse (use them when applicable, but don't limit yourself):
 {existing_tags_list}"""
 
-BASE_SUMMARY_PROMPT = """You are a knowledge base summarisation assistant. Given captured web content with priority markers, generate a concise summary.
+BASE_SUMMARY_PROMPT = """You are a knowledge base summarisation assistant. Given captured web content with priority markers, generate a concise summary as plain text.
 
 IMPORTANT RULES:
-- summary: ONE sentence (max 20 words) capturing the core topic.
-- key_concepts: 2-3 core concepts from the content.
-- Output ONLY valid JSON with no markdown fences or extra text:
-{"summary": "...", "key_concepts": ["concept1", "concept2"]}"""
+- Output ONLY one line, nothing else.
+- NO markdown fences, NO JSON, NO extra text.
+- Line should start with SUMMARY: followed by ONE sentence (max 20 words) capturing the core topic.
+- Example:
+SUMMARY: This article explains how to set up a CI/CD pipeline with GitHub Actions."""
 
 
 # ─── Existing tags ──────────────────────────────────────────────────
@@ -284,9 +285,10 @@ def _call_ai_model(
     api_key: str,
     model: str,
     messages: list[dict],
-    timeout: int = 30,
-) -> dict | None:
-    """Call an OpenAI-compatible chat completion endpoint."""
+    timeout: int = 120,
+) -> str | None:
+    """Call an OpenAI-compatible chat completion endpoint.
+    Returns raw text response (not JSON) for easier parsing with small models."""
     url = f"{base_url.rstrip('/')}/chat/completions"
     headers = {"Content-Type": "application/json"}
     if api_key:
@@ -296,7 +298,7 @@ def _call_ai_model(
         "model": model,
         "messages": messages,
         "temperature": 0.3,
-        "max_tokens": 300,
+        "max_tokens": 500,
     }
 
     try:
@@ -305,24 +307,119 @@ def _call_ai_model(
             resp.raise_for_status()
             data = resp.json()
             content = data["choices"][0]["message"]["content"] or ""
-            # Some models (e.g. Gemma, DeepSeek R1) put the response
-            # in "reasoning_content" when "content" is empty
+            # Some models put response in "reasoning_content" when "content" is empty
             if not content.strip():
-                content = data["choices"][0]["message"].get("reasoning_content", "") or ""
-            return _parse_ai_response(content)
+                reasoning = data["choices"][0]["message"].get("reasoning_content", "") or ""
+                if reasoning.strip():
+                    logger.info("AI %s: content empty, using reasoning_content (%d chars)", model, len(reasoning))
+                    content = reasoning
+                else:
+                    logger.warning("AI %s: both content AND reasoning_content empty" , model)
+            # LM Studio sometimes returns function-call format {"name": "...", "parameters": {"text": "..."}}
+            # when the model was trained for tool use. Extract the actual text from parameters.
+            if content.strip().startswith("{"):
+                try:
+                    parsed = json.loads(content)
+                    if isinstance(parsed, dict) and "name" in parsed and "parameters" in parsed:
+                        params = parsed["parameters"]
+                        if isinstance(params, dict):
+                            extracted = params.get("text") or params.get("summary") or params.get("tags") or ""
+                            if isinstance(extracted, str) and extracted.strip():
+                                logger.info("AI %s: extracted text from function-call format (%d chars)", model, len(extracted))
+                                content = extracted
+                            elif isinstance(extracted, list):
+                                content = ", ".join(str(x) for x in extracted)
+                except (json.JSONDecodeError, KeyError, IndexError):
+                    pass
+            preview = content.strip()[:150].replace("\n", " ")
+            logger.info("AI %s: raw response (%d chars): %s...", model, len(content), preview)
+            return _clean_response(content)
     except httpx.ConnectError:
-        logger.error(f"AI tagging: Connection refused to {base_url}")
+        logger.error("AI %s: Connection refused to %s", model, base_url)
         return None
     except httpx.TimeoutException:
-        logger.error(f"AI tagging: Timeout calling {model} at {base_url}")
+        logger.error("AI %s: Timeout (>%ss) at %s", model, timeout, base_url)
         return None
     except Exception as e:
-        logger.error(f"AI tagging: Error calling {model}: {e}")
+        logger.error("AI %s: Error: %s", model, e)
         return None
+
+
+def _clean_response(text: str) -> str:
+    """Strip markdown fences and whitespace from AI response."""
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[-1] if "\n" in text else text[3:]
+        if text.endswith("```"):
+            text = text[:-3]
+        text = text.strip()
+    return text
+
+def _parse_tags_text(text: str) -> list[str]:
+    """Parse tags from plain text response.
+    Handles: comma-separated, one-per-line, with/without "Tags:" prefix.
+    Filters out model-thinking noise (items that look like reasoning, not tags)."""
+    if not text:
+        return []
+    text = _clean_response(text)
+    # Remove common prefixes
+    for prefix in ["tags:", "tags:", "tag:", "tag:"]:
+        if text.lower().startswith(prefix):
+            text = text[len(prefix):].strip()
+            break
+    # Try newline-separated first (each line = one tag)
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    if len(lines) > 1:
+        tags = [l.rstrip(".;,").strip().lower() for l in lines]
+    else:
+        # Comma-separated
+        tags = [t.strip().lower().rstrip(".;,") for t in text.split(",") if t.strip()]
+
+    # Filter out noise: tags should be short (< 50 chars), not contain spaces (hyphenated),
+    # and not be numbered steps or full sentences
+    clean = []
+    for t in tags:
+        t = t.strip()
+        if not t or len(t) < 2:
+            continue
+        # Skip numbered items like "1-analyze..." or "2-identify..." or "1. analyze"
+        if t[0].isdigit() and (t[1:2] in (".-", "-", ".") or len(t) > 40):
+            continue
+        # Skip very long items (model thinking, not tags)
+        if len(t) > 40:
+            continue
+        # Skip items containing multiple words (sentences, not tags)
+        if " " in t and len(t) > 25:
+            continue
+        # Skip items with common reasoning words/phrases
+        reasoning_words = ["the-", "this-", "that-", "they-", "here-", "must-", "should-", "need-",
+                          "core-", "very-", "highly-", "extremely", "specific", "relates", "excellent"]
+        has_reasoning = any(t.startswith(w) for w in reasoning_words) or \
+                        any(w in t for w in ["user-", "describe", "method", "implement", "solution", "approach"])
+        if has_reasoning:
+            continue
+        clean.append(t)
+
+    return clean[:10]  # Max 10 tags
+
+
+def _parse_summary_text(text: str) -> str:
+    """Parse summary text response.
+    Expected: SUMMARY: One sentence here.
+    Returns just the summary text (empty string if not found)."""
+    text = _clean_response(text)
+    upper = text.upper()
+    if "SUMMARY:" in upper:
+        idx = upper.index("SUMMARY:") + 8
+        return text[idx:].strip()
+    # No prefix found — use the first non-empty line
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    return lines[0] if lines else ""
 
 
 def _parse_ai_response(content: str) -> dict | None:
-    """Parse AI response, handling potential JSON in markdown fences."""
+    """Parse AI response, handling potential JSON in markdown fences.
+    Returns any valid JSON dict — callers use .get() for expected keys."""
     text = content.strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[-1] if "\n" in text else text[3:]
@@ -331,11 +428,12 @@ def _parse_ai_response(content: str) -> dict | None:
         text = text.strip()
     try:
         result = json.loads(text)
-        if isinstance(result, dict) and "tags" in result:
+        if isinstance(result, dict):
             return result
         return None
     except json.JSONDecodeError:
-        match = re.search(r'\{[^{}]*"tags"[^{}]*\}', text, re.DOTALL)
+        # Try to find any JSON object in the text
+        match = re.search(r'\{[^{}]*\}', text, re.DOTALL)
         if match:
             try:
                 return json.loads(match.group())
@@ -387,7 +485,7 @@ def tag_capture(user_id: str, capture_id: str) -> dict:
         return {"status": "error", "message": "AI model returned no valid response"}
 
     # Post-process tags: normalize + filter site names
-    raw_tags = result.get("tags", [])
+    raw_tags = _parse_tags_text(result)
     normalized_tags = _normalize_tags(raw_tags, site_name=site_name)
 
     # Preserve any existing summary/key_concepts from previous runs
@@ -453,26 +551,27 @@ def summarize_capture(user_id: str, capture_id: str) -> dict:
     if not result:
         return {"status": "error", "message": "AI model returned no valid response"}
 
+    # Parse summary text (plain text format, not JSON)
+    existing_summary = _parse_summary_text(result)
+    existing_concepts = []
+
     # Get existing AI tags for this capture to preserve any existing tags
     from app.services.database import get_capture_ai_tags
     existing = get_capture_ai_tags(user_id, capture_id)
     existing_tags = []
-    existing_summary = result.get("summary", "")
-    existing_concepts = result.get("key_concepts", [])
     if existing:
         try:
             existing_tags = json.loads(existing["tags"]) if isinstance(existing["tags"], str) else existing.get("tags", [])
         except Exception:
             existing_tags = []
-        # Don't overwrite summary from existing tags — the new AI result is what we want
 
     source_tags = [f"ai:{assignment['model']}"]
     saved = upsert_capture_ai_tags(
         user_id=user_id,
         capture_id=capture_id,
         tags=existing_tags,  # preserve existing tags
-        summary=result.get("summary", ""),
-        key_concepts=result.get("key_concepts", []),
+        summary=existing_summary,
+        key_concepts=existing_concepts,
         model=assignment["model"],
         ai_tags_source=source_tags,
     )
@@ -483,6 +582,6 @@ def summarize_capture(user_id: str, capture_id: str) -> dict:
 def get_available_features() -> list[dict]:
     return [
         {"id": FEATURE_TAGGING, "name": "Tag Captures", "description": "Automatically generate tags for saved captures."},
-        {"id": FEATURE_SUMMARY, "name": "Generate Summary", "description": "Generate a one-sentence summary and key concepts."},
+        {"id": FEATURE_SUMMARY, "name": "Generate Summary", "description": "Generate a one-sentence summary of the capture."},
         {"id": "entity_extraction", "name": "Extract Entities", "description": "Extract named entities (tools, people, concepts, etc.) from captures."},
     ]

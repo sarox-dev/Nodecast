@@ -320,10 +320,15 @@ def process_capture(user_id: str, capture_id: str) -> dict:
                 results.append({"feature": feature, "status": status, "result": result})
                 if status == "error":
                     errors += 1
+                    logger.warning("process_capture: %s → error: %s", feature, result.get("message", result.get("status", "unknown")))
+                else:
+                    logger.info("process_capture: %s → %s", feature, status)
             except Exception as exc:
                 logger.exception("process_capture: feature=%s failed: %s", feature, exc)
                 results.append({"feature": feature, "status": "error", "message": str(exc)})
                 errors += 1
+
+    logger.info("process_capture done: %d/%d ok, %d errors", len(results) - errors, len(results), errors)
 
     return {"results": results, "errors": errors, "total": len(results)}
 
