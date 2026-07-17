@@ -28,7 +28,7 @@ def get_batch_status(user_id: str) -> dict:
     with _batch_lock:
         return _batch_status.get(user_id, {
             "running": False, "total": 0, "processed": 0,
-            "errors": 0, "skipped": 0, "current": "",
+            "errors": 0, "skipped": 0, "current": "", "operation": "",
         })
 
 

@@ -19,6 +19,7 @@ from app.services.database import (
     get_ai_assignment_for_feature,
     get_ai_provider,
     get_db,
+    delete_capture_entities,
 )
 
 logger = logging.getLogger(__name__)
@@ -285,6 +286,9 @@ def extract_entities(user_id: str, capture_id: str) -> dict:
     raw_entities = _parse_entities_text(result)
     if not raw_entities:
         return {"status": "success", "data": {"entities": [], "linked": 0}}
+
+    # Delete old entity links for this capture before inserting new ones
+    delete_capture_entities(user_id, capture_id)
 
     # Get existing entities for matching
     existing = _get_existing_entities(user_id)

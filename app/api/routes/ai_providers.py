@@ -4,6 +4,7 @@ API routes for AI provider management, feature assignments, and tagging.
 
 import json
 import logging
+import threading
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -12,6 +13,7 @@ from app.services.auth import get_current_user
 from app.services.ai_crypto import decrypt_api_key, normalize_url_for_docker
 from app.services.ai_tagging import tag_capture, summarize_capture, get_available_features, FEATURE_TAGGING, FEATURE_SUMMARY
 from app.services.entity_extraction import extract_entities, FEATURE_ENTITY_EXTRACTION
+from app.services.ai_batch import _update_progress, get_batch_status
 from app.services.database import (
     list_ai_providers,
     get_ai_provider,
@@ -23,6 +25,7 @@ from app.services.database import (
     set_ai_assignment,
     delete_ai_assignment,
     list_captures_without_ai_tags,
+    list_captures_without_ai_data,
     get_capture_ai_tags,
     upsert_capture_ai_tags,
     get_capture_ref,
@@ -191,64 +194,131 @@ def api_tag_capture(capture_id: str, current_user: dict = Depends(get_current_us
     return result
 
 
-@router.post("/tag-all-untagged")
-def api_tag_all_untagged(current_user: dict = Depends(get_current_user)):
-    """Tag all captures that don't have AI tags yet."""
-    untagged = list_captures_without_ai_tags(current_user["user_id"])
-    if not untagged:
-        return {"status": "done", "total": 0, "tagged": 0, "message": "All captures already tagged."}
+@router.post("/process-unprocessed")
+def api_process_unprocessed(current_user: dict = Depends(get_current_user)):
+    """Process only captures that haven't been fully processed yet (no AI tags/summary/entities).
+    Runs in background with progress bar."""
+    user_id = current_user["user_id"]
+    unprocessed = list_captures_without_ai_data(user_id)
+    if not unprocessed:
+        return {"status": "done", "total": 0, "processed": 0, "message": "All captures already processed."}
 
-    results = {"total": len(untagged), "tagged": 0, "errors": 0, "skipped": 0}
-    for cap in untagged:
-        try:
-            r = tag_capture(current_user["user_id"], cap["id"])
-            if r["status"] == "success":
-                results["tagged"] += 1
-            elif r["status"] == "skipped":
-                results["skipped"] += 1
+    status = get_batch_status(user_id)
+    if status.get("running"):
+        return {"status": "already_running", "message": "AI processing is already in progress. Please wait.", "total": len(unprocessed)}
+
+    total = len(unprocessed)
+    _update_progress(user_id, running=True, total=total, processed=0, errors=0, skipped=0,
+                     current="Starting process unprocessed...", operation="process unprocessed")
+
+    thread = threading.Thread(target=_run_process_unprocessed, args=(user_id, unprocessed), daemon=True)
+    thread.start()
+    return {"status": "started", "total": total, "message": f"Processing {total} unprocessed capture(s) in background."}
+
+
+def _run_process_unprocessed(user_id: str, captures: list[dict]):
+    """Background thread: process only unprocessed captures with progress."""
+    try:
+        for i, cap in enumerate(captures):
+            cap_errors = 0
+            try:
+                r = tag_capture(user_id, cap["id"])
+                if r["status"] != "success" and r["status"] != "skipped":
+                    cap_errors += 1
+            except Exception:
+                cap_errors += 1
+
+            try:
+                r = summarize_capture(user_id, cap["id"])
+                if r["status"] != "success" and r["status"] != "skipped":
+                    cap_errors += 1
+            except Exception:
+                cap_errors += 1
+
+            try:
+                r = extract_entities(user_id, cap["id"])
+                if r["status"] != "success" and r["status"] != "skipped":
+                    cap_errors += 1
+            except Exception:
+                cap_errors += 1
+
+            if cap_errors == 0:
+                _update_progress(user_id, processed=i + 1)
             else:
-                results["errors"] += 1
-        except Exception:
-            results["errors"] += 1
+                _update_progress(user_id, errors=i + 1)
+            _update_progress(user_id, current=f"Processing {i + 1}/{len(captures)}: {cap.get('source_title', '')[:50]}")
+    except Exception as exc:
+        logger.exception("Background process-unprocessed failed: %s", exc)
+        _update_progress(user_id, running=False, current=f"Error: {exc}")
+    finally:
+        _update_progress(user_id, running=False, operation="")
 
-    return results
 
-
-@router.post("/retag-all")
-def api_retag_all(current_user: dict = Depends(get_current_user)):
-    """Re-tag ALL captures. This is a dangerous operation — deletes old tags and re-runs AI on everything."""
+@router.post("/regenerate-all")
+def api_regenerate_all(current_user: dict = Depends(get_current_user)):
+    """⚠ Destructive: delete ALL AI data (tags, summaries, entities) and reprocess everything."""
     user_id = current_user["user_id"]
     conn = get_db(user_id)
     try:
-        rows = conn.execute("SELECT id FROM captures").fetchall()
-        capture_ids = [r["id"] for r in rows]
+        rows = conn.execute("SELECT id, source_title FROM captures").fetchall()
+        captures = [{"id": r["id"], "source_title": r["source_title"] or ""} for r in rows]
     finally:
         conn.close()
 
-    if not capture_ids:
-        return {"status": "done", "total": 0, "tagged": 0, "message": "No captures to retag."}
+    if not captures:
+        return {"status": "done", "total": 0, "message": "No captures to process."}
 
-    results = {"total": len(capture_ids), "tagged": 0, "errors": 0, "skipped": 0}
-    for cid in capture_ids:
-        try:
-            # Delete old AI tags
-            conn2 = get_db(user_id)
+    status = get_batch_status(user_id)
+    if status.get("running"):
+        return {"status": "already_running", "message": "AI processing is already in progress. Please wait.", "total": len(captures)}
+
+    total = len(captures)
+    _update_progress(user_id, running=True, total=total, processed=0, errors=0, skipped=0,
+                     current="Starting regenerate-all...", operation="regenerate all")
+
+    thread = threading.Thread(target=_run_regenerate_all, args=(user_id, captures), daemon=True)
+    thread.start()
+    return {"status": "started", "total": total, "message": "Regenerating all AI data in background."}
+
+
+def _run_regenerate_all(user_id: str, captures: list[dict]):
+    """Background thread: delete ALL AI data and reprocess everything."""
+    try:
+        for i, cap in enumerate(captures):
             try:
-                conn2.execute("DELETE FROM capture_ai_tags WHERE capture_id=?", (cid,))
-                conn2.commit()
-            finally:
-                conn2.close()
-            r = tag_capture(user_id, cid)
-            if r["status"] == "success":
-                results["tagged"] += 1
-            elif r["status"] == "skipped":
-                results["skipped"] += 1
-            else:
-                results["errors"] += 1
-        except Exception:
-            results["errors"] += 1
+                # Delete all AI data for this capture
+                conn2 = get_db(user_id)
+                try:
+                    conn2.execute("DELETE FROM capture_ai_tags WHERE capture_id=?", (cap["id"],))
+                    conn2.execute("DELETE FROM capture_entities WHERE capture_id=?", (cap["id"],))
+                    conn2.commit()
+                finally:
+                    conn2.close()
 
-    return results
+                # Tag
+                r = tag_capture(user_id, cap["id"])
+                if r["status"] != "success" and r["status"] != "skipped":
+                    raise Exception(r.get("message", r.get("status", "unknown")))
+
+                # Summarize
+                r = summarize_capture(user_id, cap["id"])
+                if r["status"] != "success" and r["status"] != "skipped":
+                    raise Exception(r.get("message", r.get("status", "unknown")))
+
+                # Extract entities
+                r = extract_entities(user_id, cap["id"])
+                if r["status"] != "success" and r["status"] != "skipped":
+                    raise Exception(r.get("message", r.get("status", "unknown")))
+
+                _update_progress(user_id, processed=i + 1)
+            except Exception:
+                _update_progress(user_id, errors=i + 1)
+            _update_progress(user_id, current=f"Regenerating {i + 1}/{len(captures)}: {cap.get('source_title', '')[:50]}")
+    except Exception as exc:
+        logger.exception("Background regenerate-all failed: %s", exc)
+        _update_progress(user_id, running=False, current=f"Error: {exc}")
+    finally:
+        _update_progress(user_id, running=False, operation="")
 
 
 @router.post("/summarize/{capture_id}")
@@ -283,59 +353,6 @@ def api_process_capture(capture_id: str, current_user: dict = Depends(get_curren
     from app.services.ai_batch import process_capture
     result = process_capture(current_user["user_id"], capture_id)
     return result
-
-
-@router.post("/process-all")
-def api_process_all_captures(current_user: dict = Depends(get_current_user)):
-    """Process ALL captures: tag + summarize + extract entities.
-    Only runs features that have an AI assignment configured.
-    Skips captures that already have data for a given feature (unless retag is needed).
-    """
-    user_id = current_user["user_id"]
-    conn = get_db(user_id)
-    try:
-        rows = conn.execute("SELECT id FROM captures").fetchall()
-        capture_ids = [r["id"] for r in rows]
-    finally:
-        conn.close()
-
-    if not capture_ids:
-        return {"status": "done", "message": "No captures to process."}
-
-    results = {
-        "total": len(capture_ids),
-        "tagged": 0,
-        "summarized": 0,
-        "entities_extracted": 0,
-        "errors": 0,
-    }
-
-    for cid in capture_ids:
-        try:
-            # Tag
-            r = tag_capture(user_id, cid)
-            if r["status"] == "success":
-                results["tagged"] += 1
-        except Exception:
-            results["errors"] += 1
-
-        try:
-            # Summarize
-            r = summarize_capture(user_id, cid)
-            if r["status"] == "success":
-                results["summarized"] += 1
-        except Exception:
-            results["errors"] += 1
-
-        try:
-            # Extract entities
-            r = extract_entities(user_id, cid)
-            if r["status"] == "success":
-                results["entities_extracted"] += 1
-        except Exception:
-            results["errors"] += 1
-
-    return results
 
 
 @router.get("/pending-count")

@@ -501,30 +501,26 @@ window.addEventListener('DOMContentLoaded', async () => {
         }
         html += '</div>';
 
-        // ─── Bulk tagging section ────────────────────────────────
-        html += '<div class="settings-section-header" style="margin-top:1.2rem"><h3>Bulk Tagging</h3></div>';
+        // ─── AI Processing section ───────────────────────────────
+        html += '<div class="settings-section-header" style="margin-top:1.2rem"><h3>AI Processing</h3></div>';
         html += '<div class="settings-list" style="gap:0.4rem">';
-        html += `<button id="ai-tag-untagged" class="modal-btn modal-btn-primary" type="button" style="padding:0.4rem 0.75rem;font-size:0.82rem">Tag all untagged captures</button>`;
-        html += `<button id="ai-process-all" class="modal-btn modal-btn-primary" type="button" style="padding:0.4rem 0.75rem;font-size:0.82rem">Process all (tag + summarize + extract entities)</button>`;
-        html += `<button id="ai-retag-all" class="modal-btn" type="button" style="padding:0.4rem 0.75rem;font-size:0.82rem;background:var(--danger,#f87171);color:#fff;border:none">RETAG all captures (⚠ destructive)</button>`;
+        html += `<button id="ai-process-unprocessed" class="modal-btn modal-btn-primary" type="button" style="padding:0.4rem 0.75rem;font-size:0.82rem">Process unprocessed captures</button>`;
+        html += `<button id="ai-regenerate-all" class="modal-btn" type="button" style="padding:0.4rem 0.75rem;font-size:0.82rem;background:var(--danger,#f87171);color:#fff;border:none">Regenerate all data (⚠ destructive)</button>`;
         html += '<span id="ai-bulk-status" class="note-status" style="margin-top:0.4rem" hidden></span>';
         html += '</div>';
 
         // ─── Batch processing section ────────────────────────────
         const batchInterval = localStorage.getItem('aiBatchInterval') ?? '60';
-        const processOnOpen = localStorage.getItem('aiProcessOnOpen') !== 'false';
         html += '<div class="settings-section-header" style="margin-top:1.2rem"><h3>Batch Processing</h3></div>';
         html += '<div class="settings-list" style="gap:0.4rem">';
-        html += `<label class="settings-field"><span>Process pending every</span><select id="ai-batch-interval" data-key="aiBatchInterval">
-          <option value="0" ${batchInterval === '0' ? 'selected' : ''}>disabled (manual only)</option>
+        html += `<label class="settings-field"><span>Auto-process pending every</span><select id="ai-batch-interval" data-key="aiBatchInterval">
+          <option value="0" ${batchInterval === '0' ? 'selected' : ''}>disabled</option>
           <option value="15" ${batchInterval === '15' ? 'selected' : ''}>every 15 minutes</option>
           <option value="30" ${batchInterval === '30' ? 'selected' : ''}>every 30 minutes</option>
           <option value="60" ${batchInterval === '60' ? 'selected' : ''}>every 1 hour</option>
           <option value="360" ${batchInterval === '360' ? 'selected' : ''}>every 6 hours</option>
           <option value="1440" ${batchInterval === '1440' ? 'selected' : ''}>every 24 hours</option>
         </select></label>`;
-        html += `<label class="settings-field toggle-field"><span>Process on page open</span><input type="checkbox" id="ai-process-on-open" ${processOnOpen ? 'checked' : ''} /></label>`;
-        html += `<div id="ai-pending-status" class="settings-field" style="font-size:0.85rem;color:var(--text-dim)"><span id="ai-pending-count">—</span> <button id="ai-process-now-btn" class="modal-btn modal-btn-primary" type="button" style="padding:0.25rem 0.6rem;font-size:0.78rem">Process now</button></div>`;
         html += '</div>';
 
         html += '</div>';
@@ -670,59 +666,92 @@ window.addEventListener('DOMContentLoaded', async () => {
             });
         });
 
-        // Tag all untagged
-        document.getElementById('ai-tag-untagged')?.addEventListener('click', async () => {
+        // Process unprocessed captures
+        document.getElementById('ai-process-unprocessed')?.addEventListener('click', async function () {
+            this.disabled = true;
+            this.textContent = '⏳ Starting...';
             const status = document.getElementById('ai-bulk-status');
-            status.textContent = 'Tagging... this may take a while';
-            status.style.color = 'var(--text-dim)';
-            status.hidden = false;
+            status.hidden = true;
             try {
-                const r = await fetch('/api/ai/tag-all-untagged', { method: 'POST' });
+                const r = await fetch('/api/ai/process-unprocessed', { method: 'POST' });
                 const d = await r.json();
-                status.textContent = `Done: ${d.tagged} tagged, ${d.skipped} skipped, ${d.errors} errors (of ${d.total} total)`;
-                status.style.color = d.errors > 0 ? '#f87171' : '#22c55e';
+                if (d.status === 'started') {
+                    this.textContent = '⏳ Processing...';
+                    status.textContent = 'Processing in background — see progress bar above';
+                    status.style.color = 'var(--text-dim)';
+                    status.hidden = false;
+                    pollBatchProgress((finalStatus) => {
+                        this.textContent = 'Process unprocessed captures';
+                        this.disabled = false;
+                        status.textContent = `Done: ${finalStatus.processed || 0} processed, ${finalStatus.errors || 0} errors (of ${finalStatus.total || 0} total)`;
+                        status.style.color = (finalStatus.errors || 0) > 0 ? '#f87171' : '#22c55e';
+                    });
+                } else if (d.status === 'already_running') {
+                    this.textContent = 'Process unprocessed captures';
+                    this.disabled = false;
+                    status.textContent = d.message || 'Already running';
+                    status.style.color = '#fbbf24';
+                    status.hidden = false;
+                } else {
+                    this.textContent = 'Process unprocessed captures';
+                    this.disabled = false;
+                    status.textContent = d.message || 'All captures already processed.';
+                    status.style.color = '#22c55e';
+                    status.hidden = false;
+                }
             } catch {
-                status.textContent = 'Error running bulk tagging';
+                status.textContent = 'Error running processing';
                 status.style.color = '#f87171';
+                status.hidden = false;
+                this.textContent = 'Process unprocessed captures';
+                this.disabled = false;
             }
         });
 
-        // RETAG all (dangerous)
-        document.getElementById('ai-retag-all')?.addEventListener('click', async () => {
-            const retagCode = await showConfirmDialog(
-                'This will delete existing AI tags and regenerate them for ALL captures.',
-                { prompt: 'Type "RETAG" to confirm:', defaultValue: '' }
+        // Regenerate all data (destructive)
+        document.getElementById('ai-regenerate-all')?.addEventListener('click', async function () {
+            const confirmCode = await showConfirmDialog(
+                'This will delete ALL existing AI data (tags, summaries, entities) and regenerate everything. This cannot be undone.',
+                { prompt: 'Type "REGENERATE" to confirm:', defaultValue: '' }
             );
-            if (retagCode !== 'RETAG') return;
+            if (confirmCode !== 'REGENERATE') return;
+            this.disabled = true;
+            this.textContent = '⏳ Regenerating...';
             const status = document.getElementById('ai-bulk-status');
-            status.textContent = 'Re-tagging all captures... this will take a while';
-            status.style.color = 'var(--text-dim)';
-            status.hidden = false;
+            status.hidden = true;
             try {
-                const r = await fetch('/api/ai/retag-all', { method: 'POST' });
+                const r = await fetch('/api/ai/regenerate-all', { method: 'POST' });
                 const d = await r.json();
-                status.textContent = `Done: ${d.tagged} tagged, ${d.skipped} skipped, ${d.errors} errors (of ${d.total} total)`;
-                status.style.color = d.errors > 0 ? '#f87171' : '#22c55e';
+                if (d.status === 'started') {
+                    status.textContent = 'Regenerating in background — see progress bar above';
+                    status.style.color = 'var(--text-dim)';
+                    status.hidden = false;
+                    pollBatchProgress((finalStatus) => {
+                        this.textContent = 'Regenerate all data (⚠ destructive)';
+                        this.disabled = false;
+                        status.textContent = `Done: ${finalStatus.processed || 0} processed, ${finalStatus.errors || 0} errors (of ${finalStatus.total || 0} total)`;
+                        status.style.color = (finalStatus.errors || 0) > 0 ? '#f87171' : '#22c55e';
+                    });
+                } else if (d.status === 'already_running') {
+                    this.textContent = 'Regenerate all data (⚠ destructive)';
+                    this.disabled = false;
+                    status.textContent = d.message || 'Already running';
+                    status.style.color = '#fbbf24';
+                    status.hidden = false;
+                } else {
+                    this.textContent = 'Regenerate all data (⚠ destructive)';
+                    this.disabled = false;
+                    status.textContent = d.message || 'Done';
+                    status.style.color = '#22c55e';
+                    status.hidden = false;
+                }
             } catch {
-                status.textContent = 'Error running retag';
+                status.textContent = 'Error running regeneration';
                 status.style.color = '#f87171';
+                status.hidden = false;
+                this.textContent = 'Regenerate all data (⚠ destructive)';
+                this.disabled = false;
             }
-        // Process all (tag + summarize + extract entities)
-        document.getElementById('ai-process-all')?.addEventListener('click', async () => {
-            const status = document.getElementById('ai-bulk-status');
-            status.textContent = 'Processing all captures (tag + summarize + extract entities)... this will take a while';
-            status.style.color = 'var(--text-dim)';
-            status.hidden = false;
-            try {
-                const r = await fetch('/api/ai/process-all', { method: 'POST' });
-                const d = await r.json();
-                status.textContent = `Done: ${d.tagged} tagged, ${d.summarized} summarized, ${d.entities_extracted} entities extracted, ${d.errors} errors (of ${d.total} total)`;
-                status.style.color = d.errors > 0 ? '#f87171' : '#22c55e';
-            } catch {
-                status.textContent = 'Error running process all';
-                status.style.color = '#f87171';
-            }
-        });
         });
 
         // ─── Batch processing handlers ───────────────────────────
@@ -732,23 +761,8 @@ window.addEventListener('DOMContentLoaded', async () => {
             updateBatchInterval();
         });
 
-        // Save process-on-open toggle
-        document.getElementById('ai-process-on-open')?.addEventListener('change', function () {
-            localStorage.setItem('aiProcessOnOpen', this.checked ? 'true' : 'false');
-        });
-
-        // Process now button
-        document.getElementById('ai-process-now-btn')?.addEventListener('click', async function () {
-            this.textContent = '⏳ Processing...';
-            this.disabled = true;
-            await triggerAIBatch();
-            this.textContent = 'Process now';
-            this.disabled = false;
-            updatePendingCount();
-        });
-
-        // Update pending count
-        updatePendingCount();
+        // Check if AI processing is already running (e.g. after page refresh)
+        checkRunningBatch();
     }
 
     function triggerAIBatch() {
@@ -768,9 +782,11 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
 
     let batchPollId = null;
+    let batchPollCallback = null;
 
-    function pollBatchProgress() {
+    function pollBatchProgress(callback) {
         if (batchPollId) return;  // already polling
+        if (callback) batchPollCallback = callback;
         const bar = document.getElementById('ai-progress-bar');
         const fill = document.getElementById('ai-progress-fill');
         const text = document.getElementById('ai-progress-text');
@@ -786,13 +802,18 @@ window.addEventListener('DOMContentLoaded', async () => {
                         const done = (status.processed || 0) + (status.errors || 0) + (status.skipped || 0);
                         const pct = Math.round((done / total) * 100);
                         fill.style.width = Math.min(pct, 100) + '%';
-                        text.textContent = `AI: ${done}/${total} (${status.current || 'processing...'})`;
+                        const op = status.operation ? status.operation.replace(/_/g, ' ') : 'AI';
+                        text.textContent = `${op}: ${done}/${total} (${status.current || 'processing...'})`;
                         batchPollId = setTimeout(poll, 2000);
                     } else {
                         // Done
                         bar.hidden = true;
                         fill.style.width = '0%';
                         batchPollId = null;
+                        if (batchPollCallback) {
+                            batchPollCallback(status);
+                            batchPollCallback = null;
+                        }
                         updatePendingCount();
                     }
                 })
@@ -810,6 +831,19 @@ window.addEventListener('DOMContentLoaded', async () => {
                 const data = await r.json();
                 const el = document.getElementById('ai-pending-count');
                 if (el) el.textContent = data.pending ?? data.count ?? '?';
+            }
+        } catch {}
+        // Also check if AI processing is already running (e.g. after page refresh)
+        checkRunningBatch();
+    }
+
+    async function checkRunningBatch() {
+        if (batchPollId) return;  // already polling
+        try {
+            const r = await fetch('/api/ai/batch-status');
+            const status = await r.json();
+            if (status.running) {
+                pollBatchProgress();
             }
         } catch {}
     }
@@ -2245,10 +2279,4 @@ window.addEventListener('DOMContentLoaded', async () => {
         });
         tagManageNew.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); tagManageAddBtn.click(); } });
     }
-
-    // ─── AI batch processing on page load ───────────────────────
-    if (localStorage.getItem('aiProcessOnOpen') !== 'false') {
-        triggerAIBatch();
-    }
-
 });

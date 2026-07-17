@@ -29,21 +29,28 @@ logger = logging.getLogger(__name__)
 FEATURE_TAGGING = "tagging"
 FEATURE_SUMMARY = "summary"
 
+# Maximum number of unique tags across the entire system
+# When reached, AI can only pick from existing tags — no new tags allowed
+MAX_UNIQUE_TAGS = 100
+
 # Token budget: approximate chars (1 token ~ 4 chars for most models)
 MAX_CHARS = 8000  # ~2000 tokens
 
 BASE_TAGGING_PROMPT = """You are a knowledge base tagging assistant. Given captured web content with priority markers, generate tags as plain text.
 
-IMPORTANT RULES:
-- Reuse existing tags from the list below when they fit well, but create new specific tags when needed.
+CRITICAL RULES:
+- PREFER existing tags from the list below. Your PRIMARY goal is to reuse them.
+- Only create a NEW tag if NO existing tag covers the concept — this should be rare.
 - Do NOT add the website/source name as a tag (e.g., reddit, medium, youtube, wikipedia, quora).
 - Use consistent format: lowercase, hyphen-separated (e.g., public-speaking not "public speaking").
-- Aim for 3-5 tags. Be specific — prefer meaningful content tags over generic ones.
+- Output exactly 3-5 tags. Be specific but also reusable across similar pages.
 - Output ONLY tags separated by commas, nothing else. NO markdown fences, NO JSON, NO extra text.
 - Example: tag1, tag2, tag3
 
-Existing tags available for reuse (use them when applicable, but don't limit yourself):
-{existing_tags_list}"""
+Existing tags available for reuse (sorted by popularity — most used first):
+{existing_tags_list}
+
+{tag_budget_warning}"""
 
 BASE_SUMMARY_PROMPT = """You are a knowledge base summarisation assistant. Given captured web content with priority markers, generate a concise summary as plain text.
 
@@ -58,11 +65,12 @@ SUMMARY: This article explains how to set up a CI/CD pipeline with GitHub Action
 # ─── Existing tags ──────────────────────────────────────────────────
 
 
-def _get_existing_tags(user_id: str) -> list[str]:
-    """Collect all unique tags from both AI tags and manual tags across all captures."""
+def _get_existing_tags(user_id: str) -> dict[str, int]:
+    """Collect all unique tags with their usage counts across all captures.
+    Returns dict of {tag: usage_count} sorted by frequency descending."""
     conn = get_db(user_id)
     try:
-        all_tags: set[str] = set()
+        tag_counts: dict[str, int] = {}
 
         # Get tags from capture_ai_tags
         rows = conn.execute("SELECT tags FROM capture_ai_tags").fetchall()
@@ -72,7 +80,7 @@ def _get_existing_tags(user_id: str) -> list[str]:
                 for t in tags:
                     normalized = _normalize_single_tag(t)
                     if normalized:
-                        all_tags.add(normalized)
+                        tag_counts[normalized] = tag_counts.get(normalized, 0) + 1
             except Exception:
                 pass
 
@@ -85,23 +93,42 @@ def _get_existing_tags(user_id: str) -> list[str]:
                     if isinstance(t, str) and t.strip():
                         normalized = _normalize_single_tag(t)
                         if normalized:
-                            all_tags.add(normalized)
+                            tag_counts[normalized] = tag_counts.get(normalized, 0) + 1
             except Exception:
                 pass
 
-        return sorted(all_tags)
+        # Sort by frequency descending, then alphabetically
+        return dict(sorted(tag_counts.items(), key=lambda x: (-x[1], x[0])))
     finally:
         conn.close()
 
 
-def _build_system_prompt(user_id: str) -> str:
-    """Build the taggging system prompt with current existing tags."""
+def _build_system_prompt(user_id: str) -> tuple[str, int]:
+    """Build the tagging system prompt with current existing tags.
+
+    Returns (prompt, existing_tag_count) so the caller can check if the
+    tag budget has been exhausted.
+    """
     existing = _get_existing_tags(user_id)
+    tag_count = len(existing)
     if existing:
-        tags_str = ", ".join(existing)
+        # Show tags with frequency, e.g. "machine-learning (x5), python (x3), ..."
+        tags_str = ", ".join(f"{tag} (x{count})" for tag, count in existing.items())
     else:
         tags_str = "(none yet — create initial tags)"
-    return BASE_TAGGING_PROMPT.replace("{existing_tags_list}", tags_str)
+
+    # Warning about tag budget
+    if tag_count >= MAX_UNIQUE_TAGS:
+        tag_budget_warning = f"WARNING: The tag budget of {MAX_UNIQUE_TAGS} is FULL. You MUST ONLY pick from existing tags above — do NOT create any new tags."
+    elif tag_count >= MAX_UNIQUE_TAGS * 0.8:
+        remaining = MAX_UNIQUE_TAGS - tag_count
+        tag_budget_warning = f"NOTE: Only {remaining} tag slot(s) remaining (budget: {MAX_UNIQUE_TAGS}). Be very conservative about creating new tags."
+    else:
+        tag_budget_warning = ""
+
+    prompt = BASE_TAGGING_PROMPT.replace("{existing_tags_list}", tags_str)
+    prompt = prompt.replace("{tag_budget_warning}", tag_budget_warning)
+    return prompt, tag_count
 
 
 def _build_summary_prompt() -> str:
@@ -145,6 +172,105 @@ def _normalize_tags(tags: list[str], site_name: str = "") -> list[str]:
             normalized.append(t)
 
     return normalized
+
+
+# ─── Post-processing dedup against existing tags ──────────────────
+
+
+def _deduplicate_tags_vs_existing(
+    proposed_tags: list[str],
+    existing_tags: dict[str, int],
+) -> list[str]:
+    """Match proposed tags against existing tags, replacing similar ones.
+
+    Strategy (in order):
+    1. Exact match (case-insensitive) — already normalized
+    2. One tag is a substring of the other (e.g. 'ml' in 'machine-learning')
+    3. Significant word overlap (e.g. 'time-management' vs 'time-management-tips')
+    4. Levenshtein distance ≤ 2 (typos, minor variations)
+
+    Returns a deduplicated list where similar proposed tags are replaced
+    by their existing counterpart.
+    """
+    if not existing_tags:
+        return proposed_tags
+
+    existing_names = list(existing_tags.keys())
+    result = []
+
+    for tag in proposed_tags:
+        match = _find_best_match(tag, existing_names)
+        if match:
+            result.append(match)
+        else:
+            result.append(tag)
+
+    # Final dedup — remove duplicates from the result
+    seen = set()
+    final = []
+    for t in result:
+        if t not in seen:
+            seen.add(t)
+            final.append(t)
+
+    return final
+
+
+def _find_best_match(tag: str, existing_names: list[str]) -> str | None:
+    """Find the best existing tag match for a proposed tag, or None."""
+    # 1. Exact match
+    for existing in existing_names:
+        if existing == tag:
+            return existing
+
+    # 2. Substring — one is contained in the other (significant overlap)
+    #    Only match if the shorter is at least 3 chars to avoid false positives
+    for existing in existing_names:
+        if len(tag) >= 3 and len(existing) >= 3:
+            if tag in existing or existing in tag:
+                # Prefer the SHORTER one (more general/reusable)
+                return existing if len(existing) <= len(tag) else tag
+
+    # 3. Word overlap — split hyphenated tags into words
+    for existing in existing_names:
+        tag_words = set(tag.replace("-", " ").split())
+        existing_words = set(existing.replace("-", " ").split())
+        if tag_words and existing_words:
+            overlap = tag_words & existing_words
+            if overlap:
+                # If they share at least 50% of words, they're similar
+                smaller = min(len(tag_words), len(existing_words))
+                if len(overlap) / smaller >= 0.5:
+                    return existing if len(existing) <= len(tag) else tag
+
+    # 4. Levenshtein distance ≤ 2 for short tags (< 10 chars)
+    if len(tag) < 10:
+        for existing in existing_names:
+            if len(existing) < 10 and abs(len(tag) - len(existing)) <= 2:
+                if _levenshtein(tag, existing) <= 2:
+                    return existing
+
+    return None
+
+
+def _levenshtein(a: str, b: str) -> int:
+    """Compute Levenshtein distance between two strings."""
+    if len(a) < len(b):
+        a, b = b, a
+    if not b:
+        return len(a)
+    prev_row = list(range(len(b) + 1))
+    for i, ca in enumerate(a):
+        curr_row = [i + 1]
+        for j, cb in enumerate(b):
+            cost = 0 if ca == cb else 1
+            curr_row.append(min(
+                curr_row[j] + 1,          # deletion
+                prev_row[j + 1] + 1,      # insertion
+                prev_row[j] + cost,       # substitution
+            ))
+        prev_row = curr_row
+    return prev_row[-1]
 
 
 # ─── Context Builder ────────────────────────────────────────────────
@@ -464,7 +590,7 @@ def tag_capture(user_id: str, capture_id: str) -> dict:
         return {"status": "skipped", "message": "No content to analyze"}
 
     # Build dynamic system prompt with existing tags
-    system_prompt = _build_system_prompt(user_id)
+    system_prompt, existing_tag_count = _build_system_prompt(user_id)
 
     # Decrypt API key
     api_key = decrypt_api_key(provider.get("api_key_encrypted", ""))
@@ -484,25 +610,42 @@ def tag_capture(user_id: str, capture_id: str) -> dict:
     if not result:
         return {"status": "error", "message": "AI model returned no valid response"}
 
-    # Post-process tags: normalize + filter site names
+    # Post-process tags:
+    # 1. Parse raw tags
+    # 2. Normalize + filter site names
+    # 3. Deduplicate against existing tags (replaces similar with existing ones)
     raw_tags = _parse_tags_text(result)
     normalized_tags = _normalize_tags(raw_tags, site_name=site_name)
 
+    # Get all existing tags (with frequency) for dedup
+    existing_tags = _get_existing_tags(user_id)
+
+    # Apply dedup: replace similar proposed tags with existing ones
+    deduped_tags = _deduplicate_tags_vs_existing(normalized_tags, existing_tags)
+
+    # If tag budget is full, ONLY allow existing tags — drop any new ones
+    if existing_tag_count >= MAX_UNIQUE_TAGS:
+        existing_names = set(existing_tags.keys())
+        deduped_tags = [t for t in deduped_tags if t in existing_names]
+        if not deduped_tags:
+            # Fallback: pick the top 3 most-used tags
+            deduped_tags = list(existing_tags.keys())[:3]
+
     # Preserve any existing summary/key_concepts from previous runs
-    existing_tags = get_capture_ai_tags(user_id, capture_id)
+    existing_ai_tags = get_capture_ai_tags(user_id, capture_id)
     existing_summary = ""
     existing_concepts = []
     existing_source = []
-    if existing_tags:
-        existing_summary = existing_tags.get("summary", "")
-        existing_concepts = existing_tags.get("key_concepts", [])
-        existing_source = existing_tags.get("ai_tags_source", [])
+    if existing_ai_tags:
+        existing_summary = existing_ai_tags.get("summary", "")
+        existing_concepts = existing_ai_tags.get("key_concepts", [])
+        existing_source = existing_ai_tags.get("ai_tags_source", [])
 
     source_tags = [f"ai:{assignment['model']}"]
     saved = upsert_capture_ai_tags(
         user_id=user_id,
         capture_id=capture_id,
-        tags=normalized_tags,
+        tags=deduped_tags,
         summary=existing_summary,
         key_concepts=existing_concepts,
         model=assignment["model"],

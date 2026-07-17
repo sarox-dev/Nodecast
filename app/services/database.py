@@ -648,6 +648,16 @@ def get_entities_for_capture(user_id: str, capture_id: str) -> list[dict]:
         conn.close()
 
 
+def delete_capture_entities(user_id: str, capture_id: str):
+    """Delete all entity links for a capture (prepares for re-extraction)."""
+    conn = get_db(user_id)
+    try:
+        conn.execute("DELETE FROM capture_entities WHERE capture_id=?", (capture_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def upsert_capture_ai_tags(
     user_id: str,
     capture_id: str,
@@ -684,6 +694,70 @@ def list_captures_without_ai_tags(user_id: str, limit: int = 100) -> list[dict]:
             (limit,),
         ).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def list_captures_without_ai_data(user_id: str) -> list[dict]:
+    """Find captures that are missing AI processing for configured features.
+    
+    A capture is 'unprocessed' if:
+    - No capture_ai_tags row exists (no tagging/summary done), OR
+    - captures_configured features but the corresponding field is empty/missing, OR
+    - Entity extraction is configured but no capture_entities rows exist.
+    
+    Returns list of dicts with id, source_title.
+    """
+    conn = get_db(user_id)
+    try:
+        # Get configured features
+        assignments = conn.execute(
+            "SELECT feature FROM ai_feature_assignments"
+        ).fetchall()
+        features = {r["feature"] for r in assignments}
+
+        # Get all captures
+        all_caps = conn.execute(
+            "SELECT id, source_title FROM captures ORDER BY saved_at DESC"
+        ).fetchall()
+
+        unprocessed = []
+        for cap in all_caps:
+            # Check capture_ai_tags row
+            ai_row = conn.execute(
+                "SELECT tags, summary FROM capture_ai_tags WHERE capture_id=?",
+                (cap["id"],),
+            ).fetchone()
+
+            missing = False
+
+            if ai_row is None:
+                missing = True
+            else:
+                if "tagging" in features:
+                    try:
+                        tags = json.loads(ai_row["tags"]) if isinstance(ai_row["tags"], str) else ai_row["tags"]
+                        if not tags:
+                            missing = True
+                    except (json.JSONDecodeError, TypeError):
+                        missing = True
+                if "summary" in features and not missing:
+                    summary = (ai_row["summary"] or "").strip()
+                    if not summary:
+                        missing = True
+
+            if not missing and "entity_extraction" in features:
+                entity_count = conn.execute(
+                    "SELECT COUNT(*) as c FROM capture_entities WHERE capture_id=?",
+                    (cap["id"],),
+                ).fetchone()["c"]
+                if entity_count == 0:
+                    missing = True
+
+            if missing:
+                unprocessed.append({"id": cap["id"], "source_title": cap["source_title"] or ""})
+
+        return unprocessed
     finally:
         conn.close()
 # ─── Pending AI Jobs ──────────────────────────────────────────────
