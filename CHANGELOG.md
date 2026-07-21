@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.1 (2026-07-21)
+
+- Auto-update system: version.json as single source of truth, update notification banner, Updates settings tab with version info, check for updates, release notes, and install command
+- Install scripts: custom directory prompt, APP_PORT from .env, searxng permission fix, /dev/tty for piped install
+- CI: auto-bump version.json and CHANGELOG.md on tag push, commit to main before release
+
 ## v1.0.0 — Nodecast rebrand (2026-07-13)
 
 ### Breaking changes

@@ -43,14 +43,17 @@ jobs:
           mv "$TMP" CHANGELOG.md
           echo "Updated CHANGELOG.md"
 
-      - name: Commit version bump
+      - name: Commit version bump to main
         shell: bash
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git add version.json CHANGELOG.md
           git commit -m "chore: bump version to ${GITHUB_REF_NAME#v}" || echo "Nothing to commit"
-          git push origin HEAD:${GITHUB_REF_NAME} 2>/dev/null || echo "Push skipped (detached HEAD)"
+          git push origin HEAD:main
+          # Move tag to the new commit so release zip includes updated files
+          git tag -f "$GITHUB_REF_NAME" HEAD
+          git push origin -f "$GITHUB_REF_NAME"
 
       - name: Generate release notes
         id: notes
