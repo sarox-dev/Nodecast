@@ -14,7 +14,7 @@ fi
 
 # Ask install directory
 DEFAULT_DIR="${HOME}/Nodecast"
-read -r -p "Install to [${DEFAULT_DIR}]: " INSTALL_DIR
+read -r -p "Install to [${DEFAULT_DIR}]: " INSTALL_DIR </dev/tty
 INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_DIR}"
 
 # Resolve tilde
@@ -111,7 +111,7 @@ fi
 
 # Start
 echo ""
-read -r -p "Start Docker containers now? [Y/n]: " START_NOW
+read -r -p "Start Docker containers now? [Y/n]: " START_NOW </dev/tty
 START_NOW="${START_NOW:-Y}"
 if [[ "$START_NOW" =~ ^[Yy]$ ]]; then
     echo "Starting Nodecast..."
