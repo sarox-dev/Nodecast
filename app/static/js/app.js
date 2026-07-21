@@ -1344,6 +1344,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         pageShell.classList.toggle('web-search-mode', web);
         document.getElementById('graph-area').hidden = true;
         document.getElementById('results-container').hidden = false;
+        document.getElementById('search-form').hidden = false;
         queryInput.placeholder = web ? 'Search the web...' : 'Search your library...';
         document.getElementById('sidebar-library-nav')?.classList.toggle('active', !web);
         document.getElementById('sidebar-web-nav')?.classList.toggle('active', web);
@@ -1370,6 +1371,8 @@ window.addEventListener('DOMContentLoaded', async () => {
         pageShell.classList.remove('web-search-mode');
         document.getElementById('graph-area').hidden = false;
         document.getElementById('results-container').hidden = true;
+        document.getElementById('search-form').hidden = true;
+        document.getElementById('ai-progress-bar').hidden = true;
         document.getElementById('filter-bar').hidden = true;
         document.getElementById('status-bar').hidden = true;
         document.getElementById('loading-indicator').hidden = true;
@@ -1445,12 +1448,12 @@ window.addEventListener('DOMContentLoaded', async () => {
             .style('cursor', 'pointer')
             .call(d3.drag()
                 .on('start', (e, d) => {
-                    if (!graphSimulation?.alpha()) graphSimulation?.alphaTarget(0.3).restart();
+                    graphSimulation?.alphaTarget(0.3).restart();
                     d.fx = d.x; d.fy = d.y;
                 })
                 .on('drag', (e, d) => { d.fx = e.x; d.fy = e.y; })
                 .on('end', (e, d) => {
-                    if (!e.active) graphSimulation?.alphaTarget(0);
+                    graphSimulation?.alphaTarget(0);
                     d.fx = null; d.fy = null;
                 })
             );
@@ -1479,23 +1482,29 @@ window.addEventListener('DOMContentLoaded', async () => {
             .text(d => `${d.label} (${d.type}${d.subtype ? ': ' + d.subtype : ''})`);
 
         function buildSim(spacing) {
-            if (graphSimulation) graphSimulation.stop();
             const s = spacing || 5;
-            graphSimulation = d3.forceSimulation(nodes)
-                .force('link', d3.forceLink(edges).id(d => d.id).distance(30 * s).strength(0.3))
-                .force('charge', d3.forceManyBody().strength(-50 * s))
-                .force('center', d3.forceCenter(width / 2, height / 2))
-                .force('collision', d3.forceCollide().radius(10 + s * 4));
+            if (graphSimulation) {
+                graphSimulation.force('link').distance(30 * s);
+                graphSimulation.force('charge').strength(-50 * s);
+                graphSimulation.force('collision').radius(10 + s * 4);
+                graphSimulation.alpha(1).restart();
+            } else {
+                graphSimulation = d3.forceSimulation(nodes)
+                    .force('link', d3.forceLink(edges).id(d => d.id).distance(30 * s).strength(0.3))
+                    .force('charge', d3.forceManyBody().strength(-50 * s))
+                    .force('center', d3.forceCenter(width / 2, height / 2))
+                    .force('collision', d3.forceCollide().radius(10 + s * 4));
 
-            graphSimulation.on('tick', () => {
-                link.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
-                    .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
-                linkLabel.attr('x', d => (d.source.x + d.target.x) / 2)
-                    .attr('y', d => (d.source.y + d.target.y) / 2);
-                node.attr('transform', d => `translate(${d.x},${d.y})`);
-            });
+                graphSimulation.on('tick', () => {
+                    link.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+                        .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+                    linkLabel.attr('x', d => (d.source.x + d.target.x) / 2)
+                        .attr('y', d => (d.source.y + d.target.y) / 2);
+                    node.attr('transform', d => `translate(${d.x},${d.y})`);
+                });
 
-            graphSimulation.alpha(1).restart();
+                graphSimulation.alpha(1).restart();
+            }
         }
 
         buildSim(5);
@@ -1506,6 +1515,21 @@ window.addEventListener('DOMContentLoaded', async () => {
             slider.addEventListener('input', () => {
                 valDisplay.textContent = slider.value;
                 buildSim(Number(slider.value));
+            });
+        }
+
+        // Hamburger menu toggle
+        const settingsBtn = document.getElementById('graph-settings-btn');
+        const settingsPopup = document.getElementById('graph-settings-popup');
+        if (settingsBtn && settingsPopup) {
+            settingsBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                settingsPopup.hidden = !settingsPopup.hidden;
+            });
+            document.addEventListener('click', (e) => {
+                if (!settingsPopup.hidden && !settingsPopup.contains(e.target) && e.target !== settingsBtn) {
+                    settingsPopup.hidden = true;
+                }
             });
         }
 
