@@ -46,6 +46,10 @@ if [ -z "$EXTRACTED_DIR" ]; then
     rm -f release.zip
     exit 1
 fi
+if [ -d "$INSTALL_DIR/searxng" ]; then
+    # searxng files may be root-owned from Docker; remove before overwrite
+    sudo rm -rf "$INSTALL_DIR/searxng" 2>/dev/null || rm -rf "$INSTALL_DIR/searxng"
+fi
 cp -r "$EXTRACTED_DIR"/. "$INSTALL_DIR/"
 rm -rf /tmp/nodecast-extract/ release.zip
 
@@ -98,6 +102,13 @@ if [ -f .env ]; then
     fi
 fi
 
+# Read port from .env (or default 5000)
+APP_PORT="${APP_PORT:-5000}"
+if [ -f .env ]; then
+    ENV_PORT=$(grep "^APP_PORT=" .env | cut -d= -f2)
+    [ -n "$ENV_PORT" ] && APP_PORT="$ENV_PORT"
+fi
+
 # Start
 echo ""
 read -r -p "Start Docker containers now? [Y/n]: " START_NOW
@@ -106,14 +117,14 @@ if [[ "$START_NOW" =~ ^[Yy]$ ]]; then
     echo "Starting Nodecast..."
     docker compose up -d
     echo ""
-    echo "✓ Nodecast is running at http://localhost:5000"
+    echo "✓ Nodecast is running at http://localhost:${APP_PORT}"
     echo "  Installed to: $INSTALL_DIR"
 
     # Auto-open browser
     if command -v xdg-open &>/dev/null; then
-        xdg-open http://localhost:5000 2>/dev/null || true
+        xdg-open "http://localhost:${APP_PORT}" 2>/dev/null || true
     elif command -v open &>/dev/null; then
-        open http://localhost:5000 2>/dev/null || true
+        open "http://localhost:${APP_PORT}" 2>/dev/null || true
     fi
 else
     echo ""

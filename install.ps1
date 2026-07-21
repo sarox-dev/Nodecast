@@ -73,6 +73,15 @@ if (-not (Test-Path ".env")) {
     }
 }
 
+# Read port from .env (or default 5000)
+$AppPort = 5000
+if (Test-Path ".env") {
+    $envContent = Get-Content ".env" | Select-String "^APP_PORT="
+    if ($envContent) {
+        $AppPort = $envContent.Line.Split("=")[1]
+    }
+}
+
 # Start
 Write-Host ""
 $startNow = Read-Host "Start Docker containers now? [Y/n]"
@@ -80,9 +89,9 @@ if ([string]::IsNullOrWhiteSpace($startNow) -or $startNow -eq "Y" -or $startNow 
     Write-Host "Starting Nodecast..."
     docker compose up -d
     Write-Host ""
-    Write-Host "✓ Nodecast is running at http://localhost:5000"
+    Write-Host "✓ Nodecast is running at http://localhost:$AppPort"
     Write-Host "  Installed to: $InstallDir"
-    Start-Process "http://localhost:5000"
+    Start-Process "http://localhost:$AppPort"
 } else {
     Write-Host ""
     Write-Host "✓ Nodecast downloaded to: $InstallDir"
