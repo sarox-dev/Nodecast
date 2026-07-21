@@ -1,8 +1,8 @@
 #!/usr/bin/env pwsh
 $Repo = "sarox-dev/Nodecast"
-$InstallDir = Join-Path $HOME "Nodecast"
 
 Write-Host "Installing Nodecast..."
+Write-Host ""
 
 # Check Docker
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
@@ -10,6 +10,15 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     Write-Host "Install from: https://docs.docker.com/get-docker/"
     exit 1
 }
+
+# Ask install directory
+$DefaultDir = Join-Path $HOME "Nodecast"
+$InstallDir = Read-Host "Install to [$DefaultDir]"
+if ([string]::IsNullOrWhiteSpace($InstallDir)) { $InstallDir = $DefaultDir }
+
+# Create directory
+New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+Set-Location $InstallDir
 
 # Get latest release tag from GitHub
 Write-Host "Checking latest version..."
@@ -25,8 +34,6 @@ Write-Host "Latest version: $latestTag"
 
 # Download and extract latest release
 Write-Host "Downloading $latestTag..."
-New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-Set-Location $InstallDir
 Invoke-WebRequest -Uri "https://github.com/$Repo/archive/refs/tags/$latestTag.zip" -OutFile "release.zip"
 
 Write-Host "Extracting..."
@@ -67,10 +74,17 @@ if (-not (Test-Path ".env")) {
 }
 
 # Start
-Write-Host "Starting Nodecast..."
-docker compose up -d
 Write-Host ""
-Write-Host "✓ Nodecast is running at http://localhost:5000"
-
-# Auto-open browser
-Start-Process "http://localhost:5000"
+$startNow = Read-Host "Start Docker containers now? [Y/n]"
+if ([string]::IsNullOrWhiteSpace($startNow) -or $startNow -eq "Y" -or $startNow -eq "y") {
+    Write-Host "Starting Nodecast..."
+    docker compose up -d
+    Write-Host ""
+    Write-Host "✓ Nodecast is running at http://localhost:5000"
+    Write-Host "  Installed to: $InstallDir"
+    Start-Process "http://localhost:5000"
+} else {
+    Write-Host ""
+    Write-Host "✓ Nodecast downloaded to: $InstallDir"
+    Write-Host "  Run 'docker compose up -d' in that directory to start."
+}

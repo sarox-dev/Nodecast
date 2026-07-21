@@ -79,10 +79,28 @@ def home(request: Request):
     return templates.TemplateResponse(request, "index.html", ctx)
 
 
+# ─── Version helpers ──────────────────────────────────────────────
+import json
+import os
+
+
+def _load_version() -> dict:
+    try:
+        vp = os.path.join(os.path.dirname(__file__), "..", "version.json")
+        with open(vp) as f:
+            return json.load(f)
+    except Exception:
+        return {"version": "0.0.0", "build": "unknown"}
+
+
+VERSION_INFO = _load_version()
+CURRENT_VERSION = VERSION_INFO["version"]
+BUILD_DATE = VERSION_INFO["build"]
+
 # ─── API endpoints ────────────────────────────────────────────────
 @app.get("/api/version")
 def get_version():
-    return {"version": "0.2.0"}
+    return {"version": CURRENT_VERSION, "build_date": BUILD_DATE}
 
 
 @app.get("/api/update/check")
@@ -92,39 +110,29 @@ def check_update():
         resp = requests.get(
             "https://api.github.com/repos/sarox-dev/Nodecast/releases/latest",
             timeout=10,
+            headers={"Accept": "application/vnd.github+json"},
         )
         if resp.status_code == 200:
             data = resp.json()
             latest = data.get("tag_name", "").lstrip("v")
-            current = "1.0.0"
             return {
-                "current_version": current,
+                "current_version": CURRENT_VERSION,
+                "build_date": BUILD_DATE,
                 "latest_version": latest,
-                "has_update": latest > current if latest else False,
+                "has_update": bool(latest and latest > CURRENT_VERSION),
                 "release_url": data.get("html_url", ""),
-                "release_notes": (data.get("body", "")[:500] if data.get("body") else ""),
+                "release_notes": (data.get("body", "")[:1000] if data.get("body") else ""),
                 "published_at": data.get("published_at", ""),
             }
-        return {"current_version": "0.1.0", "error": "Could not reach GitHub"}
+        return {"current_version": CURRENT_VERSION, "error": f"GitHub API returned {resp.status_code}"}
     except Exception as e:
-        return {"current_version": "0.1.0", "error": str(e)}
+        return {"current_version": CURRENT_VERSION, "error": str(e)}
 
 
 @app.get("/api/update/install")
 def install_update():
-    import subprocess
-    try:
-        result = subprocess.run(
-            ["bash", "-c",
-             "curl -fsSL https://github.com/sarox-dev/Nodecast/releases/latest/download/install.sh | bash"],
-            capture_output=True, text=True, timeout=120,
-        )
-        return {
-            "success": result.returncode == 0,
-            "output": result.stdout[:500],
-            "error": result.stderr[:500] if result.stderr else "",
-        }
-    except subprocess.TimeoutExpired:
-        return {"success": False, "error": "Update timed out"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    return {
+        "linux": "curl -fsSL https://github.com/sarox-dev/Nodecast/releases/latest/download/install.sh | bash",
+        "windows": "irm https://github.com/sarox-dev/Nodecast/releases/latest/download/install.ps1 | iex",
+        "message": "Run the appropriate command in your terminal to update Nodecast.",
+    }

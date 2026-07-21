@@ -473,3 +473,139 @@
   margin-top: 0.4rem;
   font-size: 0.82rem;
 }
+
+/* ─── Update card ─────────────────────────────────────────────── */
+.update-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.85rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface-settings-card);
+}
+.update-card-section {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+.update-label {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+.update-version-badge {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.update-version-badge.current {
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+.update-version-badge.latest {
+  background: #064e3b;
+  color: #22c55e;
+  border: 1px solid #22c55e33;
+}
+.update-build-date {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+.update-badge-available {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.15rem 0.45rem;
+  border-radius: 20px;
+  background: #064e3b;
+  color: #22c55e;
+  border: 1px solid #22c55e33;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.update-available-card {
+  padding: 0.85rem;
+  border-radius: var(--radius-md);
+  border: 1px solid #22c55e33;
+  background: #022c2211;
+}
+.update-available-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.update-release-notes {
+  margin: 0.5rem 0;
+  padding: 0.5rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  max-height: 120px;
+  overflow-y: auto;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.update-release-notes:empty {
+  display: none;
+}
+.update-install-cmd {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.update-install-cmd code {
+  flex: 1;
+  font-size: 0.78rem;
+  color: var(--accent);
+  word-break: break-all;
+  user-select: all;
+}
+.update-up-to-date {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+.update-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: update-spin 0.6s linear infinite;
+  vertical-align: middle;
+  margin-right: 0.4rem;
+}
+@keyframes update-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ─── Update toast banner (floating bottom-center) ────────────── */
+.update-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  background: var(--surface);
+  border: 1px solid #22c55e33;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  animation: toast-in 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  max-width: min(480px, calc(100vw - 40px));
+}
+.update-toast[hidden] {
+  display: none;
+}

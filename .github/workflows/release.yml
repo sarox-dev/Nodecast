@@ -17,6 +17,41 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Bump version.json
+        shell: bash
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          DATE="$(date -u +%Y-%m-%d)"
+          echo "{\"version\": \"${V}\", \"build\": \"${DATE}\"}" > version.json
+          echo "Bumped version.json to $V ($DATE)"
+
+      - name: Update CHANGELOG.md
+        shell: bash
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          DATE="$(date -u +%Y-%m-%d)"
+          PREV_TAG=$(git tag --sort=-version:refname | grep -vx "$GITHUB_REF_NAME" | head -n1)
+          LOG=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%h)" 2>/dev/null || echo "- Initial release")
+          HEADER="## v${V} (${DATE})"
+          TMP=$(mktemp)
+          echo "$HEADER" > "$TMP"
+          echo "" >> "$TMP"
+          echo "$LOG" >> "$TMP"
+          echo "" >> "$TMP"
+          echo "" >> "$TMP"
+          cat CHANGELOG.md >> "$TMP" 2>/dev/null || true
+          mv "$TMP" CHANGELOG.md
+          echo "Updated CHANGELOG.md"
+
+      - name: Commit version bump
+        shell: bash
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add version.json CHANGELOG.md
+          git commit -m "chore: bump version to ${GITHUB_REF_NAME#v}" || echo "Nothing to commit"
+          git push origin HEAD:${GITHUB_REF_NAME} 2>/dev/null || echo "Push skipped (detached HEAD)"
+
       - name: Generate release notes
         id: notes
         shell: bash

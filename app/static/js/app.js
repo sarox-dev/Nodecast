@@ -191,6 +191,8 @@ window.addEventListener('DOMContentLoaded', async () => {
             renderAccountSettings();
         } else if (category.category === 'AI') {
             renderAISettings();
+        } else if (category.category === 'Updates') {
+            renderUpdatesSettings();
         } else {
             settingsList.innerHTML = category.items.map(item => createField({ ...item, category: category.category })).join('');
         }
@@ -202,7 +204,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     function _snapshotTab() {
         _tabSnapshot = {};
         const category = settingsSchema.find(cat => cat.category === activeSettingsCategory);
-        if (!category || category.category === 'Account' || category.category === 'AI') return;
+        if (!category || category.category === 'Account' || category.category === 'AI' || category.category === 'Updates') return;
         category.items.forEach(item => {
             _tabSnapshot[item.key] = getValue(item);
         });
@@ -750,6 +752,132 @@ window.addEventListener('DOMContentLoaded', async () => {
         checkRunningBatch();
     }
 
+    // ─── Updates Settings ──────────────────────────────────────────────
+
+    async function renderUpdatesSettings() {
+        let html = '<div class="settings-field-group">';
+
+        // Current version card
+        html += '<div class="update-card">';
+        html += '<div class="update-card-section">';
+        html += '<span class="update-label">Current version</span>';
+        html += `<span class="update-version-badge current">v${_cachedUpdateCheck?.current_version || '...'}</span>`;
+        html += `<span class="update-build-date">build ${_cachedUpdateCheck?.build_date || '...'}</span>`;
+        html += '</div></div>';
+
+        // Check button
+        html += '<div style="display:flex;gap:0.5rem;margin-top:0.75rem">';
+        html += '<button id="update-check-btn" class="modal-btn modal-btn-primary" type="button">Check for updates</button>';
+        html += '</div>';
+
+        // Status area
+        html += '<div id="update-status-area" style="margin-top:0.75rem"></div>';
+
+        // Auto-update checkbox
+        html += '<div class="settings-field toggle-field" style="margin-top:1rem">';
+        html += '<span>Auto update when available</span>';
+        html += `<label class="toggle"><input type="checkbox" data-key="autoUpdate" ${settingsState.autoUpdate ? 'checked' : ''} /><span class="toggle-slider"></span></label>`;
+        html += '</div>';
+
+        html += '<p style="color:var(--text-dim);font-size:0.78rem;margin-top:0.25rem">When enabled, you&rsquo;ll see a banner when a new version is available.</p>';
+
+        html += '</div>';
+        settingsList.innerHTML = html;
+
+        // Wire toggle
+        const toggle = settingsList.querySelector('[data-key="autoUpdate"]');
+        if (toggle) {
+            toggle.addEventListener('change', () => {
+                settingsState.autoUpdate = toggle.checked;
+                setValue('autoUpdate', toggle.checked);
+                _markDirty();
+            });
+        }
+
+        // Wire check button
+        const checkBtn = document.getElementById('update-check-btn');
+        if (checkBtn) {
+            checkBtn.addEventListener('click', async () => {
+                const area = document.getElementById('update-status-area');
+                area.innerHTML = '<div class="update-spinner"></div><span style="color:var(--text-dim)">Checking...</span>';
+                checkBtn.disabled = true;
+                try {
+                    const r = await fetch('/api/update/check');
+                    const data = await r.json();
+                    _cachedUpdateCheck = data;
+                    if (data.error) {
+                        area.innerHTML = `<span style="color:#f87171">Error: ${data.error}</span>`;
+                    } else if (data.has_update) {
+                        area.innerHTML = `
+                            <div class="update-available-card">
+                                <div class="update-available-header">
+                                    <span class="update-version-badge latest">v${data.latest_version}</span>
+                                    <span class="update-badge-available">Update available</span>
+                                </div>
+                                <p style="font-size:0.82rem;color:var(--text-dim);margin:0.5rem 0">
+                                    Released ${new Date(data.published_at).toLocaleDateString()}
+                                </p>
+                                <div class="update-release-notes">${_escapeHtml(data.release_notes || '')}</div>
+                                <div class="update-install-cmd">
+                                    <p style="margin:0 0 0.35rem 0;font-size:0.82rem">Install from terminal:</p>
+                                    <code id="update-install-cmd-display">curl -fsSL https://github.com/sarox-dev/Nodecast/releases/latest/download/install.sh | bash</code>
+                                    <button id="update-copy-cmd" class="modal-btn" type="button" style="padding:0.25rem 0.5rem;font-size:0.75rem">Copy</button>
+                                </div>
+                            </div>`;
+                        const copyBtn = document.getElementById('update-copy-cmd');
+                        const cmdDisplay = document.getElementById('update-install-cmd-display');
+                        if (copyBtn && cmdDisplay) {
+                            copyBtn.addEventListener('click', () => {
+                                navigator.clipboard.writeText(cmdDisplay.textContent);
+                                copyBtn.textContent = 'Copied!';
+                                setTimeout(() => { copyBtn.textContent = 'Copy'; }, 2000);
+                            });
+                        }
+                    } else {
+                        area.innerHTML = `<div class="update-up-to-date">
+                            <span style="color:#22c55e;font-size:1.2rem">✓</span>
+                            <span>You&rsquo;re up to date (v${data.current_version})</span>
+                        </div>`;
+                    }
+                } catch (e) {
+                    area.innerHTML = `<span style="color:#f87171">Error: ${e.message}</span>`;
+                }
+                checkBtn.disabled = false;
+            });
+        }
+
+        // Auto-trigger check if we have cached data
+        const area = document.getElementById('update-status-area');
+        if (_cachedUpdateCheck && !_cachedUpdateCheck.error) {
+            if (_cachedUpdateCheck.has_update) {
+                area.innerHTML = `
+                    <div class="update-available-card">
+                        <div class="update-available-header">
+                            <span class="update-version-badge latest">v${_cachedUpdateCheck.latest_version}</span>
+                            <span class="update-badge-available">Update available</span>
+                        </div>
+                        <p style="font-size:0.82rem;color:var(--text-dim);margin:0.5rem 0">
+                            Released ${new Date(_cachedUpdateCheck.published_at).toLocaleDateString()}
+                        </p>
+                        <div class="update-install-cmd">
+                            <code>curl -fsSL https://github.com/sarox-dev/Nodecast/releases/latest/download/install.sh | bash</code>
+                        </div>
+                    </div>`;
+            } else {
+                area.innerHTML = `<div class="update-up-to-date">
+                    <span style="color:#22c55e">✓</span>
+                    <span>Up to date (v${_cachedUpdateCheck.current_version})</span>
+                </div>`;
+            }
+        }
+    }
+
+    function _escapeHtml(str) {
+        const d = document.createElement('div');
+        d.textContent = str;
+        return d.innerHTML;
+    }
+
     function _markAIDirty() {
         _markDirty();
     }
@@ -1148,6 +1276,51 @@ window.addEventListener('DOMContentLoaded', async () => {
         document.documentElement.dataset.theme = theme === 'light' ? 'light' : '';
     }
     applyTheme();
+
+    // ─── Update notification ────────────────────────────────────
+    const updateBanner = document.getElementById('update-banner');
+    const updateBannerVersion = document.getElementById('update-banner-version');
+    const updateBannerLink = document.getElementById('banner-update-link');
+    const updateBannerDismiss = document.getElementById('banner-update-dismiss');
+    let _cachedUpdateCheck = null;
+    let _updateCheckTimer = null;
+
+    async function _checkUpdate() {
+        if (localStorage.getItem('updateBannerDismissed') === 'true') return;
+        try {
+            const r = await fetch('/api/update/check');
+            if (!r.ok) return;
+            const data = await r.json();
+            _cachedUpdateCheck = data;
+            if (data.has_update && !updateBanner.hidden) {
+                updateBannerVersion.textContent = data.latest_version;
+                updateBanner.hidden = false;
+            }
+            if (data.has_update && data.latest_version !== localStorage.getItem('updateDismissedVersion')) {
+                updateBannerVersion.textContent = data.latest_version;
+                updateBanner.hidden = false;
+            }
+        } catch {}
+    }
+
+    function _scheduleUpdateCheck() {
+        if (_updateCheckTimer) clearInterval(_updateCheckTimer);
+        _updateCheckTimer = setInterval(_checkUpdate, 6 * 60 * 60 * 1000);
+    }
+
+    if (updateBanner) {
+        updateBannerDismiss?.addEventListener('click', () => {
+            updateBanner.hidden = true;
+            if (_cachedUpdateCheck?.latest_version) {
+                localStorage.setItem('updateDismissedVersion', _cachedUpdateCheck.latest_version);
+            }
+        });
+        updateBannerLink?.addEventListener('click', () => {
+            openSettings('Updates');
+            updateBanner.hidden = true;
+        });
+        setTimeout(() => { _checkUpdate(); _scheduleUpdateCheck(); }, 1000);
+    }
 
     function getEngines() {
         const values = searchEngineFields.filter(field => settingsState[field.key] !== false).map(field => field.engine);

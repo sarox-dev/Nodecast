@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -e
 REPO="sarox-dev/Nodecast"
-INSTALL_DIR="${HOME}/Nodecast"
 
-echo "Installing Nodecast-*..."
+echo "Installing Nodecast..."
+echo ""
 
 # Check Docker
 if ! command -v docker &>/dev/null 2>&1; then
@@ -11,6 +11,18 @@ if ! command -v docker &>/dev/null 2>&1; then
     echo "Install from: https://docs.docker.com/get-docker/"
     exit 1
 fi
+
+# Ask install directory
+DEFAULT_DIR="${HOME}/Nodecast"
+read -r -p "Install to [${DEFAULT_DIR}]: " INSTALL_DIR
+INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_DIR}"
+
+# Resolve tilde
+INSTALL_DIR="${INSTALL_DIR/#\~/$HOME}"
+
+# Create directory
+mkdir -p "$INSTALL_DIR" || { echo "Error: Cannot create $INSTALL_DIR"; exit 1; }
+cd "$INSTALL_DIR"
 
 # Get latest release tag from GitHub
 echo "Checking latest version..."
@@ -24,8 +36,6 @@ echo "Latest version: $LATEST_TAG"
 
 # Download and extract latest release
 echo "Downloading $LATEST_TAG..."
-mkdir -p "$INSTALL_DIR"
-cd "$INSTALL_DIR"
 curl -fsSL "https://github.com/$REPO/archive/refs/tags/$LATEST_TAG.zip" -o release.zip
 
 echo "Extracting..."
@@ -62,15 +72,51 @@ else
     fi
 fi
 
-# Start
-echo "Starting Nodecast-*..."
-docker compose up -d
-echo ""
-echo "✓ Nodecast-* is running at http://localhost:5000"
+# Generate keys if missing
+if [ -f .env ]; then
+    if grep -q "^JWT_SECRET=$" .env || ! grep -q "^JWT_SECRET=" .env; then
+        NEW_SECRET=$(openssl rand -hex 32 2>/dev/null || python3 -c "import secrets; print(secrets.token_hex(32))" 2>/dev/null || echo "")
+        if [ -n "$NEW_SECRET" ]; then
+            if grep -q "^JWT_SECRET=" .env; then
+                sed -i.bak "s/^JWT_SECRET=.*/JWT_SECRET=$NEW_SECRET/" .env && rm -f .env.bak
+            else
+                echo "JWT_SECRET=$NEW_SECRET" >> .env
+            fi
+            echo "  Generated JWT_SECRET"
+        fi
+    fi
+    if grep -q "^ENCRYPTION_KEY=$" .env || ! grep -q "^ENCRYPTION_KEY=" .env; then
+        NEW_KEY=$(openssl rand -hex 32 2>/dev/null || python3 -c "import secrets; print(secrets.token_hex(32))" 2>/dev/null || echo "")
+        if [ -n "$NEW_KEY" ]; then
+            if grep -q "^ENCRYPTION_KEY=" .env; then
+                sed -i.bak "s/^ENCRYPTION_KEY=.*/ENCRYPTION_KEY=$NEW_KEY/" .env && rm -f .env.bak
+            else
+                echo "ENCRYPTION_KEY=$NEW_KEY" >> .env
+            fi
+            echo "  Generated ENCRYPTION_KEY"
+        fi
+    fi
+fi
 
-# Auto-open browser
-if command -v xdg-open &>/dev/null; then
-    xdg-open http://localhost:5000 2>/dev/null || true
-elif command -v open &>/dev/null; then
-    open http://localhost:5000 2>/dev/null || true
+# Start
+echo ""
+read -r -p "Start Docker containers now? [Y/n]: " START_NOW
+START_NOW="${START_NOW:-Y}"
+if [[ "$START_NOW" =~ ^[Yy]$ ]]; then
+    echo "Starting Nodecast..."
+    docker compose up -d
+    echo ""
+    echo "✓ Nodecast is running at http://localhost:5000"
+    echo "  Installed to: $INSTALL_DIR"
+
+    # Auto-open browser
+    if command -v xdg-open &>/dev/null; then
+        xdg-open http://localhost:5000 2>/dev/null || true
+    elif command -v open &>/dev/null; then
+        open http://localhost:5000 2>/dev/null || true
+    fi
+else
+    echo ""
+    echo "✓ Nodecast downloaded to: $INSTALL_DIR"
+    echo "  Run 'docker compose up -d' in that directory to start."
 fi
