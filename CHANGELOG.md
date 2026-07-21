@@ -1,3 +1,14 @@
+## v1.2.0 (2026-07-21)
+
+- fix: wrap content in #content-view div, toggle single container vs graph-area (685de36)
+- fix: graph drag always restarts sim, update forces in-place, hamburger menu, hide search form in graph mode (87a1194)
+- feat: graph spacing slider, cleaner D3 sim rebuild (bc253c9)
+- feat: graph view with D3.js force-directed layout, global graph endpoint (de7f8b8)
+- fix: sqlite3.Row has no .get(), use row['summary'] or '' (460151f)
+- fix: remove content from _to_item, captures table has no content column (d62f0bb)
+- fix: fetch /api/version for current_version, not just /api/update/check (b36cab5)
+
+
 ## v1.1.1 (2026-07-21)
 
 - fix: release workflow pushes to main, moves tag, updates version.json and CHANGELOG (e7eebe2)
