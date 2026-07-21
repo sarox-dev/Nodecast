@@ -197,6 +197,33 @@
   border: 1px solid #2d6a4f;
 }
 
+/* ─── Relation type badges ──────────────────────────────────────── */
+
+.badge-relation {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.12rem 0.45rem;
+  border-radius: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.badge-related_to { background: #21262d; color: #94a3b8; border: 1px solid var(--border); }
+.badge-references { background: #1f6feb; color: #fff; }
+.badge-depends_on { background: #da3633; color: #fff; }
+.badge-implements { background: #8250df; color: #fff; }
+.badge-supports { background: #238636; color: #fff; }
+.badge-contradicts { background: #da3633; color: #fff; }
+.badge-part_of { background: #9e6a03; color: #fff; }
+.badge-similar_to { background: #d29922; color: #fff; }
+.badge-version_of { background: #238636; color: #fff; }
+
+.kv-relation-item:hover {
+  background: rgba(255,255,255,0.03);
+}
+.kv-relation-item:last-child {
+  border-bottom: none !important;
+}
+
 /* ─── Stats Grid ───────────────────────────────────────────────── */
 
 .kv-stats-grid {

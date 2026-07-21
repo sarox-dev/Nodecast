@@ -332,6 +332,38 @@
                 <p style="font-size:0.82rem;margin-top:8px">Go to Settings → AI → assign a model to "Extract Entities" and save or re-process this capture.</p>
             </div>
             {% endif %}
+
+            <!-- ═══ RELATIONS ═══ -->
+            <div class="kv-card" style="margin-top:1.25rem">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
+                    <h3 style="margin:0">Relations ({{ relations|length }})</h3>
+                    <button class="btn btn-small btn-secondary" data-action="discover-relations" data-id="{{ c.id }}">🔍 Discover Relations</button>
+                </div>
+                {% if relations %}
+                <div class="kv-relations-list">
+                    {% for r in relations %}
+                    <div class="kv-relation-item" style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0;border-bottom:1px solid var(--surface,#1a1a2e)">
+                        <span class="badge badge-relation badge-{{ r.relation_type }}">{{ r.relation_type }}</span>
+                        <div class="kv-relation-strength" style="flex-shrink:0;width:50px;height:6px;background:var(--surface,#1a1a2e);border-radius:3px;overflow:hidden">
+                            <div style="height:100%;width:{{ (r.strength * 100)|int }}%;background:{% if r.strength >= 0.5 %}#22c55e{% elif r.strength >= 0.2 %}#eab308{% else %}#64748b{% endif %};border-radius:3px"></div>
+                        </div>
+                        <span style="font-size:0.82rem;color:var(--text-dim,#94a3b8);flex-shrink:0;width:2.5rem">{{ '%.0f'|format(r.strength * 100) }}%</span>
+                        <span class="kv-relation-target" style="font-size:0.88rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:250px">
+                            {% if r.target_type == 'entity' %}
+                            <span class="badge badge-entity" style="font-size:0.7rem;padding:1px 5px">entity</span>
+                            {% endif %}
+                            {{ r.target_title or r.target_id[:16] }}
+                        </span>
+                        {% if r.context %}
+                        <span class="text-muted" style="font-size:0.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px" title="{{ r.context }}">{{ r.context[:40] }}{% if r.context|length > 40 %}…{% endif %}</span>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-muted" style="margin:0.5rem 0 0">No relations discovered yet. Click "Discover Relations" to find connections.</p>
+                {% endif %}
+            </div>
         </section>
 
         <!-- ═══ TAB: RAW (lazy loaded) ═══ -->

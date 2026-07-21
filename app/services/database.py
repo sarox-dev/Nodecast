@@ -248,6 +248,23 @@ def init_user_db(user_id: str):
             FOREIGN KEY (capture_id) REFERENCES captures(id),
             FOREIGN KEY (entity_id) REFERENCES entities(id)
         );
+
+        CREATE TABLE IF NOT EXISTS relations (
+            id TEXT PRIMARY KEY,
+            source_type TEXT NOT NULL CHECK(source_type IN ('entity','capture')),
+            source_id TEXT NOT NULL,
+            target_type TEXT NOT NULL CHECK(target_type IN ('entity','capture')),
+            target_id TEXT NOT NULL,
+            relation_type TEXT NOT NULL CHECK(relation_type IN ('related_to','depends_on','implements','references','supports','contradicts','part_of','similar_to','version_of')),
+            strength REAL DEFAULT 0.5,
+            context TEXT DEFAULT '',
+            created_at TEXT DEFAULT '',
+            updated_at TEXT DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS idx_relations_source ON relations(source_type, source_id);
+        CREATE INDEX IF NOT EXISTS idx_relations_target ON relations(target_type, target_id);
+        CREATE INDEX IF NOT EXISTS idx_relations_type ON relations(relation_type);
+        CREATE INDEX IF NOT EXISTS idx_relations_strength ON relations(strength);
     """)
     # Migration: add api_style column if missing
     try:
@@ -340,6 +357,23 @@ def _migrate_ai_tables(conn):
         );
         CREATE INDEX IF NOT EXISTS idx_cap_entity_capture ON capture_entities(capture_id);
         CREATE INDEX IF NOT EXISTS idx_cap_entity_entity ON capture_entities(entity_id);
+
+        CREATE TABLE IF NOT EXISTS relations (
+            id TEXT PRIMARY KEY,
+            source_type TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            target_type TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            relation_type TEXT NOT NULL,
+            strength REAL DEFAULT 0.5,
+            context TEXT DEFAULT '',
+            created_at TEXT DEFAULT '',
+            updated_at TEXT DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS idx_relations_source ON relations(source_type, source_id);
+        CREATE INDEX IF NOT EXISTS idx_relations_target ON relations(target_type, target_id);
+        CREATE INDEX IF NOT EXISTS idx_relations_type ON relations(relation_type);
+        CREATE INDEX IF NOT EXISTS idx_relations_strength ON relations(strength);
 
         CREATE TABLE IF NOT EXISTS pending_ai_jobs (
             id TEXT PRIMARY KEY,
@@ -896,6 +930,201 @@ def mark_ai_job_error(user_id: str, job_id: str, error: str = ""):
         conn.execute(
             "UPDATE pending_ai_jobs SET status='error', error_message=?, processed_at=? WHERE id=?",
             (error[:500], datetime.now(timezone.utc).isoformat(), job_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# ─── Relations ─────────────────────────────────────────────────────
+
+
+RELATION_TYPES = (
+    "related_to", "depends_on", "implements", "references",
+    "supports", "contradicts", "part_of", "similar_to", "version_of",
+)
+
+
+def insert_relation(
+    user_id: str,
+    source_type: str,
+    source_id: str,
+    target_type: str,
+    target_id: str,
+    relation_type: str,
+    strength: float = 0.5,
+    context: str = "",
+) -> str:
+    """Insert a relation. Returns the relation ID.
+    Skips duplicate (source, target, relation_type) if it already exists,
+    but updates strength and context to the higher/newer values.
+    """
+    from uuid import uuid4
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    conn = get_db(user_id)
+    try:
+        # Check if same relation already exists
+        existing = conn.execute(
+            """SELECT id, strength, context FROM relations
+               WHERE source_type=? AND source_id=? AND target_type=? AND target_id=? AND relation_type=?""",
+            (source_type, source_id, target_type, target_id, relation_type),
+        ).fetchone()
+        if existing:
+            rid = existing["id"]
+            # Update strength to max, context to new if non-empty
+            new_strength = max(existing["strength"], strength)
+            new_context = context or existing["context"]
+            conn.execute(
+                "UPDATE relations SET strength=?, context=?, updated_at=? WHERE id=?",
+                (new_strength, new_context, now, rid),
+            )
+            conn.commit()
+            return rid
+        # Insert new relation
+        rid = uuid4().hex[:12]
+        conn.execute(
+            """INSERT INTO relations (id, source_type, source_id, target_type, target_id, relation_type, strength, context, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (rid, source_type, source_id, target_type, target_id, relation_type, strength, context, now, now),
+        )
+        conn.commit()
+        return rid
+    finally:
+        conn.close()
+
+
+def get_relations_for_capture(user_id: str, capture_id: str, min_strength: float = 0.0) -> list[dict]:
+    """Get all relations where this capture is source or target."""
+    conn = get_db(user_id)
+    try:
+        rows = conn.execute(
+            """SELECT * FROM relations
+               WHERE (source_type='capture' AND source_id=?)
+                  OR (target_type='capture' AND target_id=?)
+               AND strength >= ?
+               ORDER BY strength DESC, created_at DESC""",
+            (capture_id, capture_id, min_strength),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_relations_for_entity(user_id: str, entity_id: str, min_strength: float = 0.0) -> list[dict]:
+    """Get all relations where this entity is source or target."""
+    conn = get_db(user_id)
+    try:
+        rows = conn.execute(
+            """SELECT * FROM relations
+               WHERE (source_type='entity' AND source_id=?)
+                  OR (target_type='entity' AND target_id=?)
+               AND strength >= ?
+               ORDER BY strength DESC, created_at DESC""",
+            (entity_id, entity_id, min_strength),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_relation_graph(user_id: str, capture_id: str | None = None, min_strength: float = 0.0, limit: int = 100) -> dict:
+    """Get a graph structure: nodes + edges relevant to a capture (or all).
+    
+    Returns dict with:
+      - nodes: list of {id, label, type ('capture'|'entity'), subtype}
+      - edges: list of {source_id, target_id, relation_type, strength, context}
+    """
+    conn = get_db(user_id)
+    try:
+        if capture_id:
+            # Get relations for this capture + its entities
+            entity_ids = [
+                r["entity_id"] for r in conn.execute(
+                    "SELECT entity_id FROM capture_entities WHERE capture_id=?", (capture_id,)
+                ).fetchall()
+            ]
+            placeholders = ",".join("?" for _ in entity_ids) if entity_ids else "NULL"
+            rows = conn.execute(
+                f"""SELECT * FROM relations WHERE strength >= ?
+                    AND ((source_type='capture' AND source_id=?)
+                      OR (target_type='capture' AND target_id=?)
+                      OR (source_type='entity' AND source_id IN ({placeholders}))
+                      OR (target_type='entity' AND target_id IN ({placeholders})))
+                    ORDER BY strength DESC LIMIT ?""",
+                [min_strength, capture_id, capture_id, *entity_ids, *entity_ids, limit],
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM relations WHERE strength >= ? ORDER BY strength DESC LIMIT ?",
+                (min_strength, limit),
+            ).fetchall()
+
+        relations = [dict(r) for r in rows]
+
+        # Collect unique node IDs
+        node_ids = set()
+        for r in relations:
+            node_ids.add((r["source_type"], r["source_id"]))
+            node_ids.add((r["target_type"], r["target_id"]))
+
+        # Build node info
+        nodes = []
+        for ntype, nid in node_ids:
+            label = nid[:12]
+            subtype = ""
+            if ntype == "capture":
+                row = conn.execute(
+                    "SELECT source_title, capture_type FROM captures WHERE id=?", (nid,)
+                ).fetchone()
+                if row:
+                    label = row["source_title"] or nid[:12]
+                    subtype = row["capture_type"]
+            elif ntype == "entity":
+                row = conn.execute(
+                    "SELECT name, type FROM entities WHERE id=?", (nid,)
+                ).fetchone()
+                if row:
+                    label = row["name"]
+                    subtype = row["type"]
+            nodes.append({"id": nid, "label": label, "type": ntype, "subtype": subtype})
+
+        edges = [
+            {
+                "source_id": r["source_id"],
+                "target_id": r["target_id"],
+                "relation_type": r["relation_type"],
+                "strength": r["strength"],
+                "context": r["context"],
+            }
+            for r in relations
+        ]
+
+        return {"nodes": nodes, "edges": edges}
+    finally:
+        conn.close()
+
+
+def delete_relations_for_capture(user_id: str, capture_id: str):
+    """Delete all relations involving this capture."""
+    conn = get_db(user_id)
+    try:
+        conn.execute(
+            "DELETE FROM relations WHERE (source_type='capture' AND source_id=?) OR (target_type='capture' AND target_id=?)",
+            (capture_id, capture_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def delete_relations_for_entity(user_id: str, entity_id: str):
+    """Delete all relations involving this entity."""
+    conn = get_db(user_id)
+    try:
+        conn.execute(
+            "DELETE FROM relations WHERE (source_type='entity' AND source_id=?) OR (target_type='entity' AND target_id=?)",
+            (entity_id, entity_id),
         )
         conn.commit()
     finally:

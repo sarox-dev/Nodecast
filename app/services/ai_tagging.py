@@ -727,4 +727,5 @@ def get_available_features() -> list[dict]:
         {"id": FEATURE_TAGGING, "name": "Tag Captures", "description": "Automatically generate tags for saved captures."},
         {"id": FEATURE_SUMMARY, "name": "Generate Summary", "description": "Generate a one-sentence summary of the capture."},
         {"id": "entity_extraction", "name": "Extract Entities", "description": "Extract named entities (tools, people, concepts, etc.) from captures."},
+        {"id": "relation_discovery", "name": "Discover Relations", "description": "Find connections between captures based on shared tags, entities, and content."},
     ]

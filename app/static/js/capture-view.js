@@ -193,4 +193,27 @@
     });
   });
 
+  // Discover Relations button — runs Stage 1 deterministic relation discovery
+  document.querySelectorAll('[data-action="discover-relations"]').forEach(btn => {
+    btn.addEventListener('click', function () {
+      const id = this.dataset.id;
+      if (!id) return;
+      this.textContent = '⏳ Discovering...';
+      this.disabled = true;
+
+      fetch(`${BASE_URL}/api/ai/discover-relations/${id}`, { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+          const count = data.relations_created || 0;
+          this.textContent = `✅ ${count} relations found`;
+          setTimeout(() => window.location.reload(), 1500);
+        })
+        .catch(err => {
+          this.textContent = '❌ Error';
+          this.disabled = false;
+          console.error('Relation discovery error:', err);
+        });
+    });
+  });
+
 })();

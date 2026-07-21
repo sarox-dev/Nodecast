@@ -18,3 +18,8 @@ contents/
 
 # Searxng
 searxng/
+
+# Agent configs
+AGENTS.md
+.opencode/
+.codegraph/

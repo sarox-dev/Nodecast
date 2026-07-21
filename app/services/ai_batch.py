@@ -64,6 +64,10 @@ from app.services.entity_extraction import (
     extract_entities,
     FEATURE_ENTITY_EXTRACTION,
 )
+from app.services.relation_discovery import (
+    discover_relations,
+    FEATURE_RELATION_DISCOVERY,
+)
 from app.services.database import (
     get_pending_ai_jobs_grouped,
     mark_ai_job_done,
@@ -81,6 +85,7 @@ FEATURE_MAP = {
     "tagging": (tag_capture, FEATURE_TAGGING),
     "summary": (summarize_capture, FEATURE_SUMMARY),
     "entity_extraction": (extract_entities, FEATURE_ENTITY_EXTRACTION),
+    "relation_discovery": (discover_relations, FEATURE_RELATION_DISCOVERY),
 }
 
 # ─── Batch processing ──────────────────────────────────────────────
@@ -161,6 +166,20 @@ def process_batch(user_id: str) -> dict:
                         feature,
                         status,
                     )
+                    # Auto-run Stage 1 deterministic relation discovery after entity extraction
+                    if feature == "entity_extraction":
+                        try:
+                            from app.services.relation_discovery import discover_relations
+                            rr = discover_relations(user_id, capture_id)
+                            logger.info(
+                                "Auto relation discovery for %s: %s relations created",
+                                capture_id, rr.get("relations_created", 0),
+                            )
+                        except Exception as exc_rel:
+                            logger.warning(
+                                "Auto relation discovery failed for %s: %s",
+                                capture_id, exc_rel,
+                            )
                 elif status == "no_assignment":
                     # No provider configured for this feature — skip
                     mark_ai_job_error(

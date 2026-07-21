@@ -456,3 +456,63 @@ def api_get_capture_tags(capture_id: str, current_user: dict = Depends(get_curre
     if not tags:
         return {"capture_id": capture_id, "tags": None, "has_tags": False}
     return {"capture_id": capture_id, "has_tags": True, "data": tags}
+
+
+# ─── Relations ──────────────────────────────────────────────────────
+
+
+@router.get("/relations/{capture_id}")
+def api_get_relations(
+    capture_id: str,
+    min_strength: float = 0.0,
+    current_user: dict = Depends(get_current_user),
+):
+    """Get all relations involving this capture (both as source and target)."""
+    from app.services.database import get_relations_for_capture
+    relations = get_relations_for_capture(current_user["user_id"], capture_id, min_strength)
+    return {"capture_id": capture_id, "relations": relations, "count": len(relations)}
+
+
+@router.get("/relations-entity/{entity_id}")
+def api_get_entity_relations(
+    entity_id: str,
+    min_strength: float = 0.0,
+    current_user: dict = Depends(get_current_user),
+):
+    """Get all relations involving this entity."""
+    from app.services.database import get_relations_for_entity
+    relations = get_relations_for_entity(current_user["user_id"], entity_id, min_strength)
+    return {"entity_id": entity_id, "relations": relations, "count": len(relations)}
+
+
+@router.get("/relation-graph/{capture_id}")
+def api_get_relation_graph(
+    capture_id: str,
+    min_strength: float = 0.0,
+    limit: int = 100,
+    current_user: dict = Depends(get_current_user),
+):
+    """Get graph data (nodes + edges) for a capture and its entities."""
+    from app.services.database import get_relation_graph
+    return get_relation_graph(current_user["user_id"], capture_id, min_strength, limit)
+
+
+@router.post("/discover-relations/{capture_id}")
+def api_discover_relations(
+    capture_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Run Stage 1 deterministic relation discovery for this capture."""
+    from app.services.relation_discovery import discover_relations
+    result = discover_relations(current_user["user_id"], capture_id)
+    return result
+
+
+@router.post("/discover-entity-relations")
+def api_discover_entity_relations(
+    current_user: dict = Depends(get_current_user),
+):
+    """Run entity↔entity relation discovery for all entities."""
+    from app.services.relation_discovery import discover_entity_relations
+    count = discover_entity_relations(current_user["user_id"])
+    return {"status": "success", "relations_created": count}
