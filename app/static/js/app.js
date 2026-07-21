@@ -1288,16 +1288,23 @@ window.addEventListener('DOMContentLoaded', async () => {
     async function _checkUpdate() {
         if (localStorage.getItem('updateBannerDismissed') === 'true') return;
         try {
-            const r = await fetch('/api/update/check');
-            if (!r.ok) return;
-            const data = await r.json();
-            _cachedUpdateCheck = data;
-            if (data.has_update && !updateBanner.hidden) {
-                updateBannerVersion.textContent = data.latest_version;
+            const [verR, checkR] = await Promise.all([
+                fetch('/api/version'),
+                fetch('/api/update/check'),
+            ]);
+            const ver = verR.ok ? await verR.json() : null;
+            const check = checkR.ok ? await checkR.json() : null;
+            _cachedUpdateCheck = {
+                current_version: ver?.version || '?',
+                build_date: ver?.build_date || '?',
+                ...(check || {}),
+            };
+            if (check?.has_update && !updateBanner.hidden) {
+                updateBannerVersion.textContent = check.latest_version;
                 updateBanner.hidden = false;
             }
-            if (data.has_update && data.latest_version !== localStorage.getItem('updateDismissedVersion')) {
-                updateBannerVersion.textContent = data.latest_version;
+            if (check?.has_update && check.latest_version !== localStorage.getItem('updateDismissedVersion')) {
+                updateBannerVersion.textContent = check.latest_version;
                 updateBanner.hidden = false;
             }
         } catch {}
