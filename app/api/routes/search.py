@@ -22,7 +22,7 @@ def _to_item(row) -> dict:
         "capture_type_icon": f"/static/assets/capture_types/{row['capture_type'] or 'page'}.svg",
         "project": row["project"],
         "tags": tags,
-        "summary": row.get("summary") or "",
+        "summary": row["summary"] or "",
         "saved_at": row["saved_at"],
         "captured_at": row["captured_at"],
         "raw_path": row["raw_path"],
