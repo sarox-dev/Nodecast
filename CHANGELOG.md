@@ -1,3 +1,11 @@
+## v1.1.1 (2026-07-21)
+
+- fix: release workflow pushes to main, moves tag, updates version.json and CHANGELOG (e7eebe2)
+- fix: read from /dev/tty when piping install.sh via curl | bash (38afb8b)
+- fix: searxng permission conflict on install, read APP_PORT from .env (9db9831)
+- feat: auto-update system with version.json, notification banner, updates settings tab, install TUI (8d3a3a6)
+
+
 # Changelog
 
 ## v1.1.1 (2026-07-21)
