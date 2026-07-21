@@ -129,6 +129,17 @@ body::before {
   gap: 0.85rem;
 }
 
+.content-view {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  gap: 0.85rem;
+  flex: 1;
+}
+.content-view[hidden] { display: none; }
+
 .workspace-resizer {
   position: relative;
   width: 10px;

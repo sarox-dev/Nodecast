@@ -1343,8 +1343,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         graphMode = false;
         pageShell.classList.toggle('web-search-mode', web);
         document.getElementById('graph-area').hidden = true;
-        document.getElementById('results-container').hidden = false;
-        document.getElementById('search-form').hidden = false;
+        document.getElementById('content-view').hidden = false;
         queryInput.placeholder = web ? 'Search the web...' : 'Search your library...';
         document.getElementById('sidebar-library-nav')?.classList.toggle('active', !web);
         document.getElementById('sidebar-web-nav')?.classList.toggle('active', web);
@@ -1370,12 +1369,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         webMode = false;
         pageShell.classList.remove('web-search-mode');
         document.getElementById('graph-area').hidden = false;
-        document.getElementById('results-container').hidden = true;
-        document.getElementById('search-form').hidden = true;
-        document.getElementById('ai-progress-bar').hidden = true;
-        document.getElementById('filter-bar').hidden = true;
-        document.getElementById('status-bar').hidden = true;
-        document.getElementById('loading-indicator').hidden = true;
+        document.getElementById('content-view').hidden = true;
         document.getElementById('sidebar-library-nav')?.classList.toggle('active', false);
         document.getElementById('sidebar-web-nav')?.classList.toggle('active', false);
         document.getElementById('sidebar-graph-nav')?.classList.toggle('active', true);
