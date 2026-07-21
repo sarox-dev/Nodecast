@@ -485,6 +485,17 @@ def api_get_entity_relations(
     return {"entity_id": entity_id, "relations": relations, "count": len(relations)}
 
 
+@router.get("/relation-graph")
+def api_get_global_graph(
+    min_strength: float = 0.0,
+    limit: int = 200,
+    current_user: dict = Depends(get_current_user),
+):
+    """Get global graph data (all nodes + edges)."""
+    from app.services.database import get_relation_graph
+    return get_relation_graph(current_user["user_id"], None, min_strength, limit)
+
+
 @router.get("/relation-graph/{capture_id}")
 def api_get_relation_graph(
     capture_id: str,

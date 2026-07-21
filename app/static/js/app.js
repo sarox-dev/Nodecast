@@ -1340,16 +1340,17 @@ window.addEventListener('DOMContentLoaded', async () => {
 
     function setWebMode(web) {
         webMode = web;
+        graphMode = false;
         pageShell.classList.toggle('web-search-mode', web);
+        document.getElementById('graph-area').hidden = true;
+        document.getElementById('results-container').hidden = false;
         queryInput.placeholder = web ? 'Search the web...' : 'Search your library...';
-        // Switch active sidebar button
         document.getElementById('sidebar-library-nav')?.classList.toggle('active', !web);
         document.getElementById('sidebar-web-nav')?.classList.toggle('active', web);
-        // Reload depending on mode
+        document.getElementById('sidebar-graph-nav')?.classList.toggle('active', false);
         if (!web) {
             loadLibrary();
         } else {
-            // Web mode — show empty state
             allResults = [];
             resultsContainer.innerHTML = '<div class="empty-state" style="display:flex"><div class="empty-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg></div><h3>Web Search</h3><p>Enter a query to search the web. Results come from SearXNG meta search.</p></div>';
             statusBar.hidden = true;
@@ -1358,6 +1359,155 @@ window.addEventListener('DOMContentLoaded', async () => {
             queryInput.value = '';
             queryInput.focus();
         }
+    }
+
+    let graphMode = false;
+    let graphSimulation = null;
+
+    function setGraphMode() {
+        graphMode = true;
+        webMode = false;
+        pageShell.classList.remove('web-search-mode');
+        document.getElementById('graph-area').hidden = false;
+        document.getElementById('results-container').hidden = true;
+        document.getElementById('filter-bar').hidden = true;
+        document.getElementById('status-bar').hidden = true;
+        document.getElementById('loading-indicator').hidden = true;
+        document.getElementById('sidebar-library-nav')?.classList.toggle('active', false);
+        document.getElementById('sidebar-web-nav')?.classList.toggle('active', false);
+        document.getElementById('sidebar-graph-nav')?.classList.toggle('active', true);
+        loadGraph();
+    }
+
+    async function loadGraph() {
+        const area = document.getElementById('graph-area');
+        const container = document.getElementById('graph-container');
+        const loading = document.getElementById('graph-loading');
+        const empty = document.getElementById('graph-empty');
+        loading.hidden = false;
+        empty.hidden = true;
+        container.innerHTML = '';
+        try {
+            const r = await fetch('/api/ai/relation-graph?limit=200');
+            const data = await r.json();
+            loading.hidden = true;
+            if (!data.nodes || data.nodes.length === 0) {
+                empty.hidden = false;
+                return;
+            }
+            renderGraph(data, container);
+        } catch (e) {
+            loading.hidden = true;
+            container.innerHTML = `<div class="graph-error">Error loading graph: ${e.message}</div>`;
+        }
+    }
+
+    function renderGraph(data, container) {
+        const width = container.clientWidth || 800;
+        const height = container.clientHeight || 500;
+        const svg = d3.select(container).append('svg')
+            .attr('width', width).attr('height', height);
+
+        const g = svg.append('g');
+
+        // Zoom
+        svg.call(d3.zoom().scaleExtent([0.1, 4]).on('zoom', (e) => {
+            g.attr('transform', e.transform);
+        }));
+
+        const nodes = data.nodes.map(n => ({ ...n }));
+        const nodeMap = {};
+        nodes.forEach(n => nodeMap[n.id] = n);
+
+        const edges = data.edges.map(e => ({
+            source: e.source_id,
+            target: e.target_id,
+            relation_type: e.relation_type,
+            strength: e.strength || 0.5,
+        })).filter(e => nodeMap[e.source] && nodeMap[e.target]);
+
+        // Build link distance based on strength
+        const simulation = d3.forceSimulation(nodes)
+            .force('link', d3.forceLink(edges).id(d => d.id).distance(d => 200 - (d.strength || 0.5) * 150))
+            .force('charge', d3.forceManyBody().strength(-300))
+            .force('center', d3.forceCenter(width / 2, height / 2))
+            .force('collision', d3.forceCollide().radius(30));
+
+        graphSimulation = simulation;
+
+        const color = d => d.type === 'capture' ? '#60a5fa' : '#22c55e';
+
+        // Edges
+        const link = g.append('g').selectAll('line')
+            .data(edges).join('line')
+            .attr('stroke', '#2a2a4a')
+            .attr('stroke-width', d => Math.max(1, (d.strength || 0.5) * 4))
+            .attr('stroke-opacity', 0.4);
+
+        // Edge labels
+        const linkLabel = g.append('g').selectAll('text')
+            .data(edges).join('text')
+            .text(d => d.relation_type)
+            .attr('font-size', '9px')
+            .attr('fill', '#94a3b8')
+            .attr('text-anchor', 'middle');
+
+        // Nodes
+        const node = g.append('g').selectAll('g')
+            .data(nodes).join('g')
+            .style('cursor', 'pointer')
+            .call(d3.drag()
+                .on('start', (e, d) => {
+                    if (!e.active) simulation.alphaTarget(0.3).restart();
+                    d.fx = d.x; d.fy = d.y;
+                })
+                .on('drag', (e, d) => { d.fx = e.x; d.fy = e.y; })
+                .on('end', (e, d) => {
+                    if (!e.active) simulation.alphaTarget(0);
+                    d.fx = null; d.fy = null;
+                })
+            );
+
+        node.append('circle')
+            .attr('r', d => d.type === 'capture' ? 8 : 6)
+            .attr('fill', color)
+            .attr('stroke', '#1a1a2e')
+            .attr('stroke-width', 2);
+
+        node.append('text')
+            .text(d => d.label.length > 30 ? d.label.slice(0, 30) + '...' : d.label)
+            .attr('dx', d => d.type === 'capture' ? 12 : 8)
+            .attr('dy', 4)
+            .attr('font-size', '11px')
+            .attr('fill', '#e2e8f0')
+            .attr('pointer-events', 'none');
+
+        node.on('click', (e, d) => {
+            if (d.type === 'capture') {
+                window.open(`/capture/${d.id}`, '_blank');
+            }
+        });
+
+        node.append('title')
+            .text(d => `${d.label} (${d.type}${d.subtype ? ': ' + d.subtype : ''})`);
+
+        simulation.on('tick', () => {
+            link.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+                .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+            linkLabel.attr('x', d => (d.source.x + d.target.x) / 2)
+                .attr('y', d => (d.source.y + d.target.y) / 2);
+            node.attr('transform', d => `translate(${d.x},${d.y})`);
+        });
+
+        // Resize handler
+        const resizeObserver = new ResizeObserver(() => {
+            const w = container.clientWidth;
+            const h = container.clientHeight;
+            svg.attr('width', w).attr('height', h);
+            simulation.force('center', d3.forceCenter(w / 2, h / 2));
+            simulation.alpha(0.3).restart();
+        });
+        resizeObserver.observe(container);
     }
 
     function clearSkeletons() {
@@ -1723,8 +1873,9 @@ window.addEventListener('DOMContentLoaded', async () => {
         queryInput.blur();
     });
 
-    document.getElementById('sidebar-library-nav')?.addEventListener('click', () => setWebMode(false));
-    document.getElementById('sidebar-web-nav')?.addEventListener('click', () => setWebMode(true));
+document.getElementById('sidebar-library-nav')?.addEventListener('click', () => setWebMode(false));
+document.getElementById('sidebar-web-nav')?.addEventListener('click', () => setWebMode(true));
+document.getElementById('sidebar-graph-nav')?.addEventListener('click', () => setGraphMode());
 
     const observer = new IntersectionObserver((entries) => {
         if (entries[0].isIntersecting && !loading && hasMore && currentQuery && settingsState.autoLoad !== false) {

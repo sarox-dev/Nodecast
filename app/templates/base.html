@@ -36,6 +36,7 @@
               <div class="sidebar-collapse">
               <button id="sidebar-library-nav" class="sidebar-nav-btn active" type="button">📚 Library</button>
               <button id="sidebar-web-nav" class="sidebar-nav-btn" type="button">🌐 Web Search</button>
+              <button id="sidebar-graph-nav" class="sidebar-nav-btn" type="button">🔗 Graph</button>
               </div>
             </div>
 
@@ -122,6 +123,17 @@
               <div id="end-of-results" class="end-of-results" hidden>No more results.</div>
             </div>
             <div id="empty-state" class="empty-state" hidden></div>
+          </div>
+
+          <div id="graph-area" class="graph-area" hidden>
+            <div id="graph-loading" class="graph-loading" hidden>
+              <div class="spinner"></div>
+              <span>Loading graph...</span>
+            </div>
+            <div id="graph-empty" class="graph-empty" hidden>
+              <p>No relations found. Save more captures with shared tags or entities to build a graph.</p>
+            </div>
+            <div id="graph-container" class="graph-container"></div>
           </div>
         </main>
 
@@ -380,6 +392,7 @@
 
     {% include 'settings.html' %}
 
+    <script src="https://d3js.org/d3.v7.min.js"></script>
     <script src="/static/js/app.js"></script>
   </body>
 </html>
