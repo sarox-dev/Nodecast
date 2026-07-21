@@ -1458,6 +1458,19 @@ window.addEventListener('DOMContentLoaded', async () => {
         return `<span class="card-favicon-fallback">${(domain || 'W').charAt(0).toUpperCase()}</span>`;
     }
 
+    const TYPE_ICONS = {
+        page: '/static/assets/capture_types/page.svg',
+        video: '/static/assets/capture_types/video.svg',
+        reddit_post: '/static/assets/capture_types/reddit.svg',
+        bookmark: '/static/assets/capture_types/bookmark.svg',
+    };
+
+    function getTypeIconHtml(captureType) {
+        const icon = TYPE_ICONS[captureType] || null;
+        if (!icon) return '';
+        return `<img class="card-type-icon" src="${escapeHtml(icon)}" alt="" loading="lazy" onerror="this.style.display='none'" />`;
+    }
+
     function getResultMeta(item) {
         const isSaved = item._type === 'saved';
         const ts = formatTime(item.saved_at);
@@ -1471,30 +1484,34 @@ window.addEventListener('DOMContentLoaded', async () => {
 
     function createCard(item) {
         const { isSaved, ts, domain, siteName, chips } = getResultMeta(item);
-        const title = item.title || item.url || 'Untitled';
-        const content = item.content || '';
-        const highlightedTitle = highlightText(title, currentQuery);
-        const highlightedContent = highlightText(content, currentQuery);
-        const badgeClass = isSaved ? 'saved' : 'web';
-        const badgeLabel = isSaved ? 'Saved' : 'Web';
-        const enginesHtml = !isSaved && getShowEngines() && Array.isArray(item.engines) && item.engines.length > 0
-            ? `<span class="card-engines">${item.engines.map(e => `<span class="card-engine-badge">${escapeHtml(e)}</span>`).join('')}</span>`
-            : '';
+        const cardTitle = item.summary || item.content || item.title || 'Untitled';
+        const subtitle = item.title || '';
+        const urlDisplay = item.url ? item.url.replace(/^https?:\/\//, '').replace(/\/$/, '') : '';
+        const highlightedTitle = highlightText(cardTitle, currentQuery);
         const chipHtml = chips.slice(0, 2).map(ch => `<span class="card-chip">${escapeHtml(ch)}</span>`).join('');
         const globalIndex = allResults.findIndex(r => r === item);
-        const viewLink = item._type === 'saved' ? `<a href="/capture/${item.id || item.capture_id}" class="card-view-link" title="Knowledge Viewer">🔍</a>` : '';
+        const viewLink = isSaved ? `<a href="/capture/${item.id || item.capture_id}" class="card-view-link" title="Knowledge Viewer">🔍</a>` : '';
+        const typeIcon = getTypeIconHtml(item.capture_type);
+        const subtitleHtml = subtitle && subtitle !== cardTitle
+            ? `<span class="card-subtitle">${escapeHtml(subtitle)}</span>`
+            : '';
         return `
           <article class="result-card ${isSaved ? 'card-saved' : 'card-web'}" data-type="${isSaved ? 'saved' : 'web'}" data-index="${globalIndex}">
             <div class="card-meta">
               ${getFaviconHtml(item, domain)}
               <span class="card-domain">${escapeHtml(siteName || domain)}</span>
-              <span class="card-badge ${badgeClass}">${badgeLabel}</span>
-              ${enginesHtml}
+              <span class="card-badge saved">Saved</span>
               ${isSaved && ts ? `<span class="card-time">${ts}</span>` : ''}
               ${viewLink}
             </div>
-            <span class="card-title" data-url="${item.url || '#'}">${highlightedTitle}</span>
-            ${content ? `<p class="card-content">${highlightedContent}</p>` : ''}
+            <div class="card-body">
+              <div class="card-title-row">
+                ${typeIcon}
+                <span class="card-title" data-url="${item.url || '#'}">${highlightedTitle}</span>
+              </div>
+              ${subtitleHtml}
+              ${urlDisplay ? `<span class="card-url">${escapeHtml(urlDisplay)}</span>` : ''}
+            </div>
             ${chipHtml ? `<div class="card-footer">${chipHtml}</div>` : ''}
           </article>`;
     }

@@ -19,14 +19,23 @@ def _to_item(row) -> dict:
         "url": row["source_url"],
         "site_name": row["source_site_name"],
         "capture_type": row["capture_type"],
+        "capture_type_icon": f"/static/assets/capture_types/{row['capture_type'] or 'page'}.svg",
         "project": row["project"],
         "tags": tags,
+        "summary": row.get("summary") or "",
         "saved_at": row["saved_at"],
         "captured_at": row["captured_at"],
         "raw_path": row["raw_path"],
         "thumbnail": None,
         "source": "local",
     }
+
+
+def _captures_query(with_summary: bool = False) -> str:
+    base = "SELECT c.* FROM captures c"
+    if with_summary:
+        base = "SELECT c.*, ai.summary FROM captures c LEFT JOIN capture_ai_tags ai ON c.id = ai.capture_id"
+    return base
 
 
 def local_search(q: str, project: str | None = None, user_id: str = ""):
@@ -39,7 +48,8 @@ def local_search(q: str, project: str | None = None, user_id: str = ""):
     conn = get_db(user_id)
     try:
         results = []
-        for row in conn.execute("SELECT * FROM captures ORDER BY saved_at DESC").fetchall():
+        query = _captures_query(with_summary=True) + " ORDER BY c.saved_at DESC"
+        for row in conn.execute(query).fetchall():
             p = (row["project"] or "").strip().lower()
             if pf:
                 if pf == "__uncategorized__":
@@ -53,6 +63,7 @@ def local_search(q: str, project: str | None = None, user_id: str = ""):
                 row["source_site_name"] or "",
                 row["source_url"] or "",
                 row["project"] or "",
+                row["summary"] or "",
             ]).lower()
             try:
                 text += " " + " ".join(json.loads(row["tags"]) if isinstance(row["tags"], str) else [])
@@ -116,18 +127,19 @@ def browse_captures(
     conn = get_db(current_user["user_id"])
     try:
         pf = (project or "").strip()
+        query = _captures_query(with_summary=True)
         if pf == "__uncategorized__":
             rows = conn.execute(
-                """SELECT * FROM captures WHERE (project IS NULL OR project = '')
-                   AND (tags IS NULL OR tags = '[]') ORDER BY saved_at DESC LIMIT 100"""
+                query + """ WHERE (c.project IS NULL OR c.project = '')
+                   AND (c.tags IS NULL OR c.tags = '[]') ORDER BY c.saved_at DESC LIMIT 100"""
             ).fetchall()
         elif pf:
             rows = conn.execute(
-                "SELECT * FROM captures WHERE LOWER(project)=LOWER(?) ORDER BY saved_at DESC LIMIT 100",
+                query + " WHERE LOWER(c.project)=LOWER(?) ORDER BY c.saved_at DESC LIMIT 100",
                 (pf,),
             ).fetchall()
         else:
-            rows = conn.execute("SELECT * FROM captures ORDER BY saved_at DESC LIMIT 100").fetchall()
+            rows = conn.execute(query + " ORDER BY c.saved_at DESC LIMIT 100").fetchall()
         return [_to_item(r) for r in rows]
     finally:
         conn.close()

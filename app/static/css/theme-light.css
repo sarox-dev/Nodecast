@@ -65,3 +65,8 @@
   background: rgba(99, 102, 241, 0.12);
   color: var(--accent-text);
 }
+
+/* ─── Light mode type icons (dark SVGs, no invert) ───────────────── */
+:root[data-theme="light"] .card-type-icon {
+  filter: none;
+}
