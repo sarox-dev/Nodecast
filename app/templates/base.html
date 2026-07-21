@@ -126,6 +126,13 @@
           </div>
 
           <div id="graph-area" class="graph-area" hidden>
+            <div class="graph-toolbar">
+              <label class="graph-slider-label">
+                <span>Node spacing</span>
+                <input type="range" id="graph-spacing" min="1" max="10" value="5" step="1" />
+                <span id="graph-spacing-val" class="graph-slider-val">5</span>
+              </label>
+            </div>
             <div id="graph-loading" class="graph-loading" hidden>
               <div class="spinner"></div>
               <span>Loading graph...</span>

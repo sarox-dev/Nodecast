@@ -1410,7 +1410,6 @@ window.addEventListener('DOMContentLoaded', async () => {
 
         const g = svg.append('g');
 
-        // Zoom
         svg.call(d3.zoom().scaleExtent([0.1, 4]).on('zoom', (e) => {
             g.attr('transform', e.transform);
         }));
@@ -1426,25 +1425,14 @@ window.addEventListener('DOMContentLoaded', async () => {
             strength: e.strength || 0.5,
         })).filter(e => nodeMap[e.source] && nodeMap[e.target]);
 
-        // Build link distance based on strength
-        const simulation = d3.forceSimulation(nodes)
-            .force('link', d3.forceLink(edges).id(d => d.id).distance(d => 200 - (d.strength || 0.5) * 150))
-            .force('charge', d3.forceManyBody().strength(-300))
-            .force('center', d3.forceCenter(width / 2, height / 2))
-            .force('collision', d3.forceCollide().radius(30));
-
-        graphSimulation = simulation;
-
         const color = d => d.type === 'capture' ? '#60a5fa' : '#22c55e';
 
-        // Edges
         const link = g.append('g').selectAll('line')
             .data(edges).join('line')
             .attr('stroke', '#2a2a4a')
             .attr('stroke-width', d => Math.max(1, (d.strength || 0.5) * 4))
             .attr('stroke-opacity', 0.4);
 
-        // Edge labels
         const linkLabel = g.append('g').selectAll('text')
             .data(edges).join('text')
             .text(d => d.relation_type)
@@ -1452,18 +1440,17 @@ window.addEventListener('DOMContentLoaded', async () => {
             .attr('fill', '#94a3b8')
             .attr('text-anchor', 'middle');
 
-        // Nodes
         const node = g.append('g').selectAll('g')
             .data(nodes).join('g')
             .style('cursor', 'pointer')
             .call(d3.drag()
                 .on('start', (e, d) => {
-                    if (!e.active) simulation.alphaTarget(0.3).restart();
+                    if (!graphSimulation?.alpha()) graphSimulation?.alphaTarget(0.3).restart();
                     d.fx = d.x; d.fy = d.y;
                 })
                 .on('drag', (e, d) => { d.fx = e.x; d.fy = e.y; })
                 .on('end', (e, d) => {
-                    if (!e.active) simulation.alphaTarget(0);
+                    if (!e.active) graphSimulation?.alphaTarget(0);
                     d.fx = null; d.fy = null;
                 })
             );
@@ -1491,23 +1478,47 @@ window.addEventListener('DOMContentLoaded', async () => {
         node.append('title')
             .text(d => `${d.label} (${d.type}${d.subtype ? ': ' + d.subtype : ''})`);
 
-        simulation.on('tick', () => {
-            link.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
-                .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
-            linkLabel.attr('x', d => (d.source.x + d.target.x) / 2)
-                .attr('y', d => (d.source.y + d.target.y) / 2);
-            node.attr('transform', d => `translate(${d.x},${d.y})`);
-        });
+        function buildSim(spacing) {
+            if (graphSimulation) graphSimulation.stop();
+            const s = spacing || 5;
+            graphSimulation = d3.forceSimulation(nodes)
+                .force('link', d3.forceLink(edges).id(d => d.id).distance(30 * s).strength(0.3))
+                .force('charge', d3.forceManyBody().strength(-50 * s))
+                .force('center', d3.forceCenter(width / 2, height / 2))
+                .force('collision', d3.forceCollide().radius(10 + s * 4));
 
-        // Resize handler
-        const resizeObserver = new ResizeObserver(() => {
+            graphSimulation.on('tick', () => {
+                link.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+                    .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+                linkLabel.attr('x', d => (d.source.x + d.target.x) / 2)
+                    .attr('y', d => (d.source.y + d.target.y) / 2);
+                node.attr('transform', d => `translate(${d.x},${d.y})`);
+            });
+
+            graphSimulation.alpha(1).restart();
+        }
+
+        buildSim(5);
+
+        const slider = document.getElementById('graph-spacing');
+        const valDisplay = document.getElementById('graph-spacing-val');
+        if (slider) {
+            slider.addEventListener('input', () => {
+                valDisplay.textContent = slider.value;
+                buildSim(Number(slider.value));
+            });
+        }
+
+        const ro = new ResizeObserver(() => {
             const w = container.clientWidth;
             const h = container.clientHeight;
             svg.attr('width', w).attr('height', h);
-            simulation.force('center', d3.forceCenter(w / 2, h / 2));
-            simulation.alpha(0.3).restart();
+            if (graphSimulation) {
+                graphSimulation.force('center', d3.forceCenter(w / 2, h / 2));
+                graphSimulation.alpha(0.3).restart();
+            }
         });
-        resizeObserver.observe(container);
+        ro.observe(container);
     }
 
     function clearSkeletons() {
