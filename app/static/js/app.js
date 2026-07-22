@@ -1475,19 +1475,31 @@ window.addEventListener('DOMContentLoaded', async () => {
         node.append('title')
             .text(d => `${d.label} (${d.type}${d.subtype ? ': ' + d.subtype : ''})`);
 
-        function buildSim(spacing) {
-            const s = spacing || 5;
+        function readGraphSettings() {
+            const s = Number(document.getElementById('graph-spacing')?.value || 5);
+            const g = Number(document.getElementById('graph-gravity')?.value || 3);
+            return { spacing: s, gravity: g };
+        }
+
+        function buildSimFromSettings() {
+            const { spacing, gravity } = readGraphSettings();
+            const s = spacing;
+            const g = gravity * 0.005;
             if (graphSimulation) {
                 graphSimulation.force('link').distance(30 * s);
                 graphSimulation.force('charge').strength(-50 * s);
                 graphSimulation.force('collision').radius(10 + s * 4);
+                graphSimulation.force('x').strength(g);
+                graphSimulation.force('y').strength(g);
                 graphSimulation.alpha(1).restart();
             } else {
                 graphSimulation = d3.forceSimulation(nodes)
                     .force('link', d3.forceLink(edges).id(d => d.id).distance(30 * s).strength(0.3))
                     .force('charge', d3.forceManyBody().strength(-50 * s))
                     .force('center', d3.forceCenter(width / 2, height / 2))
-                    .force('collision', d3.forceCollide().radius(10 + s * 4));
+                    .force('collision', d3.forceCollide().radius(10 + s * 4))
+                    .force('x', d3.forceX(width / 2).strength(g))
+                    .force('y', d3.forceY(height / 2).strength(g));
 
                 graphSimulation.on('tick', () => {
                     link.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
@@ -1501,16 +1513,23 @@ window.addEventListener('DOMContentLoaded', async () => {
             }
         }
 
-        buildSim(5);
+        buildSimFromSettings();
 
-        const slider = document.getElementById('graph-spacing');
-        const valDisplay = document.getElementById('graph-spacing-val');
-        if (slider) {
-            slider.addEventListener('input', () => {
-                valDisplay.textContent = slider.value;
-                buildSim(Number(slider.value));
-            });
+        const spacingSlider = document.getElementById('graph-spacing');
+        const spacingVal = document.getElementById('graph-spacing-val');
+        const gravitySlider = document.getElementById('graph-gravity');
+        const gravityVal = document.getElementById('graph-gravity-val');
+
+        function wireSlider(slider, valDisplay) {
+            if (slider) {
+                slider.addEventListener('input', () => {
+                    if (valDisplay) valDisplay.textContent = slider.value;
+                    buildSimFromSettings();
+                });
+            }
         }
+        wireSlider(spacingSlider, spacingVal);
+        wireSlider(gravitySlider, gravityVal);
 
         // Hamburger menu toggle
         const settingsBtn = document.getElementById('graph-settings-btn');
@@ -1533,6 +1552,8 @@ window.addEventListener('DOMContentLoaded', async () => {
             svg.attr('width', w).attr('height', h);
             if (graphSimulation) {
                 graphSimulation.force('center', d3.forceCenter(w / 2, h / 2));
+                graphSimulation.force('x', d3.forceX(w / 2));
+                graphSimulation.force('y', d3.forceY(h / 2));
                 graphSimulation.alpha(0.3).restart();
             }
         });
