@@ -1433,9 +1433,28 @@ window.addEventListener('DOMContentLoaded', async () => {
         const linkLabel = g.append('g').selectAll('text')
             .data(edges).join('text')
             .text(d => d.relation_type)
+            .attr('class', 'edge-label')
             .attr('font-size', '9px')
             .attr('fill', '#94a3b8')
-            .attr('text-anchor', 'middle');
+            .attr('text-anchor', 'middle')
+            .attr('visibility', 'hidden');
+
+        let currentZoom = 1;
+        const ZOOM_THRESHOLD = 1.5;
+
+        function refreshEdgeLabels() {
+            linkLabel.attr('visibility', 'hidden');
+            if (currentZoom >= ZOOM_THRESHOLD) {
+                linkLabel.attr('visibility', null);
+            }
+        }
+
+        // Zoom handler
+        svg.call(d3.zoom().scaleExtent([0.1, 4]).on('zoom', (e) => {
+            g.attr('transform', e.transform);
+            currentZoom = e.transform.k;
+            refreshEdgeLabels();
+        }));
 
         const node = g.append('g').selectAll('g')
             .data(nodes).join('g')
@@ -1474,6 +1493,35 @@ window.addEventListener('DOMContentLoaded', async () => {
 
         node.append('title')
             .text(d => `${d.label} (${d.type}${d.subtype ? ': ' + d.subtype : ''})`);
+
+        // Build edge index per node for hover lookup
+        const nodeEdges = {};
+        edges.forEach((e, i) => {
+            const sid = typeof e.source === 'object' ? e.source.id : e.source;
+            const tid = typeof e.target === 'object' ? e.target.id : e.target;
+            (nodeEdges[sid] = nodeEdges[sid] || []).push(i);
+            (nodeEdges[tid] = nodeEdges[tid] || []).push(i);
+        });
+
+        function showEdgeLabels(indices) {
+            linkLabel.attr('visibility', (_, i) => indices.includes(i) ? null : 'hidden');
+        }
+
+        function hideEdgeLabels() {
+            refreshEdgeLabels();
+        }
+
+        node.on('mouseenter', (e, d) => {
+            const indices = nodeEdges[d.id] || [];
+            showEdgeLabels(indices);
+        });
+        node.on('mouseleave', () => hideEdgeLabels());
+
+        link.on('mouseenter', (e, d) => {
+            const i = edges.indexOf(d);
+            showEdgeLabels([i]);
+        });
+        link.on('mouseleave', () => hideEdgeLabels());
 
         function readGraphSettings() {
             const s = Number(document.getElementById('graph-spacing')?.value || 5);
