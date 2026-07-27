@@ -1,3 +1,10 @@
+## v1.2.1 (2026-07-27)
+
+- feat: AI connection typing (Stage 2) + graph overhaul (dbfb0c4)
+- feat: edge labels hidden by default, show on zoom≥1.5, node hover, or edge hover (9698c4b)
+- feat: add center gravity slider to graph, forceX/forceY pull nodes toward center (c04ba79)
+
+
 ## v1.2.0 (2026-07-21)
 
 - fix: wrap content in #content-view div, toggle single container vs graph-area (685de36)
