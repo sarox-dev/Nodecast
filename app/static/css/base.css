@@ -1459,4 +1459,11 @@ body::before {
   color: #f87171;
   font-size: 0.9rem;
 }
+@keyframes link-flow {
+  to { stroke-dashoffset: -24; }
+}
+.link-label {
+  pointer-events: none;
+  user-select: none;
+}
 .preview-with-context { line-height: 1.7; font-size: 0.9rem; }

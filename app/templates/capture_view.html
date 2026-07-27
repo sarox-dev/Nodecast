@@ -96,6 +96,21 @@
                         <td>{% for e in entities %}<span class="badge badge-entity badge-{{ e.type }}">{{ e.name }}</span> {% else %}<span class="text-muted">—</span>{% endfor %}</td>
                     </tr>
                     <tr>
+                        <td>Relations</td>
+                        <td>
+                            {% if relations %}
+                            <span style="font-size:0.88rem">{{ relations|length }} total</span>
+                            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">
+                            {% for type, group in relations|groupby("relation_type") %}
+                                <span class="badge badge-relation badge-{{ type }}">{{ type }} ×{{ group|length }}</span>
+                            {% endfor %}
+                            </div>
+                            {% else %}
+                            <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
                         <td>Processed</td>
                         <td>{{ ai_tags.processed_at[:19] or "—" }}</td>
                     </tr>
@@ -337,7 +352,10 @@
             <div class="kv-card" style="margin-top:1.25rem">
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
                     <h3 style="margin:0">Relations ({{ relations|length }})</h3>
-                    <button class="btn btn-small btn-secondary" data-action="discover-relations" data-id="{{ c.id }}">🔍 Discover Relations</button>
+                    <div style="display:flex;gap:0.4rem">
+                        <button class="btn btn-small btn-secondary" data-action="type-relations" data-id="{{ c.id }}">🏷️ Type Relations</button>
+                        <button class="btn btn-small btn-secondary" data-action="discover-relations" data-id="{{ c.id }}">🔍 Discover Relations</button>
+                    </div>
                 </div>
                 {% if relations %}
                 <div class="kv-relations-list">

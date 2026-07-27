@@ -216,4 +216,26 @@
     });
   });
 
+  // Type Relations button — runs Stage 2 AI relation typing
+  document.querySelectorAll('[data-action="type-relations"]').forEach(btn => {
+    btn.addEventListener('click', function () {
+      const id = this.dataset.id;
+      if (!id) return;
+      this.textContent = '⏳ Typing...';
+      this.disabled = true;
+
+      fetch(`${BASE_URL}/api/ai/type-relations/${id}`, { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+          const typed = data.typed || 0;
+          this.textContent = `✅ ${typed} relations typed`;
+          setTimeout(() => window.location.reload(), 1500);
+        })
+        .catch(err => {
+          this.textContent = '❌ Error';
+          this.disabled = false;
+          console.error('Relation typing error:', err);
+        });
+    });
+  });
 })();

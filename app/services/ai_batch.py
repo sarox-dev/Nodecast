@@ -68,6 +68,10 @@ from app.services.relation_discovery import (
     discover_relations,
     FEATURE_RELATION_DISCOVERY,
 )
+from app.services.ai_relation_typing import (
+    type_relations_for_capture,
+    FEATURE_RELATION_TYPING,
+)
 from app.services.database import (
     get_pending_ai_jobs_grouped,
     mark_ai_job_done,
@@ -86,6 +90,7 @@ FEATURE_MAP = {
     "summary": (summarize_capture, FEATURE_SUMMARY),
     "entity_extraction": (extract_entities, FEATURE_ENTITY_EXTRACTION),
     "relation_discovery": (discover_relations, FEATURE_RELATION_DISCOVERY),
+    "relation_typing": (type_relations_for_capture, FEATURE_RELATION_TYPING),
 }
 
 # ─── Batch processing ──────────────────────────────────────────────

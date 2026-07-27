@@ -489,11 +489,12 @@ def api_get_entity_relations(
 def api_get_global_graph(
     min_strength: float = 0.0,
     limit: int = 200,
+    include_orphans: bool = False,
     current_user: dict = Depends(get_current_user),
 ):
-    """Get global graph data (all nodes + edges)."""
+    """Get global graph data (all nodes + edges). If include_orphans, also show captures without any relations."""
     from app.services.database import get_relation_graph
-    return get_relation_graph(current_user["user_id"], None, min_strength, limit)
+    return get_relation_graph(current_user["user_id"], None, min_strength, limit, include_orphans)
 
 
 @router.get("/relation-graph/{capture_id}")
@@ -513,9 +514,22 @@ def api_discover_relations(
     capture_id: str,
     current_user: dict = Depends(get_current_user),
 ):
-    """Run Stage 1 deterministic relation discovery for this capture."""
+    """Run Stage 1 deterministic relation discovery for this capture.
+    If user has relation_typing configured, Stage 2 (AI typing) runs automatically."""
     from app.services.relation_discovery import discover_relations
     result = discover_relations(current_user["user_id"], capture_id)
+    return result
+
+
+@router.post("/type-relations/{capture_id}")
+def api_type_relations(
+    capture_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Run Stage 2 AI relation typing on existing related_to relations.
+    Classifies each relation into a specific type (depends_on, references, etc.)."""
+    from app.services.ai_relation_typing import type_relations_for_capture
+    result = type_relations_for_capture(current_user["user_id"], capture_id)
     return result
 
 
@@ -527,3 +541,93 @@ def api_discover_entity_relations(
     from app.services.relation_discovery import discover_entity_relations
     count = discover_entity_relations(current_user["user_id"])
     return {"status": "success", "relations_created": count}
+
+
+@router.post("/discover-relations-all")
+def api_discover_relations_all(
+    current_user: dict = Depends(get_current_user),
+):
+    """Run Stage 1 relation discovery for ALL captures in background."""
+    user_id = current_user["user_id"]
+    from app.services.database import get_db
+    conn = get_db(user_id)
+    try:
+        rows = conn.execute("SELECT id FROM captures").fetchall()
+        capture_ids = [r["id"] for r in rows]
+    finally:
+        conn.close()
+
+    if not capture_ids:
+        return {"status": "done", "total": 0, "message": "No captures to process."}
+
+    from app.services.relation_discovery import discover_relations_stage1
+    from app.services.ai_batch import _update_progress
+
+    _update_progress(
+        user_id, running=True, total=len(capture_ids), processed=0, errors=0, skipped=0,
+        current="Starting find relations...", operation="find relations all",
+    )
+
+    def _run():
+        processed = 0
+        errors = 0
+        try:
+            for cid in capture_ids:
+                try:
+                    discover_relations_stage1(user_id, cid)
+                    processed += 1
+                except Exception as exc:
+                    logger.warning("find-relations-all: %s failed: %s", cid[:8], exc)
+                    errors += 1
+                _update_progress(user_id, processed=processed, errors=errors, current=f"Relations {processed}/{len(capture_ids)}")
+        finally:
+            _update_progress(user_id, running=False, operation="")
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    return {"status": "started", "total": len(capture_ids), "message": f"Finding relations for {len(capture_ids)} captures in background."}
+
+
+@router.post("/type-relations-all")
+def api_type_relations_all(
+    current_user: dict = Depends(get_current_user),
+):
+    """Run Stage 2 AI relation typing for ALL captures with relations in background."""
+    user_id = current_user["user_id"]
+    from app.services.database import get_db
+    conn = get_db(user_id)
+    try:
+        rows = conn.execute("SELECT DISTINCT source_id FROM relations WHERE source_type='capture' AND relation_type='related_to'").fetchall()
+        capture_ids = [r["source_id"] for r in rows]
+    finally:
+        conn.close()
+
+    if not capture_ids:
+        return {"status": "done", "total": 0, "message": "No untyped relations found."}
+
+    from app.services.ai_relation_typing import type_relations_for_capture
+    from app.services.ai_batch import _update_progress
+
+    _update_progress(
+        user_id, running=True, total=len(capture_ids), processed=0, errors=0, skipped=0,
+        current="Starting type relations...", operation="type relations all",
+    )
+
+    def _run():
+        processed = 0
+        errors = 0
+        try:
+            for cid in capture_ids:
+                try:
+                    type_relations_for_capture(user_id, cid)
+                    processed += 1
+                except Exception as exc:
+                    logger.warning("type-relations-all: %s failed: %s", cid[:8], exc)
+                    errors += 1
+                _update_progress(user_id, processed=processed, errors=errors, current=f"Typing {processed}/{len(capture_ids)}")
+        finally:
+            _update_progress(user_id, running=False, operation="")
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    return {"status": "started", "total": len(capture_ids), "message": f"Typing relations for {len(capture_ids)} captures in background."}

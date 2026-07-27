@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import sqlite3
 import uuid
@@ -6,6 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.core.security import CONTENTS_DIR, USERS_DB_PATH, USERS_DATA_DIR
+
+logger = logging.getLogger(__name__)
 
 # ─── Global users DB (Auth) ───────────────────────────────────────
 
@@ -255,7 +258,7 @@ def init_user_db(user_id: str):
             source_id TEXT NOT NULL,
             target_type TEXT NOT NULL CHECK(target_type IN ('entity','capture')),
             target_id TEXT NOT NULL,
-            relation_type TEXT NOT NULL CHECK(relation_type IN ('related_to','depends_on','implements','references','supports','contradicts','part_of','similar_to','version_of')),
+            relation_type TEXT NOT NULL CHECK(relation_type IN ('related','related_to','depends_on','implements','references','supports','contradicts','part_of','similar_to','version_of')),
             strength REAL DEFAULT 0.5,
             context TEXT DEFAULT '',
             created_at TEXT DEFAULT '',
@@ -265,6 +268,12 @@ def init_user_db(user_id: str):
         CREATE INDEX IF NOT EXISTS idx_relations_target ON relations(target_type, target_id);
         CREATE INDEX IF NOT EXISTS idx_relations_type ON relations(relation_type);
         CREATE INDEX IF NOT EXISTS idx_relations_strength ON relations(strength);
+        CREATE TABLE IF NOT EXISTS rejected_relations (
+            source_id TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            created_at TEXT DEFAULT '',
+            PRIMARY KEY (source_id, target_id)
+        );
     """)
     # Migration: add api_style column if missing
     try:
@@ -374,6 +383,13 @@ def _migrate_ai_tables(conn):
         CREATE INDEX IF NOT EXISTS idx_relations_target ON relations(target_type, target_id);
         CREATE INDEX IF NOT EXISTS idx_relations_type ON relations(relation_type);
         CREATE INDEX IF NOT EXISTS idx_relations_strength ON relations(strength);
+        
+        CREATE TABLE IF NOT EXISTS rejected_relations (
+            source_id TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            created_at TEXT DEFAULT '',
+            PRIMARY KEY (source_id, target_id)
+        );
 
         CREATE TABLE IF NOT EXISTS pending_ai_jobs (
             id TEXT PRIMARY KEY,
@@ -389,6 +405,15 @@ def _migrate_ai_tables(conn):
         CREATE INDEX IF NOT EXISTS idx_pending_jobs_feature ON pending_ai_jobs(feature);
     """)
     conn.commit()
+    # Migration: rename related_to → related for Stage 1 default relations
+    try:
+        conn.execute("UPDATE relations SET relation_type='related' WHERE relation_type='related_to' AND source_type='capture'")
+    except Exception:
+        pass
+    try:
+        conn.execute("UPDATE relations SET relation_type='related' WHERE relation_type='related_to' AND source_type='entity'")
+    except Exception:
+        pass
     # Migration: create user_settings table (for existing DBs)
     try:
         conn.execute("CREATE TABLE IF NOT EXISTS user_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')")
@@ -940,7 +965,7 @@ def mark_ai_job_error(user_id: str, job_id: str, error: str = ""):
 
 
 RELATION_TYPES = (
-    "related_to", "depends_on", "implements", "references",
+    "related", "related_to", "depends_on", "implements", "references",
     "supports", "contradicts", "part_of", "similar_to", "version_of",
 )
 
@@ -1003,7 +1028,7 @@ def get_relations_for_capture(user_id: str, capture_id: str, min_strength: float
                WHERE (source_type='capture' AND source_id=?)
                   OR (target_type='capture' AND target_id=?)
                AND strength >= ?
-               ORDER BY strength DESC, created_at DESC""",
+               ORDER BY relation_type IN ('related', 'related_to') ASC, strength DESC, created_at DESC""",
             (capture_id, capture_id, min_strength),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -1028,7 +1053,7 @@ def get_relations_for_entity(user_id: str, entity_id: str, min_strength: float =
         conn.close()
 
 
-def get_relation_graph(user_id: str, capture_id: str | None = None, min_strength: float = 0.0, limit: int = 100) -> dict:
+def get_relation_graph(user_id: str, capture_id: str | None = None, min_strength: float = 0.0, limit: int = 100, include_orphans: bool = False) -> dict:
     """Get a graph structure: nodes + edges relevant to a capture (or all).
     
     Returns dict with:
@@ -1051,12 +1076,12 @@ def get_relation_graph(user_id: str, capture_id: str | None = None, min_strength
                       OR (target_type='capture' AND target_id=?)
                       OR (source_type='entity' AND source_id IN ({placeholders}))
                       OR (target_type='entity' AND target_id IN ({placeholders})))
-                    ORDER BY strength DESC LIMIT ?""",
+                    ORDER BY relation_type IN ('related', 'related_to') ASC, strength DESC LIMIT ?""",
                 [min_strength, capture_id, capture_id, *entity_ids, *entity_ids, limit],
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT * FROM relations WHERE strength >= ? ORDER BY strength DESC LIMIT ?",
+                "SELECT * FROM relations WHERE strength >= ? ORDER BY relation_type IN ('related', 'related_to') ASC, strength DESC LIMIT ?",
                 (min_strength, limit),
             ).fetchall()
 
@@ -1100,7 +1125,51 @@ def get_relation_graph(user_id: str, capture_id: str | None = None, min_strength
             for r in relations
         ]
 
+        if include_orphans and not capture_id:
+            capture_ids_in_graph = set()
+            for n in nodes:
+                if n["type"] == "capture":
+                    capture_ids_in_graph.add(n["id"])
+            all_captures = conn.execute("SELECT id, source_title, capture_type FROM captures ORDER BY saved_at DESC").fetchall()
+            for ac in all_captures:
+                if ac["id"] not in capture_ids_in_graph:
+                    nodes.append({
+                        "id": ac["id"],
+                        "label": ac["source_title"] or ac["id"][:12],
+                        "type": "capture",
+                        "subtype": ac["capture_type"] or "",
+                        "orphan": True,
+                    })
+
         return {"nodes": nodes, "edges": edges}
+    finally:
+        conn.close()
+
+
+def update_relation_type(
+    user_id: str, relation_id: str, new_type: str, context: str = ""
+):
+    """Update the relation_type (and optionally context) of an existing relation."""
+    conn = get_db(user_id)
+    try:
+        existing = conn.execute(
+            "SELECT id FROM relations WHERE id=?", (relation_id,)
+        ).fetchone()
+        if not existing:
+            logger.warning("Relation %s not found — cannot update type", relation_id)
+            return False
+        if context:
+            conn.execute(
+                "UPDATE relations SET relation_type=?, context=?, updated_at=? WHERE id=?",
+                (new_type, context, datetime.now(timezone.utc).isoformat(), relation_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE relations SET relation_type=?, updated_at=? WHERE id=?",
+                (new_type, datetime.now(timezone.utc).isoformat(), relation_id),
+            )
+        conn.commit()
+        return True
     finally:
         conn.close()
 
@@ -1127,5 +1196,47 @@ def delete_relations_for_entity(user_id: str, entity_id: str):
             (entity_id, entity_id),
         )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def delete_relation_by_id(user_id: str, relation_id: str):
+    """Delete a single relation by its ID."""
+    conn = get_db(user_id)
+    try:
+        conn.execute("DELETE FROM relations WHERE id=?", (relation_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def add_rejected_relation(user_id: str, source_id: str, target_id: str):
+    """Add a pair to the rejected_relations table (bidirectional — (a,b) and (b,a) both stored)."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    conn = get_db(user_id)
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO rejected_relations (source_id, target_id, created_at) VALUES (?,?,?)",
+            (source_id, target_id, now),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO rejected_relations (source_id, target_id, created_at) VALUES (?,?,?)",
+            (target_id, source_id, now),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def is_relation_rejected(user_id: str, source_id: str, target_id: str) -> bool:
+    """Check if a relation pair has been rejected by AI."""
+    conn = get_db(user_id)
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM rejected_relations WHERE source_id=? AND target_id=?",
+            (source_id, target_id),
+        ).fetchone()
+        return row is not None
     finally:
         conn.close()

@@ -207,7 +207,8 @@
   white-space: nowrap;
   flex-shrink: 0;
 }
-.badge-related_to { background: #21262d; color: #94a3b8; border: 1px solid var(--border); }
+.badge-related { background: #21262d; color: #64748b; border: 1px solid var(--border); }
+.badge-related_to { background: #334155; color: #94a3b8; border: 1px solid var(--border); }
 .badge-references { background: #1f6feb; color: #fff; }
 .badge-depends_on { background: #da3633; color: #fff; }
 .badge-implements { background: #8250df; color: #fff; }

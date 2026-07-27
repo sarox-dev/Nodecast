@@ -563,6 +563,8 @@ window.addEventListener('DOMContentLoaded', async () => {
         html += '<div class="settings-list" style="gap:0.4rem">';
         html += `<button id="ai-process-unprocessed" class="modal-btn modal-btn-primary" type="button" style="padding:0.4rem 0.75rem;font-size:0.82rem">Process unprocessed captures</button>`;
         html += `<button id="ai-regenerate-all" class="modal-btn" type="button" style="padding:0.4rem 0.75rem;font-size:0.82rem;background:var(--danger,#f87171);color:#fff;border:none">Regenerate all data (⚠ destructive)</button>`;
+        html += `<button id="ai-discover-relations-all" class="modal-btn modal-btn-primary" type="button" style="padding:0.4rem 0.75rem;font-size:0.82rem">🔍 Find relations for all captures</button>`;
+        html += `<button id="ai-type-relations-all" class="modal-btn modal-btn-primary" type="button" style="padding:0.4rem 0.75rem;font-size:0.82rem">🏷️ Type All Relations (AI)</button>`;
         html += '<span id="ai-bulk-status" class="note-status" style="margin-top:0.4rem" hidden></span>';
 
         // Auto-process slider — saves to server
@@ -730,6 +732,90 @@ window.addEventListener('DOMContentLoaded', async () => {
                 status.style.color = '#f87171';
                 status.hidden = false;
                 this.textContent = 'Regenerate all data (⚠ destructive)';
+                this.disabled = false;
+            }
+        });
+
+        // ─── Discover Relations for All ──────────────────────────
+        document.getElementById('ai-discover-relations-all')?.addEventListener('click', async function () {
+            this.disabled = true;
+            this.textContent = '⏳ Discovering...';
+            const status = document.getElementById('ai-bulk-status');
+            status.hidden = true;
+            try {
+                const r = await fetch('/api/ai/discover-relations-all', { method: 'POST' });
+                const d = await r.json();
+                if (d.status === 'started') {
+                    this.textContent = '⏳ Discovering...';
+                    status.textContent = 'Discovering relations in background — see progress bar above';
+                    status.style.color = 'var(--text-dim)';
+                    status.hidden = false;
+                    pollBatchProgress((finalStatus) => {
+                        this.textContent = '🔍 Find relations for all captures';
+                        this.disabled = false;
+                        status.textContent = `Done: ${finalStatus.processed || 0} processed, ${finalStatus.errors || 0} errors (of ${finalStatus.total || 0} total)`;
+                        status.style.color = (finalStatus.errors || 0) > 0 ? '#f87171' : '#22c55e';
+                    });
+                } else if (d.status === 'already_running') {
+                    this.textContent = '🔍 Find relations for all captures';
+                    this.disabled = false;
+                    status.textContent = d.message || 'Already running';
+                    status.style.color = '#fbbf24';
+                    status.hidden = false;
+                } else {
+                    this.textContent = '🔍 Find relations for all captures';
+                    this.disabled = false;
+                    status.textContent = d.message || 'Done';
+                    status.style.color = '#22c55e';
+                    status.hidden = false;
+                }
+            } catch {
+                status.textContent = 'Error running find relations';
+                status.style.color = '#f87171';
+                status.hidden = false;
+                this.textContent = '🔍 Find relations for all captures';
+                this.disabled = false;
+            }
+        });
+
+        // ─── Type All Relations ─────────────────────────────────
+        document.getElementById('ai-type-relations-all')?.addEventListener('click', async function () {
+            this.disabled = true;
+            this.textContent = '⏳ Typing...';
+            const status = document.getElementById('ai-bulk-status');
+            status.hidden = true;
+            try {
+                const r = await fetch('/api/ai/type-relations-all', { method: 'POST' });
+                const d = await r.json();
+                if (d.status === 'started') {
+                    this.textContent = '⏳ Typing...';
+                    status.textContent = 'Typing relations in background — see progress bar above';
+                    status.style.color = 'var(--text-dim)';
+                    status.hidden = false;
+                    pollBatchProgress((finalStatus) => {
+                        this.textContent = '🏷️ Type All Relations (AI)';
+                        this.disabled = false;
+                        status.textContent = `Done: ${finalStatus.processed || 0} processed, ${finalStatus.errors || 0} errors (of ${finalStatus.total || 0} total)`;
+                        status.style.color = (finalStatus.errors || 0) > 0 ? '#f87171' : '#22c55e';
+                    });
+                } else if (d.status === 'already_running') {
+                    this.textContent = '🏷️ Type All Relations (AI)';
+                    this.disabled = false;
+                    status.textContent = d.message || 'Already running';
+                    status.style.color = '#fbbf24';
+                    status.hidden = false;
+                } else {
+                    this.textContent = '🏷️ Type All Relations (AI)';
+                    this.disabled = false;
+                    status.textContent = d.message || 'Done';
+                    status.style.color = '#22c55e';
+                    status.hidden = false;
+                }
+            } catch {
+                status.textContent = 'Error running type relations';
+                status.style.color = '#f87171';
+                status.hidden = false;
+                this.textContent = '🏷️ Type All Relations (AI)';
                 this.disabled = false;
             }
         });
@@ -1383,9 +1469,14 @@ window.addEventListener('DOMContentLoaded', async () => {
         const empty = document.getElementById('graph-empty');
         loading.hidden = false;
         empty.hidden = true;
+        if (graphSimulation) {
+            graphSimulation.stop();
+            graphSimulation = null;
+        }
         container.innerHTML = '';
         try {
-            const r = await fetch('/api/ai/relation-graph?limit=200');
+            const showOrphans = document.getElementById('graph-show-orphans')?.checked || false;
+            const r = await fetch(`/api/ai/relation-graph?limit=200&include_orphans=${showOrphans}`);
             const data = await r.json();
             loading.hidden = true;
             if (!data.nodes || data.nodes.length === 0) {
@@ -1407,58 +1498,165 @@ window.addEventListener('DOMContentLoaded', async () => {
 
         const g = svg.append('g');
 
+        let currentZoom = 1;
+        let animDur = _transitionDuration();
+
         svg.call(d3.zoom().scaleExtent([0.1, 4]).on('zoom', (e) => {
             g.attr('transform', e.transform);
+            currentZoom = e.transform.k;
+            refreshLinkOpacity();
         }));
 
         const nodes = data.nodes.map(n => ({ ...n }));
         const nodeMap = {};
         nodes.forEach(n => nodeMap[n.id] = n);
 
-        const edges = data.edges.map(e => ({
+        const links = data.edges.map(e => ({
             source: e.source_id,
             target: e.target_id,
             relation_type: e.relation_type,
             strength: e.strength || 0.5,
         })).filter(e => nodeMap[e.source] && nodeMap[e.target]);
 
-        const color = d => d.type === 'capture' ? '#60a5fa' : '#22c55e';
+        const TYPE_COLORS = {
+            related: { stroke: '#475569', text: '#94a3b8' },
+            related_to: { stroke: '#64748b', text: '#94a3b8' },
+            references: { stroke: '#1f6feb', text: '#60a5fa' },
+            depends_on: { stroke: '#da3633', text: '#f87171' },
+            implements: { stroke: '#8250df', text: '#a78bfa' },
+            supports: { stroke: '#238636', text: '#4ade80' },
+            contradicts: { stroke: '#da3633', text: '#f87171' },
+            part_of: { stroke: '#9e6a03', text: '#fbbf24' },
+            similar_to: { stroke: '#d29922', text: '#fbbf24' },
+            version_of: { stroke: '#238636', text: '#4ade80' },
+        };
+        const TYPE_ORDER = [
+            'related', 'related_to', 'depends_on', 'implements', 'references',
+            'supports', 'contradicts', 'part_of', 'similar_to', 'version_of',
+        ];
+        links.sort((a, b) => TYPE_ORDER.indexOf(a.relation_type) - TYPE_ORDER.indexOf(b.relation_type));
 
-        const link = g.append('g').selectAll('line')
-            .data(edges).join('line')
-            .attr('stroke', '#2a2a4a')
-            .attr('stroke-width', d => Math.max(1, (d.strength || 0.5) * 4))
-            .attr('stroke-opacity', 0.4);
+        const defaultColors = { stroke: '#475569', text: '#94a3b8' };
 
-        const linkLabel = g.append('g').selectAll('text')
-            .data(edges).join('text')
-            .text(d => d.relation_type)
-            .attr('class', 'edge-label')
-            .attr('font-size', '9px')
-            .attr('fill', '#94a3b8')
-            .attr('text-anchor', 'middle')
-            .attr('visibility', 'hidden');
+        // ─── Multi-edge bundling ─────────────────────────────────
+        const linkBundle = new Map();
+        links.forEach((l, idx) => {
+            l._idx = idx;
+            const key = l.source < l.target ? `${l.source}|${l.target}` : `${l.target}|${l.source}`;
+            if (!linkBundle.has(key)) linkBundle.set(key, []);
+            linkBundle.get(key).push(l);
+        });
 
-        let currentZoom = 1;
-        const ZOOM_THRESHOLD = 1.5;
+        links.forEach(l => {
+            const key = l.source < l.target ? `${l.source}|${l.target}` : `${l.target}|${l.source}`;
+            const bundle = linkBundle.get(key);
+            l._bundleSize = bundle.length;
+            l._bundleIdx = bundle.indexOf(l);
+        });
 
-        function refreshEdgeLabels() {
-            linkLabel.attr('visibility', 'hidden');
-            if (currentZoom >= ZOOM_THRESHOLD) {
-                linkLabel.attr('visibility', null);
-            }
+        // ─── Path generator ──────────────────────────────────────
+        function getCurvature() {
+            return Number(document.getElementById('graph-curvature')?.value || 30);
         }
 
-        // Zoom handler
-        svg.call(d3.zoom().scaleExtent([0.1, 4]).on('zoom', (e) => {
-            g.attr('transform', e.transform);
-            currentZoom = e.transform.k;
-            refreshEdgeLabels();
-        }));
+        function computePath(src, tgt, bundleIdx, bundleSize) {
+            const dx = tgt.x - src.x;
+            const dy = tgt.y - src.y;
+            const len = Math.sqrt(dx * dx + dy * dy);
+            if (len < 1) return { d: `M${src.x},${src.y}L${tgt.x},${tgt.y}`, cp: null };
 
+            const nx = -dy / len;
+            const ny = dx / len;
+            const curv = getCurvature() / 100;
+            const totalOff = (bundleSize - 1) * 0.5;
+            const sign = bundleIdx - totalOff;
+            const offset = sign * curv * 30;
+
+            if (Math.abs(offset) < 0.5) {
+                return { d: `M${src.x},${src.y}L${tgt.x},${tgt.y}`, cp: null, tParam: 0.25 + curv * 0.25 };
+            }
+
+            const mx = (src.x + tgt.x) / 2 + nx * offset;
+            const my = (src.y + tgt.y) / 2 + ny * offset;
+            return {
+                d: `M${src.x},${src.y}Q${mx},${my},${tgt.x},${tgt.y}`,
+                cp: { x: mx, y: my },
+                tParam: 0.25 + curv * 0.25,
+            };
+        }
+
+        function getPointOnQuad(p0, p1, p2, t) {
+            const mt = 1 - t;
+            return {
+                x: mt * mt * p0.x + 2 * mt * t * p1.x + t * t * p2.x,
+                y: mt * mt * p0.y + 2 * mt * t * p1.y + t * t * p2.y,
+            };
+        }
+
+        // ─── Link rendering ──────────────────────────────────────
+        const linkPath = g.append('g').selectAll('path')
+            .data(links).join('path')
+            .attr('fill', 'none')
+            .attr('stroke', d => (TYPE_COLORS[d.relation_type] || defaultColors).stroke)
+            .attr('stroke-width', d => Math.max(1.5, (d.strength || 0.5) * 4))
+            .attr('stroke-opacity', 0.4)
+            .style('transition', `stroke-opacity ${animDur}s ease`);
+
+        const linkFlow = g.append('g').selectAll('path')
+            .data(links).join('path')
+            .attr('fill', 'none')
+            .attr('stroke', d => (TYPE_COLORS[d.relation_type] || defaultColors).text)
+            .attr('stroke-width', d => Math.max(1, (d.strength || 0.5) * 2))
+            .attr('stroke-dasharray', '2 10')
+            .attr('stroke-opacity', 0.3)
+            .style('transition', `stroke-opacity ${animDur}s ease`);
+
+        const linkLabel = g.append('g').selectAll('text')
+            .data(links).join('text')
+            .text(d => d.relation_type)
+            .attr('class', 'link-label')
+            .attr('font-size', '10px')
+            .attr('fill', d => (TYPE_COLORS[d.relation_type] || defaultColors).text)
+            .attr('text-anchor', 'middle')
+            .attr('font-weight', '500')
+            .style('transition', `opacity ${animDur}s ease`);
+
+        function refreshLinkOpacity() {
+            const base = Math.min(1, Math.max(0.25, (currentZoom - 0.1) / 1.5));
+            linkPath.attr('stroke-opacity', 0.15 + base * 0.45);
+            linkFlow.attr('stroke-opacity', 0.1 + base * 0.3);
+            linkLabel.attr('opacity', 0.1 + base * 0.6);
+        }
+        refreshLinkOpacity();
+
+        // ─── Flow animation ──────────────────────────────────────
+        function _transitionDuration() {
+            const spd = settingsState.animationSpeed || 'fast';
+            if (spd === 'instant') return 0;
+            if (spd === 'fast') return 0.2;
+            if (spd === 'slow') return 1;
+            return 0.5;
+        }
+
+        function flowAnimationSpeed() {
+            const spd = settingsState.animationSpeed || 'fast';
+            if (spd === 'instant') return 0;
+            if (spd === 'fast') return 2;
+            if (spd === 'slow') return 5;
+            return 3;
+        }
+
+        (function animateFlow() {
+            const dur = flowAnimationSpeed();
+            if (dur <= 0) return;
+            linkFlow.style('animation', `link-flow ${dur}s linear infinite`);
+        })();
+
+        // ─── Nodes ───────────────────────────────────────────────
         const node = g.append('g').selectAll('g')
             .data(nodes).join('g')
             .style('cursor', 'pointer')
+            .style('transition', `opacity ${animDur}s ease`)
             .call(d3.drag()
                 .on('start', (e, d) => {
                     graphSimulation?.alphaTarget(0.3).restart();
@@ -1472,17 +1670,17 @@ window.addEventListener('DOMContentLoaded', async () => {
             );
 
         node.append('circle')
-            .attr('r', d => d.type === 'capture' ? 8 : 6)
-            .attr('fill', color)
+            .attr('r', d => d.orphan ? 5 : (d.type === 'capture' ? 8 : 6))
+            .attr('fill', d => d.orphan ? '#334155' : (d.type === 'capture' ? '#60a5fa' : '#22c55e'))
             .attr('stroke', '#1a1a2e')
-            .attr('stroke-width', 2);
+            .attr('stroke-width', d => d.orphan ? 1 : 2);
 
         node.append('text')
             .text(d => d.label.length > 30 ? d.label.slice(0, 30) + '...' : d.label)
             .attr('dx', d => d.type === 'capture' ? 12 : 8)
             .attr('dy', 4)
-            .attr('font-size', '11px')
-            .attr('fill', '#e2e8f0')
+            .attr('font-size', d => d.orphan ? '9px' : '11px')
+            .attr('fill', d => d.orphan ? '#64748b' : '#e2e8f0')
             .attr('pointer-events', 'none');
 
         node.on('click', (e, d) => {
@@ -1494,39 +1692,121 @@ window.addEventListener('DOMContentLoaded', async () => {
         node.append('title')
             .text(d => `${d.label} (${d.type}${d.subtype ? ': ' + d.subtype : ''})`);
 
-        // Build edge index per node for hover lookup
-        const nodeEdges = {};
-        edges.forEach((e, i) => {
-            const sid = typeof e.source === 'object' ? e.source.id : e.source;
-            const tid = typeof e.target === 'object' ? e.target.id : e.target;
-            (nodeEdges[sid] = nodeEdges[sid] || []).push(i);
-            (nodeEdges[tid] = nodeEdges[tid] || []).push(i);
-        });
-
-        function showEdgeLabels(indices) {
-            linkLabel.attr('visibility', (_, i) => indices.includes(i) ? null : 'hidden');
+        // ─── Distance-based opacity ──────────────────────────────
+        function setLinkProximity(mx, my) {
+            const maxDist = Math.max(width, height) * 0.5;
+            links.forEach((l, i) => {
+                const sx = typeof l.source === 'object' ? l.source.x : 0;
+                const sy = typeof l.source === 'object' ? l.source.y : 0;
+                const tx = typeof l.target === 'object' ? l.target.x : 0;
+                const ty = typeof l.target === 'object' ? l.target.y : 0;
+                const cx = (sx + tx) / 2;
+                const cy = (sy + ty) / 2;
+                const d = Math.sqrt((mx - cx) ** 2 + (my - cy) ** 2);
+                const t = Math.min(1, d / maxDist);
+                const op = Math.max(0.02, 1 - t * t);
+                linkPath.filter((_, j) => j === i).attr('stroke-opacity', 0.15 + op * 0.6);
+                linkFlow.filter((_, j) => j === i).attr('stroke-opacity', 0.1 + op * 0.4);
+                linkLabel.filter((_, j) => j === i).attr('opacity', Math.max(0.02, op * 0.7));
+            });
+            node.attr('opacity', 1);
         }
 
-        function hideEdgeLabels() {
-            refreshEdgeLabels();
+        svg.on('mousemove', (e) => {
+            if (_hoverActive) return;
+            const [mx, my] = d3.pointer(e, g.node());
+            setLinkProximity(mx, my);
+        });
+        svg.on('mouseleave', () => {
+            if (_hoverActive) return;
+            refreshLinkOpacity();
+            node.attr('opacity', 1);
+        });
+
+        // ─── Hover ───────────────────────────────────────────────
+        let _hoverActive = false;
+
+        function dimAll() {
+            linkPath.attr('stroke-opacity', 0.04);
+            linkFlow.attr('stroke-opacity', 0.02);
+            linkLabel.attr('opacity', 0.02);
+            node.attr('opacity', 0.08);
+        }
+
+        function restoreOnLeave() {
+            _hoverActive = false;
+            refreshLinkOpacity();
+            node.attr('opacity', 1);
+        }
+
+        const nodeLinks = {};
+        links.forEach((l, i) => {
+            const sid = typeof l.source === 'object' ? l.source.id : l.source;
+            const tid = typeof l.target === 'object' ? l.target.id : l.target;
+            (nodeLinks[sid] = nodeLinks[sid] || []).push(i);
+            (nodeLinks[tid] = nodeLinks[tid] || []).push(i);
+        });
+
+        function applyHover(indices) {
+            const activeIds = new Set();
+            indices.forEach(i => {
+                const l = links[i];
+                const sid = typeof l.source === 'object' ? l.source.id : l.source;
+                const tid = typeof l.target === 'object' ? l.target.id : l.target;
+                activeIds.add(sid);
+                activeIds.add(tid);
+                linkPath.filter((_, j) => j === i).attr('stroke-opacity', 0.75);
+                linkFlow.filter((_, j) => j === i).attr('stroke-opacity', 0.5);
+                linkLabel.filter((_, j) => j === i).attr('opacity', 1);
+            });
+            node.filter(n => activeIds.has(n.id)).attr('opacity', 1);
         }
 
         node.on('mouseenter', (e, d) => {
-            const indices = nodeEdges[d.id] || [];
-            showEdgeLabels(indices);
+            _hoverActive = true;
+            dimAll();
+            applyHover(nodeLinks[d.id] || []);
         });
-        node.on('mouseleave', () => hideEdgeLabels());
+        node.on('mouseleave', restoreOnLeave);
 
-        link.on('mouseenter', (e, d) => {
-            const i = edges.indexOf(d);
-            showEdgeLabels([i]);
+        linkPath.on('mouseenter', (e, d) => {
+            _hoverActive = true;
+            dimAll();
+            applyHover([d._idx]);
         });
-        link.on('mouseleave', () => hideEdgeLabels());
+        linkPath.on('mouseleave', restoreOnLeave);
 
+        linkFlow.on('mouseenter', (e, d) => {
+            _hoverActive = true;
+            dimAll();
+            applyHover([d._idx]);
+        });
+        linkFlow.on('mouseleave', restoreOnLeave);
+
+        // ─── Simulation ──────────────────────────────────────────
         function readGraphSettings() {
             const s = Number(document.getElementById('graph-spacing')?.value || 5);
             const g = Number(document.getElementById('graph-gravity')?.value || 3);
             return { spacing: s, gravity: g };
+        }
+
+        function rebuildCurves() {
+            links.forEach(l => {
+                const src = typeof l.source === 'object' ? l.source : nodeMap[l.source];
+                const tgt = typeof l.target === 'object' ? l.target : nodeMap[l.target];
+                if (!src || !tgt) return;
+                const pathData = computePath(src, tgt, l._bundleIdx, l._bundleSize);
+                linkPath.filter((_, i) => i === l._idx).attr('d', pathData.d);
+                linkFlow.filter((_, i) => i === l._idx).attr('d', pathData.d);
+                if (pathData.cp) {
+                    const p = getPointOnQuad(src, pathData.cp, tgt, pathData.tParam);
+                    linkLabel.filter((_, i) => i === l._idx).attr('x', p.x).attr('y', p.y);
+                } else {
+                    const mx = (src.x + tgt.x) / 2;
+                    const my = (src.y + tgt.y) / 2;
+                    linkLabel.filter((_, i) => i === l._idx).attr('x', mx).attr('y', my);
+                }
+            });
         }
 
         function buildSimFromSettings() {
@@ -1542,7 +1822,7 @@ window.addEventListener('DOMContentLoaded', async () => {
                 graphSimulation.alpha(1).restart();
             } else {
                 graphSimulation = d3.forceSimulation(nodes)
-                    .force('link', d3.forceLink(edges).id(d => d.id).distance(30 * s).strength(0.3))
+                    .force('link', d3.forceLink(links).id(d => d.id).distance(30 * s).strength(0.3))
                     .force('charge', d3.forceManyBody().strength(-50 * s))
                     .force('center', d3.forceCenter(width / 2, height / 2))
                     .force('collision', d3.forceCollide().radius(10 + s * 4))
@@ -1550,10 +1830,7 @@ window.addEventListener('DOMContentLoaded', async () => {
                     .force('y', d3.forceY(height / 2).strength(g));
 
                 graphSimulation.on('tick', () => {
-                    link.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
-                        .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
-                    linkLabel.attr('x', d => (d.source.x + d.target.x) / 2)
-                        .attr('y', d => (d.source.y + d.target.y) / 2);
+                    rebuildCurves();
                     node.attr('transform', d => `translate(${d.x},${d.y})`);
                 });
 
@@ -1567,17 +1844,21 @@ window.addEventListener('DOMContentLoaded', async () => {
         const spacingVal = document.getElementById('graph-spacing-val');
         const gravitySlider = document.getElementById('graph-gravity');
         const gravityVal = document.getElementById('graph-gravity-val');
+        const curvatureSlider = document.getElementById('graph-curvature');
+        const curvatureVal = document.getElementById('graph-curvature-val');
 
-        function wireSlider(slider, valDisplay) {
+        function wireSlider(slider, valDisplay, onChange) {
             if (slider) {
                 slider.addEventListener('input', () => {
                     if (valDisplay) valDisplay.textContent = slider.value;
-                    buildSimFromSettings();
+                    if (onChange) onChange();
+                    else buildSimFromSettings();
                 });
             }
         }
         wireSlider(spacingSlider, spacingVal);
         wireSlider(gravitySlider, gravityVal);
+        wireSlider(curvatureSlider, curvatureVal, rebuildCurves);
 
         // Hamburger menu toggle
         const settingsBtn = document.getElementById('graph-settings-btn');
@@ -1974,6 +2255,9 @@ window.addEventListener('DOMContentLoaded', async () => {
 document.getElementById('sidebar-library-nav')?.addEventListener('click', () => setWebMode(false));
 document.getElementById('sidebar-web-nav')?.addEventListener('click', () => setWebMode(true));
 document.getElementById('sidebar-graph-nav')?.addEventListener('click', () => setGraphMode());
+document.getElementById('graph-show-orphans')?.addEventListener('change', () => {
+    if (graphMode) setTimeout(loadGraph, 100);
+});
 
     const observer = new IntersectionObserver((entries) => {
         if (entries[0].isIntersecting && !loading && hasMore && currentQuery && settingsState.autoLoad !== false) {

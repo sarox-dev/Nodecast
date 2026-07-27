@@ -6,30 +6,33 @@ Uses Jaccard similarity to find related captures and creates `related_to`
 relations with strength = combined_score. Also discovers entity↔entity
 connections via shared captures.
 
-Stage 2 (AI connection typing) will be added separately.
+After Stage 1, runs Stage 2 (AI connection typing) if the user has
+a provider configured for relation_typing.
 """
 
 import json
 import logging
-from datetime import datetime, timezone
 
 from app.services.database import (
     get_db,
     insert_relation,
     delete_relations_for_capture,
     RELATION_TYPES,
+    get_ai_assignment_for_feature,
+    is_relation_rejected,
 )
 
 logger = logging.getLogger(__name__)
 
 FEATURE_RELATION_DISCOVERY = "relation_discovery"
+FEATURE_RELATION_TYPING = "relation_typing"
 
 # ─── Scoring constants ──────────────────────────────────────────────
 
 TAG_WEIGHT = 0.3
 ENTITY_WEIGHT = 0.7
 MAX_CANDIDATES = 25
-MIN_STRENGTH = 0.01  # any overlap at all
+MIN_STRENGTH = 0.05
 
 # ─── Helpers ────────────────────────────────────────────────────────
 
@@ -122,6 +125,8 @@ def find_relation_candidates(
     for cid in all_ids:
         if cid == capture_id:
             continue
+        if is_relation_rejected(user_id, capture_id, cid):
+            continue
 
         target_tags = _get_capture_tags(user_id, cid)
         target_entities = _get_capture_entity_names(user_id, cid)
@@ -202,7 +207,7 @@ def discover_entity_relations(user_id: str) -> int:
                 source_id=e1,
                 target_type="entity",
                 target_id=e2,
-                relation_type="related_to",
+                relation_type="related",
                 strength=strength,
                 context=context,
             )
@@ -214,28 +219,53 @@ def discover_entity_relations(user_id: str) -> int:
 # ─── Main discover function ─────────────────────────────────────────
 
 
-def discover_relations(user_id: str, capture_id: str) -> dict:
-    """Run Stage 1 deterministic relation discovery for a single capture.
+def discover_relations_stage1(user_id: str, capture_id: str) -> dict:
+    """Stage 1 only: Jaccard-based candidate discovery, NO AI typing.
+    Preserves existing typed relations (non-related) — only replaces `related` ones.
+    Skips pairs that were previously rejected by AI."""
+    conn = get_db(user_id)
+    try:
+        existing_typed = {
+            r["target_id"]: {
+                "relation_type": r["relation_type"],
+                "target_type": r["target_type"],
+                "context": "",
+                "strength": 0.5,
+            }
+            for r in conn.execute(
+                """SELECT target_type, target_id, relation_type, context, strength FROM relations
+                   WHERE (source_type='capture' AND source_id=?)
+                     AND relation_type NOT IN ('related', 'related_to')""",
+                (capture_id,),
+            ).fetchall()
+        }
+    finally:
+        conn.close()
 
-    Steps:
-    1. Find top candidates by shared tags/entities
-    2. Insert related_to relations for each candidate
-    3. (Optionally) run entity↔entity discovery (heavy, done separately)
-
-    Returns dict with status and count.
-    """
-    # Clear old relations involving this capture (they'll be replaced)
     delete_relations_for_capture(user_id, capture_id)
 
-    # Find candidates
+    if existing_typed:
+        conn2 = get_db(user_id)
+        try:
+            for tid, info in existing_typed.items():
+                insert_relation(
+                    user_id=user_id,
+                    source_type="capture",
+                    source_id=capture_id,
+                    target_type=info["target_type"],
+                    target_id=tid,
+                    relation_type=info["relation_type"],
+                    strength=info["strength"],
+                    context=info["context"],
+                )
+        finally:
+            conn2.close()
+
     candidates = find_relation_candidates(user_id, capture_id)
     if not candidates:
-        logger.info(
-            "No candidates found for capture %s", capture_id
-        )
+        logger.info("No candidates found for capture %s", capture_id)
         return {"status": "success", "candidate_count": 0, "relations_created": 0}
 
-    # For each candidate capture, also look up its title for context
     conn = get_db(user_id)
     try:
         title_map = {
@@ -252,14 +282,16 @@ def discover_relations(user_id: str, capture_id: str) -> dict:
 
     created = 0
     for cid, score, shared_tags, shared_entities in candidates:
-        # Build a meaningful context string
+        if cid in existing_typed:
+            continue
+        if is_relation_rejected(user_id, capture_id, cid):
+            continue
         context_parts = []
         if shared_tags:
             context_parts.append(f"shared tags: {', '.join(sorted(shared_tags)[:5])}")
         if shared_entities:
             context_parts.append(f"shared entities: {', '.join(sorted(shared_entities)[:5])}")
 
-        # Also show the other capture's title for context
         other_title = title_map.get(cid, "")
         context = f"Related to \"{other_title}\". " if other_title else ""
         context += "; ".join(context_parts)
@@ -270,22 +302,46 @@ def discover_relations(user_id: str, capture_id: str) -> dict:
             source_id=capture_id,
             target_type="capture",
             target_id=cid,
-            relation_type="related_to",
+            relation_type="related",
             strength=round(score, 4),
             context=context,
         )
         created += 1
 
     logger.info(
-        "Discovered %d relations for capture %s (%d candidates evaluated)",
+        "Stage 1: %d new relations for capture %s (%d typed preserved)",
         created,
         capture_id,
-        len(candidates),
+        len(existing_typed),
     )
 
     return {
         "status": "success",
         "candidate_count": len(candidates),
         "relations_created": created,
+        "typed_preserved": len(existing_typed),
         "capture_id": capture_id,
     }
+
+
+def discover_relations(user_id: str, capture_id: str) -> dict:
+    """Run Stage 1 + auto-trigger Stage 2 AI typing if configured."""
+    result = discover_relations_stage1(user_id, capture_id)
+    created = result.get("relations_created", 0)
+
+    if created > 0:
+        try:
+            assignment = get_ai_assignment_for_feature(user_id, FEATURE_RELATION_TYPING)
+            if assignment:
+                from app.services.ai_relation_typing import type_relations_for_capture
+                typing_result = type_relations_for_capture(user_id, capture_id)
+                typed_count = typing_result.get("typed", 0)
+                result["relations_typed"] = typed_count
+                logger.info(
+                    "Stage 2: %d/%d relations typed for %s",
+                    typed_count, created, capture_id,
+                )
+        except Exception as exc:
+            logger.warning("Stage 2 typing failed for %s: %s", capture_id, exc)
+
+    return result
