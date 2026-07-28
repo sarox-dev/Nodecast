@@ -1,3 +1,8 @@
+## v1.2.2 (2026-07-28)
+
+- feat: auto-updater system + entity toggle + health endpoint (5693072)
+
+
 ## v1.2.2 (2026-07-27)
 
 - feat: auto-updater system (cron/Scheduled Task + /api/server/health endpoint)
