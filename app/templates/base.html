@@ -159,7 +159,14 @@
                       <input type="checkbox" id="graph-show-orphans" />
                       <span class="toggle-slider"></span>
                     </label>
-                    <span style="font-size:0.78rem;color:var(--text-secondary)">Show isolated captures</span>
+                    <span style="font-size:0.78rem;color:var(--text-secondary)">Show orphan captures</span>
+                  </label>
+                  <label class="graph-popup-row" style="flex-direction:row;align-items:center;gap:0.5rem;margin-top:0.3rem">
+                    <label class="toggle" style="margin:0">
+                      <input type="checkbox" id="graph-show-entities" />
+                      <span class="toggle-slider"></span>
+                    </label>
+                    <span style="font-size:0.78rem;color:var(--text-secondary)">Show entity nodes</span>
                   </label>
                 </div>
               </div>
@@ -172,6 +179,9 @@
               <p>No relations found. Save more captures with shared tags or entities to build a graph.</p>
             </div>
             <div id="graph-container" class="graph-container"></div>
+            <div id="graph-stats" class="graph-stats" hidden>
+              <span id="graph-stats-text"></span>
+            </div>
           </div>
         </main>
 

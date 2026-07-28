@@ -86,7 +86,7 @@ import os
 
 def _load_version() -> dict:
     try:
-        vp = os.path.join(os.path.dirname(__file__), "..", "version.json")
+        vp = os.path.join(os.path.dirname(__file__), "version.json")
         with open(vp) as f:
             return json.load(f)
     except Exception:
@@ -136,3 +136,52 @@ def install_update():
         "windows": "irm https://github.com/sarox-dev/Nodecast/releases/latest/download/install.ps1 | iex",
         "message": "Run the appropriate command in your terminal to update Nodecast.",
     }
+
+
+@app.get("/api/server/health")
+def server_health():
+    from app.services.ai_batch import get_batch_status
+    from app.services.database import get_global_setting, count_active_sessions, user_count, get_users_db
+
+    auto_update = get_global_setting("auto_update", "false") == "true"
+    active_sessions = count_active_sessions()
+    ai_running = False
+    if user_count() > 0:
+        try:
+            conn = get_users_db()
+            try:
+                user_ids = [r["id"] for r in conn.execute("SELECT id FROM users").fetchall()]
+            finally:
+                conn.close()
+            for uid in user_ids:
+                status = get_batch_status(uid)
+                if status.get("running"):
+                    ai_running = True
+                    break
+        except Exception:
+            pass
+
+    return {
+        "version": CURRENT_VERSION,
+        "build_date": BUILD_DATE,
+        "active_sessions": active_sessions,
+        "ai_running": ai_running,
+        "auto_update_enabled": auto_update,
+        "can_update": not ai_running and active_sessions == 0 and auto_update,
+    }
+
+
+@app.get("/api/server/settings")
+def get_server_settings():
+    from app.services.database import get_global_setting
+    return {
+        "auto_update": get_global_setting("auto_update", "false") == "true",
+    }
+
+
+@app.put("/api/server/settings")
+def set_server_settings(body: dict):
+    from app.services.database import set_global_setting
+    if "auto_update" in body:
+        set_global_setting("auto_update", "true" if body["auto_update"] else "false")
+    return {"status": "ok"}

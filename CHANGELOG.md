@@ -1,3 +1,15 @@
+## v1.2.2 (2026-07-27)
+
+- feat: auto-updater system (cron/Scheduled Task + /api/server/health endpoint)
+- feat: include_entity_relations toggle in graph settings (show/hide entity nodes)
+- fix: version.json moved to app/ for hot-reload
+- fix: graph hamburger menu registered once (no more stale after reload)
+- fix: type-relations-all queries 'related' in addition to 'related_to'
+- fix: graph stats node count at bottom
+- fix: graph shows orphan captures as dimmed simulation nodes
+- fix: .env removed from git tracking
+- chore: autoUpdate setting saved to server DB, not just localStorage
+
 ## v1.2.1 (2026-07-27)
 
 - feat: AI connection typing (Stage 2) + graph overhaul (dbfb0c4)

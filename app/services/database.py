@@ -32,6 +32,10 @@ def _init_users_schema(conn):
             is_admin INTEGER DEFAULT 0,
             created_at TEXT DEFAULT ''
         );
+        CREATE TABLE IF NOT EXISTS global_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL DEFAULT ''
+        );
     """)
     try:
         conn.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0")
@@ -812,6 +816,33 @@ def set_user_setting(user_id: str, key: str, value: str):
         conn.close()
 
 
+def get_global_setting(key: str, default: str = "") -> str:
+    conn = get_users_db()
+    try:
+        row = conn.execute(
+            "SELECT value FROM global_settings WHERE key=?", (key,)
+        ).fetchone()
+        return row["value"] if row else default
+    finally:
+        conn.close()
+
+
+def set_global_setting(key: str, value: str):
+    conn = get_users_db()
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO global_settings (key, value) VALUES (?,?)",
+            (key, value),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def count_active_sessions(timeout_minutes: int = 5) -> int:
+    return 0
+
+
 def list_captures_without_ai_data(user_id: str) -> list[dict]:
     """Find captures that are missing AI processing for configured features.
     
@@ -1053,7 +1084,7 @@ def get_relations_for_entity(user_id: str, entity_id: str, min_strength: float =
         conn.close()
 
 
-def get_relation_graph(user_id: str, capture_id: str | None = None, min_strength: float = 0.0, limit: int = 100, include_orphans: bool = False) -> dict:
+def get_relation_graph(user_id: str, capture_id: str | None = None, min_strength: float = 0.0, limit: int = 100, include_orphans: bool = False, include_entity_relations: bool = False) -> dict:
     """Get a graph structure: nodes + edges relevant to a capture (or all).
     
     Returns dict with:
@@ -1063,7 +1094,6 @@ def get_relation_graph(user_id: str, capture_id: str | None = None, min_strength
     conn = get_db(user_id)
     try:
         if capture_id:
-            # Get relations for this capture + its entities
             entity_ids = [
                 r["entity_id"] for r in conn.execute(
                     "SELECT entity_id FROM capture_entities WHERE capture_id=?", (capture_id,)
@@ -1080,10 +1110,16 @@ def get_relation_graph(user_id: str, capture_id: str | None = None, min_strength
                 [min_strength, capture_id, capture_id, *entity_ids, *entity_ids, limit],
             ).fetchall()
         else:
-            rows = conn.execute(
-                "SELECT * FROM relations WHERE strength >= ? ORDER BY relation_type IN ('related', 'related_to') ASC, strength DESC LIMIT ?",
-                (min_strength, limit),
-            ).fetchall()
+            if not include_entity_relations:
+                rows = conn.execute(
+                    "SELECT * FROM relations WHERE strength >= ? AND source_type='capture' AND target_type='capture' ORDER BY relation_type IN ('related', 'related_to') ASC, strength DESC LIMIT ?",
+                    (min_strength, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM relations WHERE strength >= ? ORDER BY relation_type IN ('related', 'related_to') ASC, strength DESC LIMIT ?",
+                    (min_strength, limit),
+                ).fetchall()
 
         relations = [dict(r) for r in rows]
 

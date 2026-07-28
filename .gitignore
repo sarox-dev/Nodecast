@@ -12,6 +12,7 @@ __pycache__/
 Thumbs.db
 
 # Secrets
+.env
 
 # Local captures
 contents/

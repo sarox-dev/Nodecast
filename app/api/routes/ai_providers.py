@@ -490,11 +490,12 @@ def api_get_global_graph(
     min_strength: float = 0.0,
     limit: int = 200,
     include_orphans: bool = False,
+    include_entity_relations: bool = False,
     current_user: dict = Depends(get_current_user),
 ):
     """Get global graph data (all nodes + edges). If include_orphans, also show captures without any relations."""
     from app.services.database import get_relation_graph
-    return get_relation_graph(current_user["user_id"], None, min_strength, limit, include_orphans)
+    return get_relation_graph(current_user["user_id"], None, min_strength, limit, include_orphans, include_entity_relations)
 
 
 @router.get("/relation-graph/{capture_id}")
@@ -597,7 +598,7 @@ def api_type_relations_all(
     from app.services.database import get_db
     conn = get_db(user_id)
     try:
-        rows = conn.execute("SELECT DISTINCT source_id FROM relations WHERE source_type='capture' AND relation_type='related_to'").fetchall()
+        rows = conn.execute("SELECT DISTINCT source_id FROM relations WHERE source_type='capture' AND relation_type IN ('related', 'related_to')").fetchall()
         capture_ids = [r["source_id"] for r in rows]
     finally:
         conn.close()

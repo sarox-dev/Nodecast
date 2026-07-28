@@ -1466,4 +1466,13 @@ body::before {
   pointer-events: none;
   user-select: none;
 }
+.graph-stats {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.75rem;
+  color: var(--text-dim, #64748b);
+  gap: 0.6rem;
+}
+.graph-stats[hidden] { display: none; }
 .preview-with-context { line-height: 1.7; font-size: 0.9rem; }

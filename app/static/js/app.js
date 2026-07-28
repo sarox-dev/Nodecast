@@ -841,6 +841,16 @@ window.addEventListener('DOMContentLoaded', async () => {
     // ─── Updates Settings ──────────────────────────────────────────────
 
     async function renderUpdatesSettings() {
+        // Load server auto_update setting
+        try {
+            const sr = await fetch('/api/server/settings');
+            if (sr.ok) {
+                const sd = await sr.json();
+                if (sd.auto_update !== undefined) {
+                    settingsState.autoUpdate = sd.auto_update;
+                }
+            }
+        } catch {}
         let html = '<div class="settings-field-group">';
 
         // Current version card
@@ -876,6 +886,11 @@ window.addEventListener('DOMContentLoaded', async () => {
             toggle.addEventListener('change', () => {
                 settingsState.autoUpdate = toggle.checked;
                 setValue('autoUpdate', toggle.checked);
+                fetch('/api/server/settings', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ auto_update: toggle.checked }),
+                }).catch(() => {});
                 _markDirty();
             });
         }
@@ -1476,17 +1491,36 @@ window.addEventListener('DOMContentLoaded', async () => {
         container.innerHTML = '';
         try {
             const showOrphans = document.getElementById('graph-show-orphans')?.checked || false;
-            const r = await fetch(`/api/ai/relation-graph?limit=200&include_orphans=${showOrphans}`);
+            const showEntities = document.getElementById('graph-show-entities')?.checked || false;
+            const r = await fetch(`/api/ai/relation-graph?limit=200&include_orphans=${showOrphans}&include_entity_relations=${showEntities}`);
             const data = await r.json();
             loading.hidden = true;
             if (!data.nodes || data.nodes.length === 0) {
                 empty.hidden = false;
+                const statsEl = document.getElementById('graph-stats');
+                if (statsEl) statsEl.hidden = true;
                 return;
             }
             renderGraph(data, container);
+            const statsEl = document.getElementById('graph-stats');
+            const statsText = document.getElementById('graph-stats-text');
+            if (statsEl && statsText) {
+                const caps = data.nodes.filter(n => n.type === 'capture' && !n.orphan).length;
+                const orphans = data.nodes.filter(n => n.orphan).length;
+                const entities = data.nodes.filter(n => n.type === 'entity').length;
+                const edges = data.edges.length;
+                const parts = [`${caps} captures`];
+                if (entities > 0) parts.push(`${entities} entities`);
+                if (orphans > 0) parts.push(`${orphans} isolated`);
+                parts.push(`${edges} connections`);
+                statsText.textContent = parts.join(' · ');
+                statsEl.hidden = false;
+            }
         } catch (e) {
             loading.hidden = true;
             container.innerHTML = `<div class="graph-error">Error loading graph: ${e.message}</div>`;
+            const statsEl = document.getElementById('graph-stats');
+            if (statsEl) statsEl.hidden = true;
         }
     }
 
@@ -1859,21 +1893,6 @@ window.addEventListener('DOMContentLoaded', async () => {
         wireSlider(spacingSlider, spacingVal);
         wireSlider(gravitySlider, gravityVal);
         wireSlider(curvatureSlider, curvatureVal, rebuildCurves);
-
-        // Hamburger menu toggle
-        const settingsBtn = document.getElementById('graph-settings-btn');
-        const settingsPopup = document.getElementById('graph-settings-popup');
-        if (settingsBtn && settingsPopup) {
-            settingsBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                settingsPopup.hidden = !settingsPopup.hidden;
-            });
-            document.addEventListener('click', (e) => {
-                if (!settingsPopup.hidden && !settingsPopup.contains(e.target) && e.target !== settingsBtn) {
-                    settingsPopup.hidden = true;
-                }
-            });
-        }
 
         const ro = new ResizeObserver(() => {
             const w = container.clientWidth;
@@ -2258,6 +2277,24 @@ document.getElementById('sidebar-graph-nav')?.addEventListener('click', () => se
 document.getElementById('graph-show-orphans')?.addEventListener('change', () => {
     if (graphMode) setTimeout(loadGraph, 100);
 });
+document.getElementById('graph-show-entities')?.addEventListener('change', () => {
+    if (graphMode) setTimeout(loadGraph, 100);
+});
+// Hamburger menu — register once, not per renderGraph
+(function initGraphMenu() {
+    const btn = document.getElementById('graph-settings-btn');
+    const popup = document.getElementById('graph-settings-popup');
+    if (!btn || !popup) return;
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        popup.hidden = !popup.hidden;
+    });
+    document.addEventListener('click', (e) => {
+        if (!popup.hidden && !popup.contains(e.target) && e.target !== btn) {
+            popup.hidden = true;
+        }
+    });
+})();
 
     const observer = new IntersectionObserver((entries) => {
         if (entries[0].isIntersecting && !loading && hasMore && currentQuery && settingsState.autoLoad !== false) {

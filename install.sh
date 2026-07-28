@@ -2,8 +2,60 @@
 set -e
 REPO="sarox-dev/Nodecast"
 
-echo "Installing Nodecast..."
+echo "Nodecast Installer / Updater"
 echo ""
+
+# Check Docker
+if ! command -v docker &>/dev/null 2>&1; then
+    echo "Error: Docker is required."
+    echo "Install from: https://docs.docker.com/get-docker/"
+    exit 1
+fi
+
+# Detect existing installation
+if [ -f .env ] || [ -d "$HOME/Nodecast/.env" ]; then
+    EXISTING_DIR=$(pwd)
+    if [ ! -f "$EXISTING_DIR/.env" ] && [ -f "$HOME/Nodecast/.env" ]; then
+        EXISTING_DIR="$HOME/Nodecast"
+    fi
+    echo "Existing installation detected at: $EXISTING_DIR"
+    echo "Updating..."
+    cd "$EXISTING_DIR"
+    git pull origin main 2>/dev/null || {
+        echo "Git pull failed, doing full reinstall..."
+        # Clean up and re-download
+        cd ..
+        BACKUP_DIR="${EXISTING_DIR}.bak.$(date +%s)"
+        cp -r "$EXISTING_DIR" "$BACKUP_DIR"
+        rm -rf "$EXISTING_DIR"
+        mkdir -p "$EXISTING_DIR"
+        cd "$EXISTING_DIR"
+        LATEST_TAG=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | cut -d'"' -f4)
+        [ -z "$LATEST_TAG" ] && { echo "Error: Could not determine latest version."; exit 1; }
+        curl -fsSL "https://github.com/$REPO/archive/refs/tags/$LATEST_TAG.zip" -o release.zip
+        unzip -o release.zip -d /tmp/nodecast-extract/ >/dev/null 2>&1
+        EXTRACTED_DIR=$(find /tmp/nodecast-extract/ -maxdepth 1 -type d -name "Nodecast-**" | head -1)
+        cp -r "$EXTRACTED_DIR"/. "$EXISTING_DIR/"
+        rm -rf /tmp/nodecast-extract/ release.zip
+        # Restore .env
+        if [ -f "$BACKUP_DIR/.env" ]; then
+            cp "$BACKUP_DIR/.env" "$EXISTING_DIR/.env"
+        fi
+        echo "Restored .env from backup"
+    }
+    echo "Restarting Docker..."
+    docker compose down 2>/dev/null || true
+    docker compose up -d --build
+    echo ""
+    APP_PORT="${APP_PORT:-5000}"
+    if [ -f .env ]; then
+        ENV_PORT=$(grep "^APP_PORT=" .env | cut -d= -f2)
+        [ -n "$ENV_PORT" ] && APP_PORT="$ENV_PORT"
+    fi
+    echo "✓ Nodecast updated to latest version"
+    echo "  Running at http://localhost:${APP_PORT}"
+    exit 0
+fi
 
 # Check Docker
 if ! command -v docker &>/dev/null 2>&1; then
@@ -130,4 +182,12 @@ else
     echo ""
     echo "✓ Nodecast downloaded to: $INSTALL_DIR"
     echo "  Run 'docker compose up -d' in that directory to start."
+fi
+
+# Offer auto-updater
+echo ""
+read -r -p "Install auto-updater? (recommended) [Y/n]: " INSTALL_UPDATER </dev/tty
+INSTALL_UPDATER="${INSTALL_UPDATER:-Y}"
+if [[ "$INSTALL_UPDATER" =~ ^[Yy]$ ]]; then
+    bash "$INSTALL_DIR/scripts/install-updater.sh"
 fi
