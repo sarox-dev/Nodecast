@@ -548,6 +548,183 @@ def init_legacy_db_if_needed():
     pass
 
 
+# ─── Library dashboard helpers ─────────────────────────────────
+
+
+def count_captures(user_id: str) -> int:
+    conn = get_db(user_id)
+    try:
+        row = conn.execute("SELECT COUNT(*) as cnt FROM captures").fetchone()
+        return row["cnt"] if row else 0
+    finally:
+        conn.close()
+
+
+def count_entities(user_id: str) -> int:
+    conn = get_db(user_id)
+    try:
+        row = conn.execute("SELECT COUNT(*) as cnt FROM entities").fetchone()
+        return row["cnt"] if row else 0
+    finally:
+        conn.close()
+
+
+def count_projects(user_id: str) -> int:
+    conn = get_db(user_id)
+    try:
+        row = conn.execute(
+            "SELECT COUNT(DISTINCT LOWER(project)) as cnt FROM captures WHERE project IS NOT NULL AND project != ''"
+        ).fetchone()
+        return row["cnt"] if row else 0
+    finally:
+        conn.close()
+
+
+def get_top_tags(user_id: str, limit: int = 10) -> list[dict]:
+    from collections import Counter
+    conn = get_db(user_id)
+    try:
+        rows = conn.execute("SELECT tags FROM capture_ai_tags").fetchall()
+        counter: Counter = Counter()
+        for r in rows:
+            if not r["tags"]:
+                continue
+            try:
+                tags = json.loads(r["tags"]) if isinstance(r["tags"], str) else r["tags"]
+                if isinstance(tags, list):
+                    for t in tags:
+                        if t:
+                            counter[t.lower().strip()] += 1
+            except Exception:
+                pass
+        rows2 = conn.execute("SELECT tags FROM captures WHERE tags IS NOT NULL").fetchall()
+        for r in rows2:
+            try:
+                tags = json.loads(r["tags"]) if isinstance(r["tags"], str) else []
+                if isinstance(tags, list):
+                    for t in tags:
+                        if isinstance(t, str) and t.strip():
+                            counter[t.lower().strip()] += 1
+            except Exception:
+                pass
+        return [{"tag": tag, "count": cnt} for tag, cnt in counter.most_common(limit)]
+    finally:
+        conn.close()
+
+
+def get_top_entities(user_id: str, limit: int = 10) -> list[dict]:
+    conn = get_db(user_id)
+    try:
+        rows = conn.execute(
+            "SELECT id, name, type, capture_count FROM entities ORDER BY capture_count DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def list_entities(user_id: str, search: str = "", type_filter: str = "", sort: str = "capture_count", limit: int = 50, offset: int = 0) -> dict:
+    conn = get_db(user_id)
+    try:
+        where = []
+        params = []
+        if search:
+            where.append("(LOWER(e.name) LIKE ? OR LOWER(e.aliases) LIKE ?)")
+            params.extend([f"%{search.lower()}%", f"%{search.lower()}%"])
+        if type_filter:
+            where.append("e.type=?")
+            params.append(type_filter)
+        where_clause = " WHERE " + " AND ".join(where) if where else ""
+        order = "cnt DESC" if sort == "capture_count" else "e.name ASC"
+        rows = conn.execute(
+            f"""SELECT e.id, e.name, e.type, e.aliases, e.description, COUNT(ce.capture_id) as cnt
+                FROM entities e
+                LEFT JOIN capture_entities ce ON e.id = ce.entity_id
+                {where_clause}
+                GROUP BY e.id
+                ORDER BY {order}
+                LIMIT ? OFFSET ?""",
+            params + [limit, offset],
+        ).fetchall()
+        count = conn.execute(
+            f"SELECT COUNT(*) as cnt FROM entities e{where_clause}", params
+        ).fetchone()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["capture_count"] = d.pop("cnt", 0)
+            if isinstance(d.get("aliases"), str):
+                try:
+                    d["aliases"] = json.loads(d["aliases"])
+                except (json.JSONDecodeError, TypeError):
+                    d["aliases"] = []
+            result.append(d)
+        return {"entities": result, "total": count["cnt"] if count else 0}
+    finally:
+        conn.close()
+
+
+def get_entity_with_captures(user_id: str, entity_id: str) -> dict | None:
+    conn = get_db(user_id)
+    try:
+        row = conn.execute(
+            "SELECT id, name, type, aliases, description, capture_count FROM entities WHERE id=?",
+            (entity_id,),
+        ).fetchone()
+        if not row:
+            return None
+        entity = dict(row)
+        if isinstance(entity.get("aliases"), str):
+            try:
+                entity["aliases"] = json.loads(entity["aliases"])
+            except (json.JSONDecodeError, TypeError):
+                entity["aliases"] = []
+        captures = []
+        for cr in conn.execute(
+            """SELECT c.id, c.source_title, c.source_url, c.source_site_name, c.saved_at, ai.summary
+               FROM captures c
+               JOIN capture_entities ce ON c.id = ce.capture_id
+               LEFT JOIN capture_ai_tags ai ON c.id = ai.capture_id
+               WHERE ce.entity_id=?
+               ORDER BY c.saved_at DESC""",
+            (entity_id,),
+        ).fetchall():
+            captures.append({
+                "id": cr["id"],
+                "source_title": cr["source_title"] or "",
+                "source_url": cr["source_url"] or "",
+                "source_site_name": cr["source_site_name"] or "",
+                "saved_at": cr["saved_at"] or "",
+                "summary": cr["summary"] or "",
+            })
+        entity["capture_count"] = len(captures)
+        related = []
+        for rr in conn.execute(
+            """SELECT r.relation_type, r.strength, e.id, e.name, e.type
+               FROM relations r
+               JOIN entities e ON (r.source_type='entity' AND r.source_id=e.id)
+               WHERE r.target_type='entity' AND r.target_id=?
+               UNION
+               SELECT r.relation_type, r.strength, e.id, e.name, e.type
+               FROM relations r
+               JOIN entities e ON (r.target_type='entity' AND r.target_id=e.id)
+               WHERE r.source_type='entity' AND r.source_id=?
+               ORDER BY r.strength DESC""",
+            (entity_id, entity_id),
+        ).fetchall():
+            related.append({
+                "id": rr["id"],
+                "name": rr["name"],
+                "type": rr["type"],
+                "relation_type": rr["relation_type"],
+                "strength": rr["strength"],
+            })
+        return {"entity": entity, "captures": captures, "related_entities": related}
+    finally:
+        conn.close()
+
+
 # ─── AI Provider CRUD ──────────────────────────────────────────────
 
 import uuid as _uuid

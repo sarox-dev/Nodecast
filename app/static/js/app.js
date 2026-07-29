@@ -2224,7 +2224,7 @@ window.addEventListener('DOMContentLoaded', async () => {
                 showLoading(false, page);
                 renderResults(true);
             }
-            hasMore = fetched.length > 0;
+            hasMore = allResults.length < total;
             currentPage = page;
             if (!hasMore && allResults.length > 0) endOfResults.hidden = false;
         } catch (err) {
@@ -2243,18 +2243,333 @@ window.addEventListener('DOMContentLoaded', async () => {
         webMode = false;
         currentQuery = '';
         try {
-            const url = activeProject ? `/browse?project=${encodeURIComponent(activeProject)}` : '/browse';
-            const resp = await fetch(url);
-            const data = await resp.json();
-            allResults = Array.isArray(data) ? data : [];
-            hasMore = false;
-            currentPage = 1;
-            renderResults(false);
+            if (activeProject) {
+                const url = `/browse?project=${encodeURIComponent(activeProject)}`;
+                const resp = await fetch(url);
+                const data = await resp.json();
+                allResults = Array.isArray(data) ? data : [];
+                hasMore = false;
+                currentPage = 1;
+                renderResults(false);
+            } else {
+                const resp = await fetch('/api/library');
+                const data = await resp.json();
+                resultsContainer.innerHTML = renderDashboard(data);
+                attachDashboardHandlers();
+            }
         } catch (err) {
             console.error('Library load failed:', err);
             resultsContainer.innerHTML = '<div class="message error">Could not load saved content.</div>';
         }
         loading = false;
+    }
+
+    function renderDashboard(data) {
+        const stats = data.stats || {};
+        const recent = data.recent || [];
+        const tags = data.top_tags || [];
+        const entities = data.top_entities || [];
+
+        const statHtml = `<div class="dashboard-stats">
+            <span class="stat-item"><strong>${stats.captures || 0}</strong> captures</span>
+            <span class="stat-sep">·</span>
+            <span class="stat-item"><strong>${stats.entities || 0}</strong> entities</span>
+            <span class="stat-sep">·</span>
+            <span class="stat-item"><strong>${stats.projects || 0}</strong> projects</span>
+        </div>`;
+
+        let recentHtml = '';
+        if (recent.length > 0) {
+            recentHtml = `<div class="dashboard-section">
+                <div class="dashboard-section-title">📌 Recent captures</div>
+                <div class="dashboard-recent-row">${recent.map(item => {
+                    const title = item.summary || item.title || 'Untitled';
+                    return `<span class="dashboard-recent-chip" data-id="${escapeHtml(item.id)}">${escapeHtml(title)}</span>`;
+                }).join('')}</div>
+            </div>`;
+        }
+
+        let tagsHtml = '';
+        if (tags.length > 0) {
+            tagsHtml = `<div class="dashboard-section">
+                <div class="dashboard-section-title">🏷️ Topics</div>
+                <div class="dashboard-tags-row">${tags.map(t => 
+                    `<span class="dashboard-tag" data-tag="${escapeHtml(t.tag)}">${escapeHtml(t.tag)} <span class="tag-count">×${t.count}</span></span>`
+                ).join('')}</div>
+            </div>`;
+        }
+
+        let entitiesHtml = '';
+        if (entities.length > 0) {
+            entitiesHtml = `<div class="dashboard-section">
+                <div class="dashboard-section-title">🧩 Active entities</div>
+                <div class="dashboard-entities-row">${entities.map(e =>
+                    `<span class="dashboard-entity" data-entity="${escapeHtml(e.name)}">${escapeHtml(e.name)}</span>`
+                ).join('')}</div>
+            </div>`;
+        }
+
+        return `<div class="dashboard-wrap">${statHtml}${recentHtml}${tagsHtml}${entitiesHtml}</div>`;
+    }
+
+    function attachDashboardHandlers() {
+        document.querySelectorAll('.dashboard-recent-chip').forEach(el => {
+            el.addEventListener('click', () => {
+                window.open(`/capture/${el.dataset.id}`, '_blank');
+            });
+        });
+        document.querySelectorAll('.dashboard-tag').forEach(el => {
+            el.addEventListener('click', () => {
+                queryInput.value = el.dataset.tag;
+                form.dispatchEvent(new Event('submit'));
+            });
+        });
+        document.querySelectorAll('.dashboard-entity').forEach(el => {
+            el.addEventListener('click', () => {
+                queryInput.value = `/entities ${el.dataset.entity}`;
+                form.dispatchEvent(new Event('submit'));
+            });
+        });
+    }
+
+    // ─── Sources renderer ──────────────────────────────────────
+
+    async function sourcesSearch(searchTerm) {
+        if (!searchTerm) {
+            resultsContainer.innerHTML = '<div class="message">Enter a topic to find sources, e.g. /sources Docker</div>';
+            return;
+        }
+        await doSearch(searchTerm, 1);
+        // After search, override the card rendering to show sources format
+        // doSearch calls renderResults which uses createCard. We'll just use the default card view
+        // for sources — it already shows relevant captures.
+        // Just update the header to indicate "Sources" mode
+        const header = document.querySelector('.result-card')?.parentElement?.previousElementSibling;
+        if (resultsContainer.children.length > 0 && !resultsContainer.querySelector('.sources-badge')) {
+            const badge = document.createElement('div');
+            badge.className = 'sources-badge';
+            badge.textContent = `📄 Sources for "${searchTerm}"`;
+            resultsContainer.insertBefore(badge, resultsContainer.firstChild);
+        }
+    }
+
+    async function entitySearch(searchTerm) {
+        loading = true;
+        showLoading(true, 1);
+        resultsContainer.innerHTML = '';
+        try {
+            const url = searchTerm
+                ? `/api/entities?search=${encodeURIComponent(searchTerm)}&sort=name&limit=50`
+                : '/api/entities?sort=capture_count&limit=50';
+            const resp = await fetch(url);
+            const data = await resp.json();
+            showLoading(false, 1);
+            loading = false;
+            const entities = data.entities || [];
+            const total = data.total || 0;
+            if (entities.length === 0) {
+                emptyState.hidden = false;
+                emptyState.innerHTML = `
+                    <div class="empty-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg></div>
+                    <h3>No entities found</h3>
+                    <p>${searchTerm ? `No entities matching "${escapeHtml(searchTerm)}".` : 'No entities in your knowledge base yet.'}</p>`;
+                resultsContainer.innerHTML = '';
+                return;
+            }
+            hasMore = false;
+            endOfResults.hidden = true;
+            resultsContainer.innerHTML = `<div class="entity-list-header">${total} entit${total === 1 ? 'y' : 'ies'}</div>
+                <div class="entity-list">${entities.map(renderEntityCard).join('')}</div>`;
+            document.querySelectorAll('.entity-card').forEach(el => {
+                el.addEventListener('click', () => openEntityDetail(el.dataset.id));
+            });
+        } catch (err) {
+            showLoading(false, 1);
+            loading = false;
+            console.error('Entity search failed:', err);
+            resultsContainer.innerHTML = '<div class="message error">Could not load entities.</div>';
+        }
+    }
+
+    function renderEntityCard(e) {
+        const typeColors = { tool: '#1f6feb', person: '#8250df', concept: '#0d4429', framework: '#9e6a03', language: '#da3633', platform: '#238636', company: '#d29922' };
+        const color = typeColors[e.type] || '#64748b';
+        return `<div class="entity-card" data-id="${escapeHtml(e.id)}">
+            <span class="entity-type-badge" style="background:${color}">${e.type}</span>
+            <span class="entity-name">${escapeHtml(e.name)}</span>
+            <span class="entity-count">${e.capture_count} capture${e.capture_count !== 1 ? 's' : ''}</span>
+            ${e.description ? `<span class="entity-desc">${escapeHtml(e.description.slice(0, 80))}${e.description.length > 80 ? '…' : ''}</span>` : ''}
+        </div>`;
+    }
+
+    async function openEntityDetail(entityId) {
+        loading = true;
+        resultsContainer.innerHTML = '<div class="message">Loading entity...</div>';
+        try {
+            const resp = await fetch(`/api/entity/${entityId}`);
+            const data = await resp.json();
+            loading = false;
+            if (!data || !data.entity) {
+                resultsContainer.innerHTML = '<div class="message error">Entity not found.</div>';
+                return;
+            }
+            const e = data.entity;
+            const captures = data.captures || [];
+            const related = data.related_entities || [];
+            const typeColors = { tool: '#1f6feb', person: '#8250df', concept: '#0d4429', framework: '#9e6a03', language: '#da3633', platform: '#238636', company: '#d29922' };
+            const color = typeColors[e.type] || '#64748b';
+
+            let html = `<div class="entity-detail">
+                <button class="entity-back-btn">← Back to entities</button>
+                <div class="entity-detail-header">
+                    <span class="entity-type-badge" style="background:${color}">${e.type}</span>
+                    <h2>${escapeHtml(e.name)}</h2>
+                    <span class="entity-count">${e.capture_count} capture${e.capture_count !== 1 ? 's' : ''}</span>
+                </div>`;
+            if (e.description) {
+                html += `<p class="entity-detail-desc">${escapeHtml(e.description)}</p>`;
+            }
+            if (e.aliases && e.aliases.length > 0) {
+                html += `<div class="entity-aliases">Aliases: ${e.aliases.map(a => `<span class="entity-alias">${escapeHtml(a)}</span>`).join(' ')}</div>`;
+            }
+            if (captures.length > 0) {
+                html += `<div class="entity-section">
+                    <div class="entity-section-title">Sources (${captures.length})</div>
+                    ${captures.map(c => `<div class="entity-capture" data-id="${c.id}">
+                        <span class="entity-capture-title">${escapeHtml(c.summary || c.source_title || 'Untitled')}</span>
+                        ${c.source_site_name ? `<span class="entity-capture-site">${escapeHtml(c.source_site_name)}</span>` : ''}
+                    </div>`).join('')}
+                </div>`;
+            }
+            if (related.length > 0) {
+                html += `<div class="entity-section">
+                    <div class="entity-section-title">Related entities</div>
+                    <div class="entity-related-row">${related.map(r => {
+                        const rc = typeColors[r.type] || '#64748b';
+                        return `<span class="entity-related-chip" data-id="${r.id}">
+                            <span class="entity-type-badge" style="background:${rc};font-size:0.65rem">${r.type}</span>
+                            ${escapeHtml(r.name)}
+                        </span>`;
+                    }).join('')}</div>
+                </div>`;
+            }
+            html += '</div>';
+            resultsContainer.innerHTML = html;
+            document.querySelectorAll('.entity-capture').forEach(el => {
+                el.addEventListener('click', () => window.open(`/capture/${el.dataset.id}`, '_blank'));
+            });
+            document.querySelectorAll('.entity-related-chip').forEach(el => {
+                el.addEventListener('click', () => openEntityDetail(el.dataset.id));
+            });
+            document.querySelector('.entity-back-btn')?.addEventListener('click', () => entitySearch(''));
+        } catch (err) {
+            loading = false;
+            console.error('Entity detail failed:', err);
+            resultsContainer.innerHTML = '<div class="message error">Could not load entity details.</div>';
+        }
+    }
+
+    // ─── Route query ──────────────────────────────────────────
+
+    function routeQuery(query) {
+        if (query.startsWith('/entities ')) return entitySearch(query.slice('/entities '.length).trim());
+        if (query.startsWith('/sources ')) return sourcesSearch(query.slice('/sources '.length).trim());
+        if (query.startsWith('/cards ')) return doSearch(query.slice('/cards '.length).trim(), 1);
+        if (query.startsWith('/table ')) return doSearch(query.slice('/table '.length).trim(), 1);
+        if (query.startsWith('/timeline ')) return doSearch(query.slice('/timeline '.length).trim(), 1);
+        if (query.startsWith('/compare ')) return doSearch(query.slice('/compare '.length).trim(), 1);
+        if (query.startsWith('/markdown ')) return doSearch(query.slice('/markdown '.length).trim(), 1);
+        return detectIntent(query);
+    }
+
+    async function detectIntent(query) {
+        const lower = query.toLowerCase().trim();
+
+        // Detect "compare X and Y" or "/compare X and Y"
+        if (lower.includes('compare') && lower.includes(' and ')) {
+            return comparisonSearch(query);
+        }
+
+        // Detect entity mention — try exact match
+        const entityResult = await tryEntityMatch(query);
+        if (entityResult) {
+            return entitySearch(entityResult.name);
+        }
+
+        // Default: cards view
+        return doSearch(query, 1);
+    }
+
+    async function tryEntityMatch(query) {
+        try {
+            const resp = await fetch(`/api/entities?search=${encodeURIComponent(query)}&sort=name&limit=5`);
+            const data = await resp.json();
+            const entities = data.entities || [];
+            // Prefer exact name match
+            const exact = entities.find(e => e.name.toLowerCase() === query.toLowerCase());
+            if (exact) return exact;
+            // If only one result and query is short, use it
+            if (entities.length === 1 && query.length >= 3) return entities[0];
+            return null;
+        } catch {
+            return null;
+        }
+    }
+
+    // ─── Comparison renderer ──────────────────────────────
+
+    async function comparisonSearch(query) {
+        // Parse "compare X and Y" or "X vs Y" or "X versus Y"
+        const lower = query.toLowerCase();
+        let name1 = '', name2 = '';
+        const andMatch = lower.match(/compare\s+(.+?)\s+and\s+(.+)/i);
+        const vsMatch = lower.match(/(.+?)\s+vs\s+(.+)/i);
+        const versusMatch = lower.match(/(.+?)\s+versus\s+(.+)/i);
+        if (andMatch) { name1 = andMatch[1].trim(); name2 = andMatch[2].trim(); }
+        else if (vsMatch) { name1 = vsMatch[1].trim(); name2 = vsMatch[2].trim(); }
+        else if (versusMatch) { name1 = versusMatch[1].trim(); name2 = versusMatch[2].trim(); }
+
+        if (!name1 || !name2) {
+            return doSearch(query, 1);
+        }
+
+        // Fetch both entities
+        const [r1, r2] = await Promise.all([
+            fetch(`/api/entities?search=${encodeURIComponent(name1)}&sort=name&limit=1`).then(r => r.json()),
+            fetch(`/api/entities?search=${encodeURIComponent(name2)}&sort=name&limit=1`).then(r => r.json()),
+        ]);
+        const e1 = (r1.entities || [])[0];
+        const e2 = (r2.entities || [])[0];
+
+        if (!e1 && !e2) return doSearch(query, 1);
+
+        resultsContainer.innerHTML = comparisonHtml(e1, e2, name1, name2);
+        document.querySelectorAll('.comp-explore-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                queryInput.value = btn.dataset.cmd;
+                form.dispatchEvent(new Event('submit'));
+            });
+        });
+        hasMore = false;
+        endOfResults.hidden = true;
+    }
+
+function comparisonHtml(e1, e2, name1, name2) {
+        const renderOne = (e, name) => {
+            if (!e) return `<div class="comp-col comp-empty"><div class="comp-name">${escapeHtml(name)}</div><p style="color:var(--text-dim);font-size:0.82rem">No saved knowledge</p><button class="modal-btn comp-explore-btn" style="font-size:0.78rem;padding:0.25rem 0.5rem;margin-top:0.3rem" data-cmd="${escapeHtml(name)}">Search web for ${escapeHtml(name)}</button></div>`;
+            return `<div class="comp-col">
+                <div class="comp-name"><span class="entity-type-badge" style="background:${typeColor(e.type)}">${e.type}</span> ${escapeHtml(e.name)}</div>
+                ${e.description ? `<p class="comp-desc">${escapeHtml(e.description)}</p>` : ''}
+                <div class="comp-stat">${e.capture_count} sources</div>
+                <div class="comp-actions"><button class="modal-btn comp-explore-btn" style="font-size:0.78rem;padding:0.25rem 0.5rem;margin-top:0.3rem" data-cmd="/entities ${escapeHtml(e.name)}">Explore →</button></div>
+            </div>`;
+        };
+        return `<div class="comp-wrap"><div class="comp-header">Comparison</div><div class="comp-row">${renderOne(e1, name1)}${renderOne(e2, name2)}</div></div>`;
+    }
+
+    function typeColor(type) {
+        const map = { tool: '#1f6feb', person: '#8250df', concept: '#0d4429', framework: '#9e6a03', language: '#da3633', platform: '#238636', company: '#d29922' };
+        return map[type] || '#64748b';
     }
 
     form.addEventListener('submit', async (e) => {
@@ -2267,9 +2582,35 @@ window.addEventListener('DOMContentLoaded', async () => {
         loading = false;
         allResults = [];
         emptyState.hidden = true;
-        await doSearch(query, 1);
+        await routeQuery(query);
         queryInput.blur();
     });
+
+    // ─── Slash command hints ────────────────────────────────
+    const slashHints = document.getElementById('slash-hints');
+    queryInput.addEventListener('input', () => {
+        const val = queryInput.value;
+        if (val === '/') {
+            slashHints.hidden = false;
+        } else if (slashHints && !slashHints.hidden) {
+            slashHints.hidden = true;
+        }
+    });
+    queryInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && slashHints && !slashHints.hidden) {
+            slashHints.hidden = true;
+        }
+    });
+    if (slashHints) {
+        slashHints.addEventListener('click', (e) => {
+            const item = e.target.closest('.slash-hint-item');
+            if (item) {
+                queryInput.value = item.dataset.cmd + ' ';
+                queryInput.focus();
+                slashHints.hidden = true;
+            }
+        });
+    }
 
 document.getElementById('sidebar-library-nav')?.addEventListener('click', () => setWebMode(false));
 document.getElementById('sidebar-web-nav')?.addEventListener('click', () => setWebMode(true));
