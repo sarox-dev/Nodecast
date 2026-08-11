@@ -13,6 +13,7 @@ from app.api.routes.capture_view import router as capture_view_router
 from app.api.routes.ai_providers import router as ai_providers_router
 from app.api.routes.library import router as library_router
 from app.api.routes.entities import router as entities_router
+from app.api.routes.facts import router as facts_router
 from app.services.database import init_db, user_count
 from app.services.auto_processor import start_auto_processor
 
@@ -43,6 +44,7 @@ app.include_router(capture_view_router)
 app.include_router(ai_providers_router)
 app.include_router(library_router)
 app.include_router(entities_router)
+app.include_router(facts_router)
 
 # ─── Auth status template variable ────────────────────────────────
 templates = Jinja2Templates(directory="app/templates")

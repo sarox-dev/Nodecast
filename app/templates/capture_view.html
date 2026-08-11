@@ -52,6 +52,7 @@
             <button class="kv-tab" data-tab="rendered" role="tab">Renderers</button>
             <button class="kv-tab" data-tab="knowledge" role="tab">Knowledge ({{ kos|length }})</button>
             <button class="kv-tab" data-tab="entities" role="tab">Entities ({{ entities|length }})</button>
+            <button class="kv-tab" data-tab="facts" role="tab">Facts ({{ facts|length }})</button>
             <button class="kv-tab" data-tab="raw" role="tab">Raw</button>
             <button class="kv-tab" data-tab="history" role="tab">History</button>
         </div>
@@ -380,6 +381,28 @@
                 </div>
                 {% else %}
                 <p class="text-muted" style="margin:0.5rem 0 0">No relations discovered yet. Click "Discover Relations" to find connections.</p>
+                {% endif %}
+            </div>
+        </section>
+
+        <!-- ═══ TAB: FACTS ═══ -->
+        <section class="kv-panel" id="panel-facts" role="tabpanel">
+            <div class="kv-card">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
+                    <h3 style="margin:0">Facts ({{ facts|length }})</h3>
+                    <button class="btn btn-small btn-secondary" data-action="extract-facts" data-id="{{ c.id }}">💡 Extract Facts</button>
+                </div>
+                {% if facts %}
+                <div style="display:flex;flex-direction:column;gap:0.4rem">
+                    {% for f in facts %}
+                    <div style="font-size:0.85rem;line-height:1.5;display:flex;align-items:flex-start;gap:0.4rem">
+                        <span style="color:var(--accent);font-weight:700">•</span>
+                        <span>{{ f.fact_text }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-muted" style="margin:0.5rem 0 0">No facts extracted yet. Click "Extract Facts" to analyze this capture.</p>
                 {% endif %}
             </div>
         </section>

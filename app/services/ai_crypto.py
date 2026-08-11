@@ -14,15 +14,18 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 # ─── Key management ─────────────────────────────────────────────────
 
 ENV_PATH = Path(__file__).resolve().parent.parent.parent / ".env"
+# Docker: also try /app/.env (volume-mounted searxng root, but root .env is at /app/.env)
+_DOCKER_ENV_PATH = Path("/app/.env")
 ENCRYPTION_KEY_VAR = "ENCRYPTION_KEY"
 
 
 def _load_env() -> dict[str, str]:
     """Load .env file into a dict (simple parser, no deps)."""
     env = {}
-    if not ENV_PATH.exists():
+    env_path = ENV_PATH if ENV_PATH.exists() else (_DOCKER_ENV_PATH if _DOCKER_ENV_PATH.exists() else ENV_PATH)
+    if not env_path.exists():
         return env
-    for line in ENV_PATH.read_text().splitlines():
+    for line in env_path.read_text().splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -37,8 +40,9 @@ def _write_env_var(key: str, value: str):
     existing[key] = value
     lines = []
     found = False
-    if ENV_PATH.exists():
-        for line in ENV_PATH.read_text().splitlines():
+    env_path = ENV_PATH if ENV_PATH.exists() else (_DOCKER_ENV_PATH if _DOCKER_ENV_PATH.exists() else ENV_PATH)
+    if env_path.exists():
+        for line in env_path.read_text().splitlines():
             if line.strip().startswith(f"{key}="):
                 lines.append(f"{key}={value}")
                 found = True
@@ -46,7 +50,7 @@ def _write_env_var(key: str, value: str):
                 lines.append(line)
     if not found:
         lines.append(f"{key}={value}")
-    ENV_PATH.write_text("\n".join(lines) + "\n")
+    env_path.write_text("\n".join(lines) + "\n")
 
 
 def _derive_key(passphrase: str, salt: bytes) -> bytes:
@@ -85,11 +89,14 @@ def encrypt_api_key(plaintext: str) -> str:
 
 
 def decrypt_api_key(ciphertext: str) -> str:
-    """Decrypt an API key. Returns empty string if ciphertext is empty."""
+    """Decrypt an API key. Returns empty string if ciphertext is empty or decryption fails."""
     if not ciphertext:
         return ""
-    f = get_fernet()
-    return f.decrypt(ciphertext.encode()).decode()
+    try:
+        f = get_fernet()
+        return f.decrypt(ciphertext.encode()).decode()
+    except Exception:
+        return ""
 
 
 # ─── Docker host detection ──────────────────────────────────────────

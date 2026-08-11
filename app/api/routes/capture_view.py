@@ -9,7 +9,11 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.services.auth import get_user_from_cookie
-from app.services.database import get_capture_ref, user_count, get_capture_ai_tags, get_entities_for_capture, get_relations_for_capture
+from app.services.database import (
+    get_capture_ref, user_count, get_capture_ai_tags,
+    get_entities_for_capture, get_relations_for_capture,
+    get_facts_for_capture,
+)
 from app.services.knowledge_store import get_knowledge_for_capture
 from app.services.raw_storage import load_raw_capture, get_raw_html
 from app.services.renderers import render, list_renderers
@@ -86,6 +90,9 @@ async def capture_view(
         else:
             r["target_title"] = r["target_id"][:12]
 
+    # Load facts for this capture
+    facts = get_facts_for_capture(user_id, capture_id)
+
     return templates.TemplateResponse(request, "capture_view.html", {
         "capture": dict(ref),
         "knowledge_objects": objects_dict,
@@ -97,4 +104,5 @@ async def capture_view(
         "ai_tags": ai_tags,
         "entities": entities,
         "relations": relations,
+        "facts": facts,
     })

@@ -6,6 +6,8 @@ from app.services.database import (
     count_captures,
     count_entities,
     count_projects,
+    count_tags,
+    count_facts,
     get_top_tags,
     get_top_entities,
 )
@@ -21,6 +23,8 @@ def api_library(current_user: dict = Depends(get_current_user)):
         "captures": count_captures(user_id),
         "entities": count_entities(user_id),
         "projects": count_projects(user_id),
+        "tags": count_tags(user_id),
+        "facts": count_facts(user_id),
     }
     conn = get_db(user_id)
     try:

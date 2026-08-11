@@ -723,9 +723,11 @@ def summarize_capture(user_id: str, capture_id: str) -> dict:
 
 
 def get_available_features() -> list[dict]:
+    from app.services.fact_extraction import FEATURE_FACT_EXTRACTION
     return [
         {"id": FEATURE_TAGGING, "name": "Tag Captures", "description": "Automatically generate tags for saved captures."},
         {"id": FEATURE_SUMMARY, "name": "Generate Summary", "description": "Generate a one-sentence summary of the capture."},
         {"id": "entity_extraction", "name": "Extract Entities", "description": "Extract named entities (tools, people, concepts, etc.) from captures."},
         {"id": "relation_typing", "name": "AI Relation Typing", "description": "Classify relations between captures into specific types (depends_on, references, supports, etc.)."},
+        {"id": FEATURE_FACT_EXTRACTION, "name": "Extract Facts", "description": "Extract key atomic facts (insights, statistics, definitions) from captures."},
     ]

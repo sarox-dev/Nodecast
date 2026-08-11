@@ -193,12 +193,8 @@ def api_fetch_models(provider_id: str, current_user: dict = Depends(get_current_
             data = resp.json()
             models = [{"id": m["id"], "object": m.get("object", "model")} for m in data.get("data", [])]
             return {"models": models}
-    except httpx.ConnectError:
-        raise HTTPException(502, f"Cannot connect to {prov['base_url']}")
-    except httpx.TimeoutException:
-        raise HTTPException(502, f"Timeout connecting to {prov['base_url']}")
-    except Exception as e:
-        raise HTTPException(502, f"Failed to fetch models: {e}")
+    except Exception:
+        return {"models": [], "error": "offline"}
 
 
 # ─── Feature assignments ────────────────────────────────────────────
@@ -632,3 +628,51 @@ def api_type_relations_all(
     thread = threading.Thread(target=_run, daemon=True)
     thread.start()
     return {"status": "started", "total": len(capture_ids), "message": f"Typing relations for {len(capture_ids)} captures in background."}
+
+
+@router.post("/extract-facts-all")
+def api_extract_facts_all(
+    current_user: dict = Depends(get_current_user),
+):
+    """Run fact extraction for ALL captures in background."""
+    user_id = current_user["user_id"]
+    from app.services.database import get_db
+    conn = get_db(user_id)
+    try:
+        rows = conn.execute("SELECT id FROM captures").fetchall()
+        capture_ids = [r["id"] for r in rows]
+    finally:
+        conn.close()
+
+    if not capture_ids:
+        return {"status": "done", "total": 0, "message": "No captures to process."}
+
+    from app.services.fact_extraction import extract_facts
+    from app.services.ai_batch import _update_progress
+
+    _update_progress(
+        user_id, running=True, total=len(capture_ids), processed=0, errors=0, skipped=0,
+        current="Starting fact extraction...", operation="extract facts all",
+    )
+
+    def _run():
+        processed = 0
+        errors = 0
+        facts_count = 0
+        try:
+            for cid in capture_ids:
+                try:
+                    result = extract_facts(user_id, cid)
+                    if result.get("status") == "success":
+                        facts_count += result.get("data", {}).get("count", 0)
+                    processed += 1
+                except Exception as exc:
+                    logger.warning("extract-facts-all: %s failed: %s", cid[:8], exc)
+                    errors += 1
+                _update_progress(user_id, processed=processed, errors=errors, current=f"Facts {processed}/{len(capture_ids)}")
+        finally:
+            _update_progress(user_id, running=False, operation="")
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    return {"status": "started", "total": len(capture_ids), "message": f"Extracting facts for {len(capture_ids)} captures in background."}

@@ -176,9 +176,11 @@
           if (data.status === 'no_assignment') {
             this.textContent = '⚠️ No AI configured';
             this.disabled = false;
+            showToast('No AI provider assigned. Go to Settings → AI.', 'error', 5000);
           } else if (data.errors > 0) {
             this.textContent = `⚠️ ${data.total - data.errors}/${data.total} done`;
             this.disabled = false;
+            showToast(`${data.errors} feature(s) failed. Check API key in Settings.`, 'warning', 5000);
             setTimeout(() => window.location.reload(), 2000);
           } else {
             this.textContent = `✅ ${data.total} features done`;
@@ -235,6 +237,41 @@
           this.textContent = '❌ Error';
           this.disabled = false;
           console.error('Relation typing error:', err);
+        });
+    });
+  });
+
+  // Extract Facts button — runs AI fact extraction for this capture
+  document.querySelectorAll('[data-action="extract-facts"]').forEach(btn => {
+    btn.addEventListener('click', function () {
+      const id = this.dataset.id;
+      if (!id) return;
+      this.textContent = '⏳ Extracting facts...';
+      this.disabled = true;
+
+      fetch(`${BASE_URL}/api/ai/process-capture/${id}`, { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+          if (data.errors > 0) {
+            this.textContent = '⚠️ Partial error';
+            this.disabled = false;
+            showToast('Fact extraction completed with errors', 'warning', 4000);
+            return;
+          }
+          if (data.status === 'no_assignment') {
+            this.textContent = '⚠️ No AI configured';
+            this.disabled = false;
+            showToast('No AI provider assigned for fact extraction. Go to Settings → AI.', 'error', 6000);
+            return;
+          }
+          this.textContent = '✅ Facts extracted';
+          setTimeout(() => window.location.reload(), 1500);
+        })
+        .catch(err => {
+          this.textContent = '❌ Error';
+          this.disabled = false;
+          showToast('Fact extraction failed: ' + (err.message || 'Unknown error'), 'error', 5000);
+          console.error('Fact extraction error:', err);
         });
     });
   });

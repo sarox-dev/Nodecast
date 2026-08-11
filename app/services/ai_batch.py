@@ -72,6 +72,10 @@ from app.services.ai_relation_typing import (
     type_relations_for_capture,
     FEATURE_RELATION_TYPING,
 )
+from app.services.fact_extraction import (
+    extract_facts,
+    FEATURE_FACT_EXTRACTION,
+)
 from app.services.database import (
     get_pending_ai_jobs_grouped,
     mark_ai_job_done,
@@ -91,6 +95,7 @@ FEATURE_MAP = {
     "entity_extraction": (extract_entities, FEATURE_ENTITY_EXTRACTION),
     "relation_discovery": (discover_relations, FEATURE_RELATION_DISCOVERY),
     "relation_typing": (type_relations_for_capture, FEATURE_RELATION_TYPING),
+    "fact_extraction": (extract_facts, FEATURE_FACT_EXTRACTION),
 }
 
 # ─── Batch processing ──────────────────────────────────────────────
@@ -184,6 +189,18 @@ def process_batch(user_id: str) -> dict:
                             logger.warning(
                                 "Auto relation discovery failed for %s: %s",
                                 capture_id, exc_rel,
+                            )
+                        try:
+                            from app.services.fact_extraction import extract_facts
+                            fr = extract_facts(user_id, capture_id)
+                            logger.info(
+                                "Auto fact extraction for %s: %s facts extracted",
+                                capture_id, fr.get("data", {}).get("count", 0),
+                            )
+                        except Exception as exc_fact:
+                            logger.warning(
+                                "Auto fact extraction failed for %s: %s",
+                                capture_id, exc_fact,
                             )
                 elif status == "no_assignment":
                     # No provider configured for this feature — skip

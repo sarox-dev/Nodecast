@@ -1,4 +1,15 @@
 window.addEventListener('DOMContentLoaded', async () => {
+    // ─── Global toast system ───────────────────────────────────
+    window.showToast = function(message, type = 'error', duration = 5000) {
+        const container = document.getElementById('toast-container');
+        if (!container) return;
+        const el = document.createElement('div');
+        el.className = `toast toast-${type}`;
+        el.innerHTML = `<span style="flex:1">${message}</span><button class="toast-dismiss">✕</button>`;
+        el.querySelector('.toast-dismiss').addEventListener('click', () => el.remove());
+        container.appendChild(el);
+        setTimeout(() => { if (el.parentNode) el.remove(); }, duration);
+    };
     // ─── Auth check ───────────────────────────────────────────────
     let currentUser = null;
     try {
@@ -565,6 +576,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         html += `<button id="ai-regenerate-all" class="modal-btn" type="button" style="padding:0.4rem 0.75rem;font-size:0.82rem;background:var(--danger,#f87171);color:#fff;border:none">Regenerate all data (⚠ destructive)</button>`;
         html += `<button id="ai-discover-relations-all" class="modal-btn modal-btn-primary" type="button" style="padding:0.4rem 0.75rem;font-size:0.82rem">🔍 Find relations for all captures</button>`;
         html += `<button id="ai-type-relations-all" class="modal-btn modal-btn-primary" type="button" style="padding:0.4rem 0.75rem;font-size:0.82rem">🏷️ Type All Relations (AI)</button>`;
+        html += `<button id="ai-extract-facts-all" class="modal-btn modal-btn-primary" type="button" style="padding:0.4rem 0.75rem;font-size:0.82rem">💡 Extract Facts (AI)</button>`;
         html += '<span id="ai-bulk-status" class="note-status" style="margin-top:0.4rem" hidden></span>';
 
         // Auto-process slider — saves to server
@@ -817,6 +829,49 @@ window.addEventListener('DOMContentLoaded', async () => {
                 status.hidden = false;
                 this.textContent = '🏷️ Type All Relations (AI)';
                 this.disabled = false;
+            }
+        });
+
+        // ─── Extract Facts for All ───────────────────────────────
+        document.getElementById('ai-extract-facts-all')?.addEventListener('click', async function () {
+            this.disabled = true;
+            this.textContent = '⏳ Extracting facts...';
+            const status = document.getElementById('ai-bulk-status');
+            status.hidden = true;
+            try {
+                const r = await fetch('/api/ai/extract-facts-all', { method: 'POST' });
+                const d = await r.json();
+                if (d.status === 'started') {
+                    this.textContent = '⏳ Extracting facts...';
+                    status.textContent = 'Extracting facts in background — see progress bar above';
+                    status.style.color = 'var(--text-dim)';
+                    status.hidden = false;
+                    pollBatchProgress((finalStatus) => {
+                        this.textContent = '💡 Extract Facts (AI)';
+                        this.disabled = false;
+                        status.textContent = `Done: ${finalStatus.processed || 0} processed, ${finalStatus.errors || 0} errors (of ${finalStatus.total || 0} total)`;
+                        status.style.color = (finalStatus.errors || 0) > 0 ? '#f87171' : '#22c55e';
+                    });
+                } else if (d.status === 'already_running') {
+                    this.textContent = '💡 Extract Facts (AI)';
+                    this.disabled = false;
+                    status.textContent = d.message || 'Already running';
+                    status.style.color = '#fbbf24';
+                    status.hidden = false;
+                } else {
+                    this.textContent = '💡 Extract Facts (AI)';
+                    this.disabled = false;
+                    status.textContent = d.message || 'Done';
+                    status.style.color = '#22c55e';
+                    status.hidden = false;
+                }
+            } catch {
+                status.textContent = 'Error running fact extraction';
+                status.style.color = '#f87171';
+                status.hidden = false;
+                this.textContent = '💡 Extract Facts (AI)';
+                this.disabled = false;
+                showToast('Fact extraction failed. Check API key in Settings.', 'error', 5000);
             }
         });
 
@@ -2276,6 +2331,10 @@ window.addEventListener('DOMContentLoaded', async () => {
             <span class="stat-item"><strong>${stats.entities || 0}</strong> entities</span>
             <span class="stat-sep">·</span>
             <span class="stat-item"><strong>${stats.projects || 0}</strong> projects</span>
+            <span class="stat-sep">·</span>
+            <span class="stat-item"><strong>${stats.tags || 0}</strong> tags</span>
+            <span class="stat-sep">·</span>
+            <span class="stat-item"><strong>${stats.facts || 0}</strong> facts</span>
         </div>`;
 
         let recentHtml = '';
@@ -2336,14 +2395,11 @@ window.addEventListener('DOMContentLoaded', async () => {
 
     async function sourcesSearch(searchTerm) {
         if (!searchTerm) {
-            resultsContainer.innerHTML = '<div class="message">Enter a topic to find sources, e.g. /sources Docker</div>';
+            resultsContainer.innerHTML = '<div class="message">Showing all saved sources</div>';
+            await doSearch('', 1);
             return;
         }
         await doSearch(searchTerm, 1);
-        // After search, override the card rendering to show sources format
-        // doSearch calls renderResults which uses createCard. We'll just use the default card view
-        // for sources — it already shows relevant captures.
-        // Just update the header to indicate "Sources" mode
         const header = document.querySelector('.result-card')?.parentElement?.previousElementSibling;
         if (resultsContainer.children.length > 0 && !resultsContainer.querySelector('.sources-badge')) {
             const badge = document.createElement('div');
@@ -2351,6 +2407,47 @@ window.addEventListener('DOMContentLoaded', async () => {
             badge.textContent = `📄 Sources for "${searchTerm}"`;
             resultsContainer.insertBefore(badge, resultsContainer.firstChild);
         }
+    }
+
+    // ─── Facts renderer ──────────────────────────────────────
+
+    async function factsSearch(searchTerm) {
+        if (!searchTerm) {
+            resultsContainer.innerHTML = '<div class="message">Showing all extracted facts</div>';
+            await doSearch('', 1);
+            return;
+        }
+        loading = true;
+        resultsContainer.innerHTML = '<div class="message">Looking up facts...</div>';
+        try {
+            const resp = await fetch(`/api/facts?q=${encodeURIComponent(searchTerm)}&limit=50`);
+            const data = await resp.json();
+            loading = false;
+            const facts = data.facts || [];
+            if (facts.length === 0) {
+                emptyState.hidden = false;
+                emptyState.innerHTML = `<div class="empty-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg></div><h3>No facts found</h3><p>No extracted facts about "${escapeHtml(searchTerm)}". Try running AI fact extraction on relevant captures first.</p>`;
+                resultsContainer.innerHTML = '';
+                return;
+            }
+            hasMore = false;
+            endOfResults.hidden = true;
+            resultsContainer.innerHTML = `<div class="sources-badge">💡 ${facts.length} fact${facts.length !== 1 ? 's' : ''} about "${escapeHtml(searchTerm)}"</div>
+                <div class="facts-list">${facts.map(f => renderFactCard(f)).join('')}</div>`;
+        } catch (err) {
+            loading = false;
+            console.error('Facts search failed:', err);
+            resultsContainer.innerHTML = '<div class="message error">Could not load facts.</div>';
+        }
+    }
+
+    function renderFactCard(f) {
+        const srcTitle = f.source_title || 'Untitled';
+        return `<div class="fact-card">
+            <span class="fact-bullet">•</span>
+            <span class="fact-text">${escapeHtml(f.fact_text)}</span>
+            <a href="/capture/${f.capture_id}" class="fact-source-badge" target="_blank" title="${escapeHtml(srcTitle)}">source</a>
+        </div>`;
     }
 
     async function entitySearch(searchTerm) {
@@ -2472,14 +2569,42 @@ window.addEventListener('DOMContentLoaded', async () => {
     // ─── Route query ──────────────────────────────────────────
 
     function routeQuery(query) {
-        if (query.startsWith('/entities ')) return entitySearch(query.slice('/entities '.length).trim());
-        if (query.startsWith('/sources ')) return sourcesSearch(query.slice('/sources '.length).trim());
-        if (query.startsWith('/cards ')) return doSearch(query.slice('/cards '.length).trim(), 1);
-        if (query.startsWith('/table ')) return doSearch(query.slice('/table '.length).trim(), 1);
-        if (query.startsWith('/timeline ')) return doSearch(query.slice('/timeline '.length).trim(), 1);
-        if (query.startsWith('/compare ')) return doSearch(query.slice('/compare '.length).trim(), 1);
-        if (query.startsWith('/markdown ')) return doSearch(query.slice('/markdown '.length).trim(), 1);
+        const hasArgs = query.includes(' ');
+        if (query.startsWith('/entities')) return hasArgs ? entitySearch(query.slice('/entities '.length).trim()) : entitySearch('');
+        if (query.startsWith('/sources')) return hasArgs ? sourcesSearch(query.slice('/sources '.length).trim()) : loadAll('sources');
+        if (query.startsWith('/facts')) return hasArgs ? factsSearch(query.slice('/facts '.length).trim()) : loadAll('facts');
+        if (query.startsWith('/cards')) return hasArgs ? doSearch(query.slice('/cards '.length).trim(), 1) : loadAll('cards');
+        if (query.startsWith('/table')) return hasArgs ? doSearch(query.slice('/table '.length).trim(), 1) : loadAll('table');
+        if (query.startsWith('/timeline')) return hasArgs ? doSearch(query.slice('/timeline '.length).trim(), 1) : loadAll('timeline');
+        if (query.startsWith('/compare')) return hasArgs ? comparisonSearch(query.slice('/compare '.length).trim()) : (resultsContainer.innerHTML='<div class="message">Usage: /compare X and Y</div>', hasMore=false, endOfResults.hidden=true);
+        if (query.startsWith('/markdown')) return hasArgs ? doSearch(query.slice('/markdown '.length).trim(), 1) : loadAll('markdown');
         return detectIntent(query);
+    }
+
+    async function loadAll(mode) {
+        loading = true;
+        resultsContainer.innerHTML = '<div class="message">Loading...</div>';
+        try {
+            const resp = await fetch('/browse');
+            const data = await resp.json();
+            allResults = Array.isArray(data) ? data : [];
+            hasMore = false;
+            currentPage = 1;
+            currentQuery = '';
+            renderResults(false);
+            const badge = document.createElement('div');
+            badge.className = 'sources-badge';
+            const labels = { sources: '📄 All sources', facts: '💡 All captures', cards: '📇 All captures', table: '🗂️ All captures', timeline: '📅 All captures', markdown: '📝 All captures' };
+            badge.textContent = labels[mode] || '📄 All items';
+            if (resultsContainer.firstChild) {
+                resultsContainer.insertBefore(badge, resultsContainer.firstChild);
+            }
+        } catch (err) {
+            loading = false;
+            console.error('Load all failed:', err);
+            resultsContainer.innerHTML = '<div class="message error">Could not load captures.</div>';
+        }
+        loading = false;
     }
 
     async function detectIntent(query) {

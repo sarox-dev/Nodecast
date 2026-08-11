@@ -1,3 +1,23 @@
+## v1.3.0 (2026-07-30)
+
+- feat: Browse dashboard with stats, recent, tags, entities
+- feat: GET /api/entities + GET /api/entity/{id} with real capture count
+- feat: Entity view (list + detail with sources + related entities)
+- feat: Slash command hints dropdown on /, 8 commands
+- feat: routeQuery + intent detection (compare, entity match)
+- feat: Comparison renderer (side-by-side entity comparison)
+- feat: Facts pipeline (DB, AI extraction, /api/facts, /facts view)
+- feat: KV Facts tab + Extract Facts button
+- feat: Auto-trigger fact extraction after entity extraction
+- feat: Toast notification system (showToast from anywhere)
+- feat: Tags + facts count in dashboard stats
+- feat: /commands without args show all results
+- fix: api_fetch_models returns {error: "offline"} instead of 502
+- fix: decrypt_api_key fallback (no crash on invalid key)
+- fix: _call_ai_model max_tokens keyword
+- fix: Infinite scroll — hasMore based on total count
+- fix: .env mounted in Docker (consistent ENCRYPTION_KEY)
+
 ## v1.2.2 (2026-07-28)
 
 - feat: auto-updater system + entity toggle + health endpoint (5693072)

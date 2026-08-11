@@ -278,6 +278,18 @@ def init_user_db(user_id: str):
             created_at TEXT DEFAULT '',
             PRIMARY KEY (source_id, target_id)
         );
+        CREATE TABLE IF NOT EXISTS facts (
+            id TEXT PRIMARY KEY,
+            capture_id TEXT NOT NULL,
+            entity_id TEXT DEFAULT '',
+            fact_text TEXT NOT NULL,
+            confidence REAL DEFAULT 1.0,
+            category TEXT DEFAULT '',
+            created_at TEXT DEFAULT '',
+            FOREIGN KEY (capture_id) REFERENCES captures(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_facts_capture ON facts(capture_id);
+        CREATE INDEX IF NOT EXISTS idx_facts_entity ON facts(entity_id);
     """)
     # Migration: add api_style column if missing
     try:
@@ -394,6 +406,19 @@ def _migrate_ai_tables(conn):
             created_at TEXT DEFAULT '',
             PRIMARY KEY (source_id, target_id)
         );
+
+        CREATE TABLE IF NOT EXISTS facts (
+            id TEXT PRIMARY KEY,
+            capture_id TEXT NOT NULL,
+            entity_id TEXT DEFAULT '',
+            fact_text TEXT NOT NULL,
+            confidence REAL DEFAULT 1.0,
+            category TEXT DEFAULT '',
+            created_at TEXT DEFAULT '',
+            FOREIGN KEY (capture_id) REFERENCES captures(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_facts_capture ON facts(capture_id);
+        CREATE INDEX IF NOT EXISTS idx_facts_entity ON facts(entity_id);
 
         CREATE TABLE IF NOT EXISTS pending_ai_jobs (
             id TEXT PRIMARY KEY,
@@ -624,6 +649,47 @@ def get_top_entities(user_id: str, limit: int = 10) -> list[dict]:
         conn.close()
 
 
+def count_tags(user_id: str) -> int:
+    conn = get_db(user_id)
+    try:
+        from collections import Counter
+        counter: Counter = Counter()
+        rows = conn.execute("SELECT tags FROM capture_ai_tags").fetchall()
+        for r in rows:
+            if not r["tags"]:
+                continue
+            try:
+                tags = json.loads(r["tags"]) if isinstance(r["tags"], str) else r["tags"]
+                if isinstance(tags, list):
+                    for t in tags:
+                        if t:
+                            counter[t.lower().strip()] += 1
+            except Exception:
+                pass
+        rows2 = conn.execute("SELECT tags FROM captures WHERE tags IS NOT NULL").fetchall()
+        for r in rows2:
+            try:
+                tags = json.loads(r["tags"]) if isinstance(r["tags"], str) else []
+                if isinstance(tags, list):
+                    for t in tags:
+                        if isinstance(t, str) and t.strip():
+                            counter[t.lower().strip()] += 1
+            except Exception:
+                pass
+        return len(counter)
+    finally:
+        conn.close()
+
+
+def count_facts(user_id: str) -> int:
+    conn = get_db(user_id)
+    try:
+        row = conn.execute("SELECT COUNT(*) as cnt FROM facts").fetchone()
+        return row["cnt"] if row else 0
+    finally:
+        conn.close()
+
+
 def list_entities(user_id: str, search: str = "", type_filter: str = "", sort: str = "capture_count", limit: int = 50, offset: int = 0) -> dict:
     conn = get_db(user_id)
     try:
@@ -721,6 +787,62 @@ def get_entity_with_captures(user_id: str, entity_id: str) -> dict | None:
                 "strength": rr["strength"],
             })
         return {"entity": entity, "captures": captures, "related_entities": related}
+    finally:
+        conn.close()
+
+
+# ─── Facts CRUD ────────────────────────────────────────────────
+
+
+def insert_fact(user_id: str, capture_id: str, fact_text: str, entity_id: str = "", category: str = "", confidence: float = 1.0) -> str:
+    from uuid import uuid4
+    from datetime import datetime, timezone
+    conn = get_db(user_id)
+    try:
+        rid = uuid4().hex[:12]
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "INSERT INTO facts (id, capture_id, entity_id, fact_text, confidence, category, created_at) VALUES (?,?,?,?,?,?,?)",
+            (rid, capture_id, entity_id, fact_text, confidence, category, now),
+        )
+        conn.commit()
+        return rid
+    finally:
+        conn.close()
+
+
+def get_facts_for_capture(user_id: str, capture_id: str) -> list[dict]:
+    conn = get_db(user_id)
+    try:
+        rows = conn.execute(
+            "SELECT * FROM facts WHERE capture_id=? ORDER BY confidence DESC, created_at DESC",
+            (capture_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_facts_by_topic(user_id: str, search: str, limit: int = 50) -> list[dict]:
+    conn = get_db(user_id)
+    try:
+        rows = conn.execute(
+            """SELECT f.*, c.source_title FROM facts f
+               JOIN captures c ON f.capture_id = c.id
+               WHERE LOWER(f.fact_text) LIKE ?
+               ORDER BY f.confidence DESC, f.created_at DESC LIMIT ?""",
+            (f"%{search.lower()}%", limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def delete_facts_for_capture(user_id: str, capture_id: str):
+    conn = get_db(user_id)
+    try:
+        conn.execute("DELETE FROM facts WHERE capture_id=?", (capture_id,))
+        conn.commit()
     finally:
         conn.close()
 
