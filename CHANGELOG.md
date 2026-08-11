@@ -1,3 +1,9 @@
+## v1.3.0 (2026-08-11)
+
+- feat: Library dashboard, Entity View, Facts pipeline, intent detection, comparison, toast system (96494cf)
+- feat: Library dashboard, Entity API + View, intent detection, comparison renderer (8bc400a)
+
+
 ## v1.3.0 (2026-07-30)
 
 - feat: Browse dashboard with stats, recent, tags, entities
