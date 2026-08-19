@@ -1,3 +1,8 @@
+## v1.3.1 (2026-08-19)
+
+- ci: add Discord webhook notification on release (804ac0c)
+
+
 ## v1.3.0 (2026-08-11)
 
 - feat: Library dashboard, Entity View, Facts pipeline, intent detection, comparison, toast system (96494cf)
