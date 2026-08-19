@@ -121,3 +121,99 @@ jobs:
           overwrite_files: true
           draft: false
           prerelease: false
+
+      - name: Send Discord Notification
+        shell: bash
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}"
+          DATE="$(date -u +%Y-%m-%d)"
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$V"
+          PREV_TAG=$(git tag --sort=-version:refname | grep -vx "$GITHUB_REF_NAME" | head -n1)
+          PREV_VER="${PREV_TAG#v}"
+
+          RELEASE_TYPE="patch"
+          COLOR=5763719
+          EMOJI="🔧"
+          PING=""
+          DESC_LABEL="Minor changes and bug fixes"
+
+          if [ -n "$PREV_VER" ]; then
+            IFS='.' read -r PMAJ PMIN PPATCH <<< "$PREV_VER"
+            if [ "$MAJOR" -gt "$PMAJ" ] 2>/dev/null; then
+              RELEASE_TYPE="major"
+              COLOR=10181046
+              EMOJI="🚀"
+              PING="@everyone"
+              DESC_LABEL="Major update with breaking changes and significant new features"
+            elif [ "$MINOR" -gt "$PMIN" ] 2>/dev/null; then
+              RELEASE_TYPE="minor"
+              COLOR=4886754
+              EMOJI="⭐"
+              PING=""
+              DESC_LABEL="New features and improvements"
+            fi
+          fi
+
+          # Build description with truncated changelog
+          DESCRIPTION="${DESC_LABEL}"
+
+          if [ -f CHANGELOG.md ]; then
+            # Extract section for this version (between ## vX.Y.Z and next ## v)
+            SECTION=$(awk "/^## v${V}[^0-9]/ {found=1; next} /^## v/ {if(found) exit} found {print}" CHANGELOG.md)
+            if [ -n "$SECTION" ]; then
+              MAX_LEN=3000
+              if [ "${#SECTION}" -gt "$MAX_LEN" ]; then
+                SECTION="${SECTION:0:$MAX_LEN}"
+                SECTION="${SECTION%$'\n'*}"
+                SECTION+=$'\n\n... [Read full release notes]('"${RELEASE_URL}"')'
+              fi
+              DESCRIPTION="${SECTION}"
+            fi
+          fi
+
+          # Build embed via python to handle JSON properly
+          python3 << 'PYEOF'
+          import json, os, subprocess
+
+          v = os.environ.get("V", "")
+          release_url = os.environ.get("RELEASE_URL", "")
+          date_str = os.environ.get("DATE", "")
+          release_type = os.environ.get("RELEASE_TYPE", "patch")
+          color = int(os.environ.get("COLOR", "5763719"))
+          emoji = os.environ.get("EMOJI", "🔧")
+          ping = os.environ.get("PING", "")
+          description = os.environ.get("DESCRIPTION", "")
+
+          embed = {
+            "title": f"{emoji} Nodecast v{v} — {release_type.title()} Release",
+            "url": release_url,
+            "color": color,
+            "description": description[:3000],
+            "fields": [
+                {"name": "Version", "value": v, "inline": True},
+                {"name": "Type", "value": release_type.title(), "inline": True},
+                {"name": "Date", "value": date_str, "inline": True},
+            ],
+            "footer": {"text": "Nodecast — Personal Knowledge Layer"},
+            "timestamp": subprocess.run(
+                ["date", "-u", "+%Y-%m-%dT%H:%M:%SZ"],
+                capture_output=True, text=True
+            ).stdout.strip(),
+          }
+
+          payload = {"content": ping, "embeds": [embed]}
+
+          result = subprocess.run(
+              ["curl", "-H", "Content-Type: application/json",
+               "-X", "POST", "-d", json.dumps(payload),
+               os.environ["WEBHOOK_URL"]],
+              capture_output=True, text=True
+          )
+          print(f"Discord notification sent ({release_type})")
+          if result.returncode != 0:
+              print(f"curl error: {result.stderr}")
+          PYEOF
