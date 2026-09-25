@@ -9,8 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 
 from app.services.auth import get_current_user
-from app.services.knowledge_store import get_knowledge_for_capture
-from app.services.database import get_capture_ref
+from app.services.database import get_atomics_by_source, get_capture_ref
 from app.services.renderers import list_renderers, get_renderer
 
 router = APIRouter(prefix="/api")
@@ -39,8 +38,7 @@ def render_capture(
     if not renderer:
         raise HTTPException(404, f"Renderer '{renderer_name}' not found")
 
-    objects = get_knowledge_for_capture(user_id, capture_id)
-    objects_dict = [ko.model_dump(exclude_none=True, mode="json") for ko in objects]
+    objects_dict = get_atomics_by_source(user_id, capture_id)
     ref_dict = dict(ref)
 
     html = renderer.render(objects_dict, ref_dict)

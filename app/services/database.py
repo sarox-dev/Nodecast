@@ -1,1577 +1,310 @@
+"""SQLite persistence for Nodecast's capture + atomic knowledge model."""
 import json
-import logging
 import os
+import shutil
 import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
 from app.core.security import CONTENTS_DIR, USERS_DB_PATH, USERS_DATA_DIR
+from app.services.ai_crypto import encrypt_api_key
 
-logger = logging.getLogger(__name__)
 
-# ─── Global users DB (Auth) ───────────────────────────────────────
+def _now(): return datetime.now(timezone.utc).isoformat()
+
 
 def get_users_db():
-    """Open the global users database (creates if not exists)."""
     os.makedirs(str(CONTENTS_DIR), exist_ok=True)
-    conn = sqlite3.connect(str(USERS_DB_PATH))
-    conn.row_factory = sqlite3.Row
+    conn = sqlite3.connect(str(USERS_DB_PATH)); conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    _init_users_schema(conn)
-    return conn
-
-
-def _init_users_schema(conn):
     conn.executescript("""
-        CREATE TABLE IF NOT EXISTS users (
-            id TEXT PRIMARY KEY,
-            username TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            is_admin INTEGER DEFAULT 0,
-            created_at TEXT DEFAULT ''
-        );
-        CREATE TABLE IF NOT EXISTS global_settings (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL DEFAULT ''
-        );
-    """)
+      CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,username TEXT UNIQUE NOT NULL,password_hash TEXT NOT NULL,is_admin INTEGER DEFAULT 0,created_at TEXT DEFAULT '');
+      CREATE TABLE IF NOT EXISTS global_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL DEFAULT '');
+    """); conn.commit(); return conn
+
+
+def user_count():
+    c=get_users_db()
+    try: return c.execute("SELECT COUNT(*) c FROM users").fetchone()["c"] or 0
+    finally: c.close()
+def user_exists(name):
+    c=get_users_db()
+    try: return c.execute("SELECT 1 FROM users WHERE LOWER(username)=LOWER(?)",(name,)).fetchone() is not None
+    finally: c.close()
+def create_user_in_db(username,password_hash,is_admin=False):
+    uid=uuid.uuid4().hex[:12]; c=get_users_db()
+    try: c.execute("INSERT INTO users VALUES (?,?,?,?,?)",(uid,username,password_hash,int(is_admin),_now())); c.commit(); return uid
+    finally: c.close()
+def get_user_by_username(name):
+    c=get_users_db()
     try:
-        conn.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0")
-    except Exception:
-        pass
-    conn.commit()
-
-
-def user_count() -> int:
-    conn = get_users_db()
+        r=c.execute("SELECT * FROM users WHERE LOWER(username)=LOWER(?)",(name,)).fetchone(); return dict(r) if r else None
+    finally: c.close()
+def get_user_by_id(uid):
+    c=get_users_db()
     try:
-        return conn.execute("SELECT COUNT(*) as c FROM users").fetchone()["c"] or 0
-    finally:
-        conn.close()
+        r=c.execute("SELECT id,username,is_admin,created_at FROM users WHERE id=?",(uid,)).fetchone(); return dict(r) if r else None
+    finally: c.close()
+def get_all_users():
+    c=get_users_db()
+    try: return [dict(r) for r in c.execute("SELECT id,username,is_admin,created_at FROM users ORDER BY created_at")]
+    finally: c.close()
+def update_password(uid,value):
+    c=get_users_db()
+    try: c.execute("UPDATE users SET password_hash=? WHERE id=?",(value,uid)); c.commit()
+    finally: c.close()
+def update_username(uid,value):
+    c=get_users_db()
+    try: c.execute("UPDATE users SET username=? WHERE id=?",(value,uid)); c.commit()
+    finally: c.close()
+def delete_user(uid):
+    c=get_users_db()
+    try: c.execute("DELETE FROM users WHERE id=?",(uid,)); c.commit()
+    finally: c.close()
+    p=USERS_DATA_DIR/uid
+    if p.exists(): shutil.rmtree(p)
+def clear_user_data(uid):
+    p=USERS_DATA_DIR/uid
+    if p.exists(): shutil.rmtree(p)
+    init_user_db(uid)
 
 
-def user_exists(username: str) -> bool:
-    conn = get_users_db()
-    try:
-        return conn.execute(
-            "SELECT id FROM users WHERE LOWER(username)=LOWER(?)", (username,)
-        ).fetchone() is not None
-    finally:
-        conn.close()
+REGISTER_SETTINGS_PATH=CONTENTS_DIR/"registration.json"
+def get_registration_setting():
+    try: return json.loads(REGISTER_SETTINGS_PATH.read_text()).get("open_registration",True)
+    except (FileNotFoundError,json.JSONDecodeError,OSError): return True
+def set_registration_setting(value): REGISTER_SETTINGS_PATH.write_text(json.dumps({"open_registration":value}))
 
 
-def create_user_in_db(username: str, password_hash: str, is_admin: bool = False) -> str:
-    user_id = uuid.uuid4().hex[:12]
-    now = datetime.now(timezone.utc).isoformat()
-    conn = get_users_db()
-    try:
-        conn.execute(
-            "INSERT INTO users (id, username, password_hash, is_admin, created_at) VALUES (?,?,?,?,?)",
-            (user_id, username, password_hash, 1 if is_admin else 0, now),
-        )
-        conn.commit()
-        return user_id
-    finally:
-        conn.close()
+def get_user_db_path(uid):
+    p=USERS_DATA_DIR/uid; p.mkdir(parents=True,exist_ok=True); return p/"nodecast.db"
 
 
-def get_user_by_username(username: str) -> dict | None:
-    conn = get_users_db()
-    try:
-        row = conn.execute(
-            "SELECT * FROM users WHERE LOWER(username)=LOWER(?)", (username,)
-        ).fetchone()
-        return dict(row) if row else None
-    finally:
-        conn.close()
-
-
-def get_user_by_id(user_id: str) -> dict | None:
-    conn = get_users_db()
-    try:
-        row = conn.execute("SELECT id, username, is_admin, created_at FROM users WHERE id=?", (user_id,)).fetchone()
-        return dict(row) if row else None
-    finally:
-        conn.close()
-
-
-def get_all_users() -> list[dict]:
-    conn = get_users_db()
-    try:
-        return [dict(r) for r in conn.execute(
-            "SELECT id, username, is_admin, created_at FROM users ORDER BY created_at"
-        ).fetchall()]
-    finally:
-        conn.close()
-
-
-def update_password(user_id: str, new_hash: str):
-    conn = get_users_db()
-    try:
-        conn.execute("UPDATE users SET password_hash=? WHERE id=?", (new_hash, user_id))
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def update_username(user_id: str, new_username: str):
-    conn = get_users_db()
-    try:
-        conn.execute("UPDATE users SET username=? WHERE id=?", (new_username, user_id))
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def delete_user(user_id: str):
-    """Delete user from users DB and their data directory."""
-    conn = get_users_db()
-    try:
-        conn.execute("DELETE FROM users WHERE id=?", (user_id,))
-        conn.commit()
-    finally:
-        conn.close()
-    import shutil
-    user_dir = USERS_DATA_DIR / user_id
-    if user_dir.exists():
-        shutil.rmtree(str(user_dir))
-
-
-def clear_user_data(user_id: str):
-    """Clear all captures from a user's DB but keep the user."""
-    db_path = get_user_db_path(user_id)
-    if not db_path.exists():
-        return
-    conn = sqlite3.connect(str(db_path))
-    try:
-        conn.execute("DELETE FROM captures")
-        conn.commit()
-    finally:
-        conn.close()
-
-
-# ─── Registration setting ─────────────────────────────────────────
-
-REGISTER_SETTINGS_PATH = CONTENTS_DIR / "registration.json"
-
-
-def get_registration_setting() -> bool:
-    if not REGISTER_SETTINGS_PATH.exists():
-        return True
-    try:
-        data = json.loads(REGISTER_SETTINGS_PATH.read_text())
-        return data.get("open_registration", True)
-    except Exception:
-        return True
-
-
-def set_registration_setting(open_reg: bool):
-    REGISTER_SETTINGS_PATH.write_text(json.dumps({"open_registration": open_reg}))
-
-
-# ─── Per-user Capture DB ──────────────────────────────────────────
-
-def get_user_db_path(user_id: str) -> Path:
-    """Path to a user's data directory and database."""
-    user_dir = USERS_DATA_DIR / user_id
-    os.makedirs(str(user_dir), exist_ok=True)
-    return user_dir / "nodecast.db"
-
-
-def init_user_db(user_id: str):
-    """Initialize a user's personal database with the new captures schema."""
-    db_path = get_user_db_path(user_id)
-    conn = sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    conn.executescript("""
-        CREATE TABLE IF NOT EXISTS captures (
-            id TEXT PRIMARY KEY,
-            capture_type TEXT DEFAULT 'page',
-            source_url TEXT DEFAULT '',
-            source_title TEXT DEFAULT '',
-            source_site_name TEXT DEFAULT '',
-            captured_at TEXT DEFAULT '',
-            saved_at TEXT DEFAULT '',
-            tags TEXT DEFAULT '[]',
-            project TEXT DEFAULT '',
-            raw_path TEXT DEFAULT ''
-        );
-        CREATE INDEX IF NOT EXISTS idx_captures_saved_at ON captures(saved_at);
-        CREATE INDEX IF NOT EXISTS idx_captures_project ON captures(project);
-        CREATE INDEX IF NOT EXISTS idx_captures_source_url ON captures(source_url);
-
-        CREATE TABLE IF NOT EXISTS ai_providers (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            provider_type TEXT NOT NULL DEFAULT 'openai_compatible',
-            base_url TEXT NOT NULL,
-            api_key_encrypted TEXT DEFAULT '',
-            default_model TEXT DEFAULT '',
-            provider_key TEXT DEFAULT '',
-            api_style TEXT DEFAULT '',
-            created_at TEXT DEFAULT ''
-        );
-
-        CREATE TABLE IF NOT EXISTS ai_feature_assignments (
-            id TEXT PRIMARY KEY,
-            feature TEXT NOT NULL,
-            provider_id TEXT NOT NULL,
-            model TEXT NOT NULL,
-            created_at TEXT DEFAULT '',
-            FOREIGN KEY (provider_id) REFERENCES ai_providers(id)
-        );
-
-        CREATE TABLE IF NOT EXISTS capture_ai_tags (
-            capture_id TEXT PRIMARY KEY,
-            tags TEXT DEFAULT '[]',
-            summary TEXT DEFAULT '',
-            key_concepts TEXT DEFAULT '[]',
-            model TEXT DEFAULT '',
-            processed_at TEXT DEFAULT '',
-            ai_tags_source TEXT DEFAULT '[]',
-            FOREIGN KEY (capture_id) REFERENCES captures(id)
-        );
-
-        CREATE TABLE IF NOT EXISTS entities (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            type TEXT NOT NULL DEFAULT 'concept',
-            aliases TEXT DEFAULT '[]',
-            description TEXT DEFAULT '',
-            capture_count INTEGER DEFAULT 0,
-            created_at TEXT DEFAULT ''
-        );
-        CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name);
-
-        CREATE TABLE IF NOT EXISTS capture_entities (
-            capture_id TEXT NOT NULL,
-            entity_id TEXT NOT NULL,
-            confidence REAL DEFAULT 1.0,
-            PRIMARY KEY (capture_id, entity_id),
-            FOREIGN KEY (capture_id) REFERENCES captures(id),
-            FOREIGN KEY (entity_id) REFERENCES entities(id)
-        );
-
-        CREATE TABLE IF NOT EXISTS relations (
-            id TEXT PRIMARY KEY,
-            source_type TEXT NOT NULL CHECK(source_type IN ('entity','capture')),
-            source_id TEXT NOT NULL,
-            target_type TEXT NOT NULL CHECK(target_type IN ('entity','capture')),
-            target_id TEXT NOT NULL,
-            relation_type TEXT NOT NULL CHECK(relation_type IN ('related','related_to','depends_on','implements','references','supports','contradicts','part_of','similar_to','version_of')),
-            strength REAL DEFAULT 0.5,
-            context TEXT DEFAULT '',
-            created_at TEXT DEFAULT '',
-            updated_at TEXT DEFAULT ''
-        );
-        CREATE INDEX IF NOT EXISTS idx_relations_source ON relations(source_type, source_id);
-        CREATE INDEX IF NOT EXISTS idx_relations_target ON relations(target_type, target_id);
-        CREATE INDEX IF NOT EXISTS idx_relations_type ON relations(relation_type);
-        CREATE INDEX IF NOT EXISTS idx_relations_strength ON relations(strength);
-        CREATE TABLE IF NOT EXISTS rejected_relations (
-            source_id TEXT NOT NULL,
-            target_id TEXT NOT NULL,
-            created_at TEXT DEFAULT '',
-            PRIMARY KEY (source_id, target_id)
-        );
-        CREATE TABLE IF NOT EXISTS facts (
-            id TEXT PRIMARY KEY,
-            capture_id TEXT NOT NULL,
-            entity_id TEXT DEFAULT '',
-            fact_text TEXT NOT NULL,
-            confidence REAL DEFAULT 1.0,
-            category TEXT DEFAULT '',
-            created_at TEXT DEFAULT '',
-            FOREIGN KEY (capture_id) REFERENCES captures(id)
-        );
-        CREATE INDEX IF NOT EXISTS idx_facts_capture ON facts(capture_id);
-        CREATE INDEX IF NOT EXISTS idx_facts_entity ON facts(entity_id);
-    """)
-    # Migration: add api_style column if missing
-    try:
-        conn.execute("ALTER TABLE ai_providers ADD COLUMN api_style TEXT DEFAULT ''")
-    except Exception:
-        pass
-    try:
-        conn.execute("ALTER TABLE ai_providers ADD COLUMN provider_key TEXT DEFAULT ''")
-    except Exception:
-        pass
-    # Ensure indexes exist
-    try:
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_cap_entity_capture ON capture_entities(capture_id)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_cap_entity_entity ON capture_entities(entity_id)")
-    except Exception:
-        pass
-    # Migration: create user_settings table
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS user_settings (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL DEFAULT ''
-        )
-    """)
-    conn.commit()
-
-
-def get_db(user_id: str):
-    """Open a user's personal database. Initializes if not exists."""
-    db_path = get_user_db_path(user_id)
-    if not db_path.exists():
-        init_user_db(user_id)
-    conn = sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    # Migration: ensure AI tables exist on existing databases
-    _migrate_ai_tables(conn)
-    return conn
-
-
-def _migrate_ai_tables(conn):
-    """Add AI tables if they don't exist (migration for existing DBs)."""
-    conn.executescript("""
-        CREATE TABLE IF NOT EXISTS ai_providers (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            provider_type TEXT NOT NULL DEFAULT 'openai_compatible',
-            base_url TEXT NOT NULL,
-            api_key_encrypted TEXT DEFAULT '',
-            default_model TEXT DEFAULT '',
-            provider_key TEXT DEFAULT '',
-            api_style TEXT DEFAULT '',
-            created_at TEXT DEFAULT ''
-        );
-        CREATE TABLE IF NOT EXISTS ai_feature_assignments (
-            id TEXT PRIMARY KEY,
-            feature TEXT NOT NULL,
-            provider_id TEXT NOT NULL,
-            model TEXT NOT NULL,
-            created_at TEXT DEFAULT '',
-            FOREIGN KEY (provider_id) REFERENCES ai_providers(id)
-        );
-        CREATE TABLE IF NOT EXISTS capture_ai_tags (
-            capture_id TEXT PRIMARY KEY,
-            tags TEXT DEFAULT '[]',
-            summary TEXT DEFAULT '',
-            key_concepts TEXT DEFAULT '[]',
-            model TEXT DEFAULT '',
-            processed_at TEXT DEFAULT '',
-            ai_tags_source TEXT DEFAULT '[]',
-            FOREIGN KEY (capture_id) REFERENCES captures(id)
-        );
-        CREATE TABLE IF NOT EXISTS entities (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            type TEXT NOT NULL DEFAULT 'concept',
-            aliases TEXT DEFAULT '[]',
-            description TEXT DEFAULT '',
-            capture_count INTEGER DEFAULT 0,
-            created_at TEXT DEFAULT ''
-        );
-        CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name);
-        CREATE TABLE IF NOT EXISTS capture_entities (
-            capture_id TEXT NOT NULL,
-            entity_id TEXT NOT NULL,
-            confidence REAL DEFAULT 1.0,
-            PRIMARY KEY (capture_id, entity_id),
-            FOREIGN KEY (capture_id) REFERENCES captures(id),
-            FOREIGN KEY (entity_id) REFERENCES entities(id)
-        );
-        CREATE INDEX IF NOT EXISTS idx_cap_entity_capture ON capture_entities(capture_id);
-        CREATE INDEX IF NOT EXISTS idx_cap_entity_entity ON capture_entities(entity_id);
-
-        CREATE TABLE IF NOT EXISTS relations (
-            id TEXT PRIMARY KEY,
-            source_type TEXT NOT NULL,
-            source_id TEXT NOT NULL,
-            target_type TEXT NOT NULL,
-            target_id TEXT NOT NULL,
-            relation_type TEXT NOT NULL,
-            strength REAL DEFAULT 0.5,
-            context TEXT DEFAULT '',
-            created_at TEXT DEFAULT '',
-            updated_at TEXT DEFAULT ''
-        );
-        CREATE INDEX IF NOT EXISTS idx_relations_source ON relations(source_type, source_id);
-        CREATE INDEX IF NOT EXISTS idx_relations_target ON relations(target_type, target_id);
-        CREATE INDEX IF NOT EXISTS idx_relations_type ON relations(relation_type);
-        CREATE INDEX IF NOT EXISTS idx_relations_strength ON relations(strength);
-        
-        CREATE TABLE IF NOT EXISTS rejected_relations (
-            source_id TEXT NOT NULL,
-            target_id TEXT NOT NULL,
-            created_at TEXT DEFAULT '',
-            PRIMARY KEY (source_id, target_id)
-        );
-
-        CREATE TABLE IF NOT EXISTS facts (
-            id TEXT PRIMARY KEY,
-            capture_id TEXT NOT NULL,
-            entity_id TEXT DEFAULT '',
-            fact_text TEXT NOT NULL,
-            confidence REAL DEFAULT 1.0,
-            category TEXT DEFAULT '',
-            created_at TEXT DEFAULT '',
-            FOREIGN KEY (capture_id) REFERENCES captures(id)
-        );
-        CREATE INDEX IF NOT EXISTS idx_facts_capture ON facts(capture_id);
-        CREATE INDEX IF NOT EXISTS idx_facts_entity ON facts(entity_id);
-
-        CREATE TABLE IF NOT EXISTS pending_ai_jobs (
-            id TEXT PRIMARY KEY,
-            capture_id TEXT NOT NULL,
-            feature TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'pending',
-            error_message TEXT DEFAULT '',
-            created_at TEXT NOT NULL,
-            processed_at TEXT DEFAULT '',
-            FOREIGN KEY (capture_id) REFERENCES captures(id)
-        );
-        CREATE INDEX IF NOT EXISTS idx_pending_jobs_status ON pending_ai_jobs(status);
-        CREATE INDEX IF NOT EXISTS idx_pending_jobs_feature ON pending_ai_jobs(feature);
-    """)
-    conn.commit()
-    # Migration: rename related_to → related for Stage 1 default relations
-    try:
-        conn.execute("UPDATE relations SET relation_type='related' WHERE relation_type='related_to' AND source_type='capture'")
-    except Exception:
-        pass
-    try:
-        conn.execute("UPDATE relations SET relation_type='related' WHERE relation_type='related_to' AND source_type='entity'")
-    except Exception:
-        pass
-    # Migration: create user_settings table (for existing DBs)
-    try:
-        conn.execute("CREATE TABLE IF NOT EXISTS user_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')")
-        conn.commit()
-    except Exception:
-        pass
-
-
-# ─── Capture CRUD helpers ─────────────────────────────────────────
-
-def insert_capture_ref(
-    user_id: str,
-    capture_id: str,
-    capture_type: str,
-    source_url: str,
-    source_title: str | None,
-    source_site_name: str | None,
-    captured_at: str,
-    saved_at: str,
-    tags: list[str],
-    project: str,
-    raw_path: str,
-):
-    """Insert a capture reference row into the user's DB."""
-    conn = get_db(user_id)
-    try:
-        conn.execute(
-            """INSERT INTO captures
-               (id, capture_type, source_url, source_title, source_site_name,
-                captured_at, saved_at, tags, project, raw_path)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
-            (
-                capture_id,
-                capture_type,
-                source_url,
-                source_title or "",
-                source_site_name or "",
-                captured_at,
-                saved_at,
-                json.dumps(tags),
-                project,
-                raw_path,
-            ),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def get_capture_ref(user_id: str, capture_id: str) -> dict | None:
-    """Get a capture reference row from DB."""
-    conn = get_db(user_id)
-    try:
-        row = conn.execute("SELECT * FROM captures WHERE id=?", (capture_id,)).fetchone()
-        if row:
-            return _row_to_dict(row)
-        return None
-    finally:
-        conn.close()
-
-
-def list_captures(user_id: str, limit: int = 50, offset: int = 0) -> list[dict]:
-    """List capture references, newest first."""
-    conn = get_db(user_id)
-    try:
-        rows = conn.execute(
-            "SELECT * FROM captures ORDER BY saved_at DESC LIMIT ? OFFSET ?",
-            (limit, offset),
-        ).fetchall()
-        return [_row_to_dict(r) for r in rows]
-    finally:
-        conn.close()
-
-
-def delete_capture_ref(user_id: str, capture_id: str) -> bool:
-    """Delete a capture reference. Returns True if existed."""
-    conn = get_db(user_id)
-    try:
-        cur = conn.execute("DELETE FROM captures WHERE id=?", (capture_id,))
-        conn.commit()
-        return cur.rowcount > 0
-    finally:
-        conn.close()
-
-
-def search_captures(user_id: str, query: str) -> list[dict]:
-    """Simple text search across capture references."""
-    conn = get_db(user_id)
-    try:
-        rows = conn.execute(
-            """SELECT * FROM captures
-               WHERE source_url LIKE ? OR source_title LIKE ? OR project LIKE ? OR tags LIKE ?
-               ORDER BY saved_at DESC LIMIT 50""",
-            (f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%"),
-        ).fetchall()
-        return [_row_to_dict(r) for r in rows]
-    finally:
-        conn.close()
-
-
-def _row_to_dict(row) -> dict:
-    tags = json.loads(row["tags"]) if isinstance(row["tags"], str) else []
-    return {
-        "id": row["id"],
-        "capture_type": row["capture_type"],
-        "source_url": row["source_url"],
-        "source_title": row["source_title"],
-        "source_site_name": row["source_site_name"],
-        "captured_at": row["captured_at"],
-        "saved_at": row["saved_at"],
-        "tags": tags,
-        "project": row["project"],
-        "raw_path": row["raw_path"],
-    }
-
-
-# ─── Backward compat stubs (no-op) ────────────────────────────────
-
-def migrate_existing_data():
-    pass  # No migration needed — clean start
-
-
+SCHEMA="""
+PRAGMA foreign_keys=ON;
+CREATE TABLE IF NOT EXISTS captures(id TEXT PRIMARY KEY,capture_type TEXT DEFAULT 'page',source_url TEXT DEFAULT '',source_title TEXT DEFAULT '',source_site_name TEXT DEFAULT '',captured_at TEXT DEFAULT '',saved_at TEXT DEFAULT '',tags TEXT DEFAULT '[]',project TEXT DEFAULT '',raw_path TEXT DEFAULT '');
+CREATE INDEX IF NOT EXISTS idx_captures_saved_at ON captures(saved_at);
+CREATE TABLE IF NOT EXISTS atomics(id TEXT PRIMARY KEY,type TEXT NOT NULL,content TEXT DEFAULT '',properties TEXT DEFAULT '{}',source_id TEXT,source_atomics TEXT DEFAULT '[]',confidence REAL DEFAULT 1.0,extracted_by TEXT DEFAULT '',created_at TEXT DEFAULT '',position INTEGER DEFAULT 0,relevance REAL DEFAULT 0.0,FOREIGN KEY(source_id) REFERENCES captures(id) ON DELETE CASCADE);
+CREATE INDEX IF NOT EXISTS idx_atomics_type ON atomics(type); CREATE INDEX IF NOT EXISTS idx_atomics_source ON atomics(source_id); CREATE INDEX IF NOT EXISTS idx_atomics_content ON atomics(content);
+CREATE TABLE IF NOT EXISTS atomic_relations(id TEXT PRIMARY KEY,source_atomic_id TEXT NOT NULL,target_atomic_id TEXT NOT NULL,relation_type TEXT NOT NULL,strength REAL DEFAULT 0.5,context TEXT DEFAULT '',created_at TEXT DEFAULT '',UNIQUE(source_atomic_id,target_atomic_id,relation_type),FOREIGN KEY(source_atomic_id) REFERENCES atomics(id) ON DELETE CASCADE,FOREIGN KEY(target_atomic_id) REFERENCES atomics(id) ON DELETE CASCADE);
+CREATE INDEX IF NOT EXISTS idx_ar_source ON atomic_relations(source_atomic_id); CREATE INDEX IF NOT EXISTS idx_ar_target ON atomic_relations(target_atomic_id); CREATE INDEX IF NOT EXISTS idx_ar_type ON atomic_relations(relation_type);
+CREATE TABLE IF NOT EXISTS ai_providers(id TEXT PRIMARY KEY,name TEXT NOT NULL,provider_type TEXT NOT NULL DEFAULT 'openai_compatible',base_url TEXT NOT NULL,api_key_encrypted TEXT DEFAULT '',default_model TEXT DEFAULT '',provider_key TEXT DEFAULT '',api_style TEXT DEFAULT 'openai',created_at TEXT DEFAULT '');
+CREATE TABLE IF NOT EXISTS ai_feature_assignments(id TEXT PRIMARY KEY,feature TEXT UNIQUE NOT NULL,provider_id TEXT NOT NULL,model TEXT NOT NULL,created_at TEXT DEFAULT '',FOREIGN KEY(provider_id) REFERENCES ai_providers(id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS pending_ai_jobs(id TEXT PRIMARY KEY,capture_id TEXT NOT NULL,feature TEXT NOT NULL,status TEXT DEFAULT 'pending',created_at TEXT DEFAULT '',processed_at TEXT DEFAULT '',error_message TEXT DEFAULT '',FOREIGN KEY(capture_id) REFERENCES captures(id) ON DELETE CASCADE);
+CREATE INDEX IF NOT EXISTS idx_jobs_status ON pending_ai_jobs(status);
+CREATE TABLE IF NOT EXISTS user_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL DEFAULT '');
+"""
+def init_user_db(uid):
+    c=sqlite3.connect(str(get_user_db_path(uid)))
+    try: c.executescript(SCHEMA); c.commit()
+    finally: c.close()
+def get_db(uid):
+    p=get_user_db_path(uid)
+    if not p.exists(): init_user_db(uid)
+    c=sqlite3.connect(str(p)); c.row_factory=sqlite3.Row; c.execute("PRAGMA journal_mode=WAL"); c.execute("PRAGMA foreign_keys=ON"); return c
 def init_db():
-    pass  # Auto-migrate removed — fresh system
+    c=get_users_db(); c.close()
 
 
-def init_legacy_db_if_needed():
-    pass
-
-
-# ─── Library dashboard helpers ─────────────────────────────────
-
-
-def count_captures(user_id: str) -> int:
-    conn = get_db(user_id)
+def insert_capture_ref(user_id,capture_id,capture_type,source_url,source_title,source_site_name,captured_at,saved_at,tags,project,raw_path):
+    c=get_db(user_id)
+    try: c.execute("INSERT INTO captures VALUES (?,?,?,?,?,?,?,?,?,?)",(capture_id,capture_type,source_url,source_title,source_site_name,captured_at,saved_at,json.dumps(tags),project,raw_path)); c.commit()
+    finally: c.close()
+def _capture(r):
+    d=dict(r)
+    try: d["tags"]=json.loads(d.get("tags") or "[]")
+    except json.JSONDecodeError: d["tags"]=[]
+    return d
+def get_capture_ref(uid,cid):
+    c=get_db(uid)
     try:
-        row = conn.execute("SELECT COUNT(*) as cnt FROM captures").fetchone()
-        return row["cnt"] if row else 0
-    finally:
-        conn.close()
+        r=c.execute("SELECT * FROM captures WHERE id=?",(cid,)).fetchone(); return _capture(r) if r else None
+    finally: c.close()
+def list_captures(uid,limit=50,offset=0):
+    c=get_db(uid)
+    try: return [_capture(r) for r in c.execute("SELECT * FROM captures ORDER BY saved_at DESC LIMIT ? OFFSET ?",(limit,offset))]
+    finally: c.close()
+def delete_capture_ref(uid,cid):
+    c=get_db(uid)
+    try: cur=c.execute("DELETE FROM captures WHERE id=?",(cid,)); c.commit(); return cur.rowcount>0
+    finally: c.close()
+def search_captures(uid,q):
+    c=get_db(uid); p=f"%{q}%"
+    try: return [_capture(r) for r in c.execute("SELECT * FROM captures WHERE source_title LIKE ? OR source_url LIKE ? OR tags LIKE ? OR project LIKE ? ORDER BY saved_at DESC LIMIT 100",(p,p,p,p))]
+    finally: c.close()
+def count_captures(uid):
+    c=get_db(uid)
+    try: return c.execute("SELECT COUNT(*) c FROM captures").fetchone()["c"] or 0
+    finally: c.close()
 
 
-def count_entities(user_id: str) -> int:
-    conn = get_db(user_id)
+def list_ai_providers(uid):
+    c=get_db(uid)
+    try: return [dict(r) for r in c.execute("SELECT * FROM ai_providers ORDER BY created_at")]
+    finally: c.close()
+def get_ai_provider(uid,pid):
+    c=get_db(uid)
     try:
-        row = conn.execute("SELECT COUNT(*) as cnt FROM entities").fetchone()
-        return row["cnt"] if row else 0
-    finally:
-        conn.close()
-
-
-def count_projects(user_id: str) -> int:
-    conn = get_db(user_id)
+        r=c.execute("SELECT * FROM ai_providers WHERE id=?",(pid,)).fetchone(); return dict(r) if r else None
+    finally: c.close()
+def create_ai_provider(uid,name,base_url,api_key="",provider_type="openai_compatible",provider_key="",api_style="openai"):
+    pid=uuid.uuid4().hex[:12]; c=get_db(uid)
+    try: c.execute("INSERT INTO ai_providers(id,name,provider_type,base_url,api_key_encrypted,provider_key,api_style,created_at) VALUES (?,?,?,?,?,?,?,?)",(pid,name,provider_type,base_url,encrypt_api_key(api_key) if api_key else "",provider_key,api_style,_now())); c.commit()
+    finally: c.close()
+    return get_ai_provider(uid,pid)
+def update_ai_provider(uid,pid,name=None,base_url=None,api_key=None,default_model=None):
+    fields=[]; vals=[]
+    for key,val in (("name",name),("base_url",base_url),("default_model",default_model)):
+        if val is not None: fields.append(f"{key}=?"); vals.append(val)
+    if api_key is not None: fields.append("api_key_encrypted=?"); vals.append(encrypt_api_key(api_key) if api_key else "")
+    if fields:
+        c=get_db(uid)
+        try: c.execute(f"UPDATE ai_providers SET {','.join(fields)} WHERE id=?",vals+[pid]); c.commit()
+        finally: c.close()
+    return get_ai_provider(uid,pid)
+def delete_ai_provider(uid,pid):
+    c=get_db(uid)
+    try: cur=c.execute("DELETE FROM ai_providers WHERE id=?",(pid,)); c.commit(); return cur.rowcount>0
+    finally: c.close()
+def list_ai_assignments(uid):
+    c=get_db(uid)
+    try: return [dict(r) for r in c.execute("SELECT * FROM ai_feature_assignments ORDER BY feature")]
+    finally: c.close()
+def get_ai_assignment_for_feature(uid,feature):
+    c=get_db(uid)
     try:
-        row = conn.execute(
-            "SELECT COUNT(DISTINCT LOWER(project)) as cnt FROM captures WHERE project IS NOT NULL AND project != ''"
-        ).fetchone()
-        return row["cnt"] if row else 0
-    finally:
-        conn.close()
-
-
-def get_top_tags(user_id: str, limit: int = 10) -> list[dict]:
-    from collections import Counter
-    conn = get_db(user_id)
+        r=c.execute("SELECT * FROM ai_feature_assignments WHERE feature=?",(feature,)).fetchone(); return dict(r) if r else None
+    finally: c.close()
+def set_ai_assignment(uid,feature,provider_id,model):
+    aid=uuid.uuid4().hex[:12]; c=get_db(uid)
     try:
-        rows = conn.execute("SELECT tags FROM capture_ai_tags").fetchall()
-        counter: Counter = Counter()
-        for r in rows:
-            if not r["tags"]:
-                continue
-            try:
-                tags = json.loads(r["tags"]) if isinstance(r["tags"], str) else r["tags"]
-                if isinstance(tags, list):
-                    for t in tags:
-                        if t:
-                            counter[t.lower().strip()] += 1
-            except Exception:
-                pass
-        rows2 = conn.execute("SELECT tags FROM captures WHERE tags IS NOT NULL").fetchall()
-        for r in rows2:
-            try:
-                tags = json.loads(r["tags"]) if isinstance(r["tags"], str) else []
-                if isinstance(tags, list):
-                    for t in tags:
-                        if isinstance(t, str) and t.strip():
-                            counter[t.lower().strip()] += 1
-            except Exception:
-                pass
-        return [{"tag": tag, "count": cnt} for tag, cnt in counter.most_common(limit)]
-    finally:
-        conn.close()
-
-
-def get_top_entities(user_id: str, limit: int = 10) -> list[dict]:
-    conn = get_db(user_id)
+        c.execute("INSERT INTO ai_feature_assignments VALUES (?,?,?,?,?) ON CONFLICT(feature) DO UPDATE SET provider_id=excluded.provider_id,model=excluded.model",(aid,feature,provider_id,model,_now())); c.commit(); return dict(c.execute("SELECT * FROM ai_feature_assignments WHERE feature=?",(feature,)).fetchone())
+    finally: c.close()
+def delete_ai_assignment(uid,aid):
+    c=get_db(uid)
+    try: cur=c.execute("DELETE FROM ai_feature_assignments WHERE id=?",(aid,)); c.commit(); return cur.rowcount>0
+    finally: c.close()
+def get_user_setting(uid,key,default=""):
+    c=get_db(uid)
     try:
-        rows = conn.execute(
-            "SELECT id, name, type, capture_count FROM entities ORDER BY capture_count DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
-
-def count_tags(user_id: str) -> int:
-    conn = get_db(user_id)
+        r=c.execute("SELECT value FROM user_settings WHERE key=?",(key,)).fetchone(); return r["value"] if r else default
+    finally: c.close()
+def set_user_setting(uid,key,value):
+    c=get_db(uid)
+    try: c.execute("INSERT INTO user_settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(key,value)); c.commit()
+    finally: c.close()
+def get_global_setting(key,default=""):
+    c=get_users_db()
     try:
-        from collections import Counter
-        counter: Counter = Counter()
-        rows = conn.execute("SELECT tags FROM capture_ai_tags").fetchall()
-        for r in rows:
-            if not r["tags"]:
-                continue
-            try:
-                tags = json.loads(r["tags"]) if isinstance(r["tags"], str) else r["tags"]
-                if isinstance(tags, list):
-                    for t in tags:
-                        if t:
-                            counter[t.lower().strip()] += 1
-            except Exception:
-                pass
-        rows2 = conn.execute("SELECT tags FROM captures WHERE tags IS NOT NULL").fetchall()
-        for r in rows2:
-            try:
-                tags = json.loads(r["tags"]) if isinstance(r["tags"], str) else []
-                if isinstance(tags, list):
-                    for t in tags:
-                        if isinstance(t, str) and t.strip():
-                            counter[t.lower().strip()] += 1
-            except Exception:
-                pass
-        return len(counter)
-    finally:
-        conn.close()
+        r=c.execute("SELECT value FROM global_settings WHERE key=?",(key,)).fetchone(); return r["value"] if r else default
+    finally: c.close()
+def set_global_setting(key,value):
+    c=get_users_db()
+    try: c.execute("INSERT INTO global_settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(key,value)); c.commit()
+    finally: c.close()
+def count_active_sessions(timeout_minutes=5): return 0
 
 
-def count_facts(user_id: str) -> int:
-    conn = get_db(user_id)
+def list_captures_without_ai_data(uid):
+    c=get_db(uid); out=[]
     try:
-        row = conn.execute("SELECT COUNT(*) as cnt FROM facts").fetchone()
-        return row["cnt"] if row else 0
-    finally:
-        conn.close()
-
-
-def list_entities(user_id: str, search: str = "", type_filter: str = "", sort: str = "capture_count", limit: int = 50, offset: int = 0) -> dict:
-    conn = get_db(user_id)
+        for r in c.execute("SELECT id,source_title,raw_path FROM captures ORDER BY saved_at DESC"):
+            n=c.execute("SELECT COUNT(*) c FROM atomics WHERE source_id=?",(r["id"],)).fetchone()["c"]
+            raw_path=Path(r["raw_path"] or "")
+            try: raw=json.loads((raw_path/"capture.json").read_text())
+            except (FileNotFoundError,json.JSONDecodeError,OSError): raw={}
+            selected=((raw.get("anchor") or {}).get("selected_text") or "").strip()
+            if selected and (raw_path/"page.html").is_file() and n==0: out.append({"id":r["id"],"source_title":r["source_title"] or ""})
+        return out
+    finally: c.close()
+def add_ai_job(uid,cid,feature):
+    c=get_db(uid)
     try:
-        where = []
-        params = []
-        if search:
-            where.append("(LOWER(e.name) LIKE ? OR LOWER(e.aliases) LIKE ?)")
-            params.extend([f"%{search.lower()}%", f"%{search.lower()}%"])
-        if type_filter:
-            where.append("e.type=?")
-            params.append(type_filter)
-        where_clause = " WHERE " + " AND ".join(where) if where else ""
-        order = "cnt DESC" if sort == "capture_count" else "e.name ASC"
-        rows = conn.execute(
-            f"""SELECT e.id, e.name, e.type, e.aliases, e.description, COUNT(ce.capture_id) as cnt
-                FROM entities e
-                LEFT JOIN capture_entities ce ON e.id = ce.entity_id
-                {where_clause}
-                GROUP BY e.id
-                ORDER BY {order}
-                LIMIT ? OFFSET ?""",
-            params + [limit, offset],
-        ).fetchall()
-        count = conn.execute(
-            f"SELECT COUNT(*) as cnt FROM entities e{where_clause}", params
-        ).fetchone()
-        result = []
-        for r in rows:
-            d = dict(r)
-            d["capture_count"] = d.pop("cnt", 0)
-            if isinstance(d.get("aliases"), str):
-                try:
-                    d["aliases"] = json.loads(d["aliases"])
-                except (json.JSONDecodeError, TypeError):
-                    d["aliases"] = []
-            result.append(d)
-        return {"entities": result, "total": count["cnt"] if count else 0}
-    finally:
-        conn.close()
+        r=c.execute("SELECT id FROM pending_ai_jobs WHERE capture_id=? AND feature=? AND status='pending'",(cid,feature)).fetchone()
+        if r: return {"id":r["id"],"status":"pending"}
+        jid=uuid.uuid4().hex[:12]; c.execute("INSERT INTO pending_ai_jobs(id,capture_id,feature,status,created_at) VALUES (?,?,?,'pending',?)",(jid,cid,feature,_now())); c.commit(); return {"id":jid,"status":"pending"}
+    finally: c.close()
+def get_pending_ai_jobs_grouped(uid):
+    c=get_db(uid)
+    try: return [dict(r) for r in c.execute("SELECT j.id,j.capture_id,j.feature,j.created_at,COALESCE(a.provider_id,'') provider_id,COALESCE(a.model,'') model FROM pending_ai_jobs j LEFT JOIN ai_feature_assignments a ON a.feature=j.feature WHERE j.status='pending' ORDER BY a.provider_id,a.model,j.created_at")]
+    finally: c.close()
+def count_pending_ai_jobs(uid):
+    c=get_db(uid)
+    try: return c.execute("SELECT COUNT(*) c FROM pending_ai_jobs WHERE status='pending'").fetchone()["c"] or 0
+    finally: c.close()
+def _finish(uid,jid,status,error=""):
+    c=get_db(uid)
+    try: c.execute("UPDATE pending_ai_jobs SET status=?,processed_at=?,error_message=? WHERE id=?",(status,_now(),error[:500],jid)); c.commit()
+    finally: c.close()
+def mark_ai_job_done(uid,jid): _finish(uid,jid,"done")
+def mark_ai_job_error(uid,jid,error=""): _finish(uid,jid,"error",error)
 
 
-def get_entity_with_captures(user_id: str, entity_id: str) -> dict | None:
-    conn = get_db(user_id)
+def insert_atomic(user_id,atomic_type,content="",properties=None,source_id=None,source_atomics=None,confidence=1.0,extracted_by="",position=0,relevance=0.0):
+    aid=uuid.uuid4().hex[:16]; c=get_db(user_id)
+    try: c.execute("INSERT INTO atomics VALUES (?,?,?,?,?,?,?,?,?,?,?)",(aid,atomic_type,content,json.dumps(properties or {}),source_id,json.dumps(source_atomics or []),confidence,extracted_by,_now(),position,relevance)); c.commit(); return aid
+    finally: c.close()
+def insert_atomics_batch(uid,items):
+    return [insert_atomic(uid,a.get("type","text"),a.get("content",""),a.get("properties"),a.get("source_id"),a.get("source_atomics"),a.get("confidence",1.0),a.get("extracted_by",""),a.get("position",0),a.get("relevance",0.0)) for a in items]
+def _atomic(r):
+    d=dict(r)
+    for key,default in (("properties",{}),("source_atomics",[])):
+        try: d[key]=json.loads(d.get(key) or json.dumps(default))
+        except json.JSONDecodeError: d[key]=default
+    return d
+def get_atomics_by_source(uid,sid):
+    c=get_db(uid)
+    try: return [_atomic(r) for r in c.execute("SELECT * FROM atomics WHERE source_id=? ORDER BY position,created_at",(sid,))]
+    finally: c.close()
+def get_atomics_by_type(uid,type_,limit=50):
+    c=get_db(uid)
+    try: return [_atomic(r) for r in c.execute("SELECT * FROM atomics WHERE type=? ORDER BY relevance DESC,created_at DESC LIMIT ?",(type_,limit))]
+    finally: c.close()
+def search_atomics(uid,query,type_=None,limit=50):
+    c=get_db(uid); p=f"%{query}%"
     try:
-        row = conn.execute(
-            "SELECT id, name, type, aliases, description, capture_count FROM entities WHERE id=?",
-            (entity_id,),
-        ).fetchone()
-        if not row:
-            return None
-        entity = dict(row)
-        if isinstance(entity.get("aliases"), str):
-            try:
-                entity["aliases"] = json.loads(entity["aliases"])
-            except (json.JSONDecodeError, TypeError):
-                entity["aliases"] = []
-        captures = []
-        for cr in conn.execute(
-            """SELECT c.id, c.source_title, c.source_url, c.source_site_name, c.saved_at, ai.summary
-               FROM captures c
-               JOIN capture_entities ce ON c.id = ce.capture_id
-               LEFT JOIN capture_ai_tags ai ON c.id = ai.capture_id
-               WHERE ce.entity_id=?
-               ORDER BY c.saved_at DESC""",
-            (entity_id,),
-        ).fetchall():
-            captures.append({
-                "id": cr["id"],
-                "source_title": cr["source_title"] or "",
-                "source_url": cr["source_url"] or "",
-                "source_site_name": cr["source_site_name"] or "",
-                "saved_at": cr["saved_at"] or "",
-                "summary": cr["summary"] or "",
-            })
-        entity["capture_count"] = len(captures)
-        related = []
-        for rr in conn.execute(
-            """SELECT r.relation_type, r.strength, e.id, e.name, e.type
-               FROM relations r
-               JOIN entities e ON (r.source_type='entity' AND r.source_id=e.id)
-               WHERE r.target_type='entity' AND r.target_id=?
-               UNION
-               SELECT r.relation_type, r.strength, e.id, e.name, e.type
-               FROM relations r
-               JOIN entities e ON (r.target_type='entity' AND r.target_id=e.id)
-               WHERE r.source_type='entity' AND r.source_id=?
-               ORDER BY r.strength DESC""",
-            (entity_id, entity_id),
-        ).fetchall():
-            related.append({
-                "id": rr["id"],
-                "name": rr["name"],
-                "type": rr["type"],
-                "relation_type": rr["relation_type"],
-                "strength": rr["strength"],
-            })
-        return {"entity": entity, "captures": captures, "related_entities": related}
-    finally:
-        conn.close()
-
-
-# ─── Facts CRUD ────────────────────────────────────────────────
-
-
-def insert_fact(user_id: str, capture_id: str, fact_text: str, entity_id: str = "", category: str = "", confidence: float = 1.0) -> str:
-    from uuid import uuid4
-    from datetime import datetime, timezone
-    conn = get_db(user_id)
+        rows=c.execute("SELECT * FROM atomics WHERE type=? AND (content LIKE ? OR properties LIKE ?) ORDER BY relevance DESC,created_at DESC LIMIT ?",(type_,p,p,limit)) if type_ else c.execute("SELECT * FROM atomics WHERE content LIKE ? OR properties LIKE ? ORDER BY relevance DESC,created_at DESC LIMIT ?",(p,p,limit))
+        return [_atomic(r) for r in rows]
+    finally: c.close()
+def get_atomic_by_id(uid,aid):
+    c=get_db(uid)
     try:
-        rid = uuid4().hex[:12]
-        now = datetime.now(timezone.utc).isoformat()
-        conn.execute(
-            "INSERT INTO facts (id, capture_id, entity_id, fact_text, confidence, category, created_at) VALUES (?,?,?,?,?,?,?)",
-            (rid, capture_id, entity_id, fact_text, confidence, category, now),
-        )
-        conn.commit()
-        return rid
-    finally:
-        conn.close()
-
-
-def get_facts_for_capture(user_id: str, capture_id: str) -> list[dict]:
-    conn = get_db(user_id)
+        r=c.execute("SELECT * FROM atomics WHERE id=?",(aid,)).fetchone(); return _atomic(r) if r else None
+    finally: c.close()
+def delete_atomic(uid,aid):
+    c=get_db(uid)
+    try: cur=c.execute("DELETE FROM atomics WHERE id=?",(aid,)); c.commit(); return cur.rowcount>0
+    finally: c.close()
+def delete_atomics_by_source(uid,sid):
+    c=get_db(uid)
+    try: cur=c.execute("DELETE FROM atomics WHERE source_id=?",(sid,)); c.commit(); return cur.rowcount
+    finally: c.close()
+def insert_atomic_relation(uid,source_atomic_id,target_atomic_id,relation_type,strength=0.5,context=""):
+    rid=uuid.uuid4().hex[:16]; c=get_db(uid)
     try:
-        rows = conn.execute(
-            "SELECT * FROM facts WHERE capture_id=? ORDER BY confidence DESC, created_at DESC",
-            (capture_id,),
-        ).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
-
-def get_facts_by_topic(user_id: str, search: str, limit: int = 50) -> list[dict]:
-    conn = get_db(user_id)
+        c.execute("INSERT INTO atomic_relations VALUES (?,?,?,?,?,?,?) ON CONFLICT(source_atomic_id,target_atomic_id,relation_type) DO UPDATE SET strength=MAX(strength,excluded.strength),context=excluded.context",(rid,source_atomic_id,target_atomic_id,relation_type,strength,context,_now())); c.commit(); r=c.execute("SELECT id FROM atomic_relations WHERE source_atomic_id=? AND target_atomic_id=? AND relation_type=?",(source_atomic_id,target_atomic_id,relation_type)).fetchone(); return r["id"]
+    finally: c.close()
+def get_atomic_relations(uid,aid):
+    c=get_db(uid)
+    try: return [dict(r) for r in c.execute("SELECT * FROM atomic_relations WHERE source_atomic_id=? OR target_atomic_id=? ORDER BY strength DESC",(aid,aid))]
+    finally: c.close()
+def enrich_atomics_with_sources(uid,items):
+    ids=sorted({a.get("source_id") for a in items if a.get("source_id")})
+    if not ids: return items
+    c=get_db(uid)
     try:
-        rows = conn.execute(
-            """SELECT f.*, c.source_title FROM facts f
-               JOIN captures c ON f.capture_id = c.id
-               WHERE LOWER(f.fact_text) LIKE ?
-               ORDER BY f.confidence DESC, f.created_at DESC LIMIT ?""",
-            (f"%{search.lower()}%", limit),
-        ).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
-
-def delete_facts_for_capture(user_id: str, capture_id: str):
-    conn = get_db(user_id)
+        ph=",".join("?" for _ in ids); sources={r["id"]:dict(r) for r in c.execute(f"SELECT id,source_url,source_title,source_site_name FROM captures WHERE id IN ({ph})",ids)}
+    finally: c.close()
+    for a in items:
+        s=sources.get(a.get("source_id")); a.update({"source_url":s["source_url"] if s else "","source_title":s["source_title"] if s else "","source_site_name":s["source_site_name"] if s else ""})
+    return items
+def get_atomic_graph(uid,limit=200,include_orphans=False):
+    c=get_db(uid)
     try:
-        conn.execute("DELETE FROM facts WHERE capture_id=?", (capture_id,))
-        conn.commit()
-    finally:
-        conn.close()
-
-
-# ─── AI Provider CRUD ──────────────────────────────────────────────
-
-import uuid as _uuid
-from datetime import datetime as _dt, timezone as _tz
-
-
-def _now_iso() -> str:
-    return _dt.now(_tz.utc).isoformat().replace("+00:00", "Z")
-
-
-def list_ai_providers(user_id: str) -> list[dict]:
-    conn = get_db(user_id)
-    try:
-        rows = conn.execute(
-            "SELECT id, name, provider_type, base_url, default_model, created_at FROM ai_providers ORDER BY created_at"
-        ).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
-
-def get_ai_provider(user_id: str, provider_id: str) -> dict | None:
-    conn = get_db(user_id)
-    try:
-        row = conn.execute(
-            "SELECT * FROM ai_providers WHERE id=?", (provider_id,)
-        ).fetchone()
-        return dict(row) if row else None
-    finally:
-        conn.close()
-
-
-def create_ai_provider(
-    user_id: str, name: str, base_url: str, api_key_encrypted: str, provider_type: str = "openai_compatible",
-    provider_key: str = "", api_style: str = "",
-) -> dict:
-    from app.services.ai_crypto import encrypt_api_key
-
-    pid = _uuid.uuid4().hex[:12]
-    encrypted = encrypt_api_key(api_key_encrypted)
-    now = _now_iso()
-    conn = get_db(user_id)
-    try:
-        conn.execute(
-            "INSERT INTO ai_providers (id, name, provider_type, base_url, api_key_encrypted, default_model, created_at, provider_key, api_style) VALUES (?,?,?,?,?,?,?,?,?)",
-            (pid, name.strip(), provider_type, base_url.strip(), encrypted, "", now, provider_key, api_style),
-        )
-        conn.commit()
-        return {"id": pid, "name": name.strip(), "provider_type": provider_type, "base_url": base_url.strip(), "default_model": "", "created_at": now, "provider_key": provider_key, "api_style": api_style}
-    finally:
-        conn.close()
-
-
-def update_ai_provider(user_id: str, provider_id: str, name: str | None = None, base_url: str | None = None, api_key: str | None = None, default_model: str | None = None) -> dict | None:
-    from app.services.ai_crypto import encrypt_api_key
-
-    existing = get_ai_provider(user_id, provider_id)
-    if not existing:
-        return None
-    conn = get_db(user_id)
-    try:
-        if name is not None:
-            conn.execute("UPDATE ai_providers SET name=? WHERE id=?", (name.strip(), provider_id))
-        if base_url is not None:
-            conn.execute("UPDATE ai_providers SET base_url=? WHERE id=?", (base_url.strip(), provider_id))
-        if api_key is not None:
-            encrypted = encrypt_api_key(api_key)
-            conn.execute("UPDATE ai_providers SET api_key_encrypted=? WHERE id=?", (encrypted, provider_id))
-        if default_model is not None:
-            conn.execute("UPDATE ai_providers SET default_model=? WHERE id=?", (default_model, provider_id))
-        conn.commit()
-    finally:
-        conn.close()
-    return get_ai_provider(user_id, provider_id)
-
-
-def delete_ai_provider(user_id: str, provider_id: str) -> bool:
-    conn = get_db(user_id)
-    try:
-        conn.execute("DELETE FROM ai_feature_assignments WHERE provider_id=?", (provider_id,))
-        cur = conn.execute("DELETE FROM ai_providers WHERE id=?", (provider_id,))
-        conn.commit()
-        return cur.rowcount > 0
-    finally:
-        conn.close()
-
-
-# ─── AI Feature Assignments ────────────────────────────────────────
-
-
-def list_ai_assignments(user_id: str) -> list[dict]:
-    conn = get_db(user_id)
-    try:
-        rows = conn.execute(
-            "SELECT * FROM ai_feature_assignments ORDER BY feature"
-        ).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
-
-def get_ai_assignment_for_feature(user_id: str, feature: str) -> dict | None:
-    conn = get_db(user_id)
-    try:
-        row = conn.execute(
-            "SELECT * FROM ai_feature_assignments WHERE feature=?", (feature,)
-        ).fetchone()
-        return dict(row) if row else None
-    finally:
-        conn.close()
-
-
-def set_ai_assignment(user_id: str, feature: str, provider_id: str, model: str) -> dict:
-    now = _now_iso()
-    conn = get_db(user_id)
-    try:
-        existing = conn.execute(
-            "SELECT id FROM ai_feature_assignments WHERE feature=?", (feature,)
-        ).fetchone()
-        if existing:
-            conn.execute(
-                "UPDATE ai_feature_assignments SET provider_id=?, model=? WHERE feature=?",
-                (provider_id, model, feature),
-            )
-            aid = existing["id"]
-        else:
-            aid = _uuid.uuid4().hex[:12]
-            conn.execute(
-                "INSERT INTO ai_feature_assignments (id, feature, provider_id, model, created_at) VALUES (?,?,?,?,?)",
-                (aid, feature, provider_id, model, now),
-            )
-        conn.commit()
-        return {"id": aid, "feature": feature, "provider_id": provider_id, "model": model}
-    finally:
-        conn.close()
-
-
-def delete_ai_assignment(user_id: str, assignment_id: str) -> bool:
-    conn = get_db(user_id)
-    try:
-        cur = conn.execute("DELETE FROM ai_feature_assignments WHERE id=?", (assignment_id,))
-        conn.commit()
-        return cur.rowcount > 0
-    finally:
-        conn.close()
-
-
-# ─── Capture AI Tags ───────────────────────────────────────────────
-
-
-def get_capture_ai_tags(user_id: str, capture_id: str) -> dict | None:
-    conn = get_db(user_id)
-    try:
-        row = conn.execute(
-            "SELECT * FROM capture_ai_tags WHERE capture_id=?", (capture_id,)
-        ).fetchone()
-        if row:
-            r = dict(row)
-            if isinstance(r.get("tags"), str):
-                r["tags"] = json.loads(r["tags"])
-            if isinstance(r.get("key_concepts"), str):
-                r["key_concepts"] = json.loads(r["key_concepts"])
-            if isinstance(r.get("ai_tags_source"), str):
-                r["ai_tags_source"] = json.loads(r["ai_tags_source"])
-            return r
-        return None
-    finally:
-        conn.close()
-
-
-def get_entities_for_capture(user_id: str, capture_id: str) -> list[dict]:
-    """Get all entities linked to a capture, with their details."""
-    conn = get_db(user_id)
-    try:
-        rows = conn.execute(
-            """SELECT e.id, e.name, e.type, e.aliases, e.description, ce.confidence
-               FROM entities e
-               JOIN capture_entities ce ON e.id = ce.entity_id
-               WHERE ce.capture_id=?
-               ORDER BY ce.confidence DESC, e.name ASC""",
-            (capture_id,),
-        ).fetchall()
-        result = []
-        for r in rows:
-            d = dict(r)
-            if isinstance(d.get("aliases"), str):
-                d["aliases"] = json.loads(d["aliases"])
-            result.append(d)
-        return result
-    finally:
-        conn.close()
-
-
-def delete_capture_entities(user_id: str, capture_id: str):
-    """Delete all entity links for a capture (prepares for re-extraction)."""
-    conn = get_db(user_id)
-    try:
-        conn.execute("DELETE FROM capture_entities WHERE capture_id=?", (capture_id,))
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def upsert_capture_ai_tags(
-    user_id: str,
-    capture_id: str,
-    tags: list[str],
-    summary: str,
-    key_concepts: list[str],
-    model: str,
-    ai_tags_source: list[str],
-) -> dict:
-    now = _now_iso()
-    conn = get_db(user_id)
-    try:
-        conn.execute(
-            """INSERT OR REPLACE INTO capture_ai_tags
-               (capture_id, tags, summary, key_concepts, model, processed_at, ai_tags_source)
-               VALUES (?,?,?,?,?,?,?)""",
-            (capture_id, json.dumps(tags), summary, json.dumps(key_concepts), model, now, json.dumps(ai_tags_source)),
-        )
-        conn.commit()
-        return {"capture_id": capture_id, "tags": tags, "summary": summary, "key_concepts": key_concepts, "model": model, "processed_at": now}
-    finally:
-        conn.close()
-
-
-def list_captures_without_ai_tags(user_id: str, limit: int = 100) -> list[dict]:
-    conn = get_db(user_id)
-    try:
-        rows = conn.execute(
-            """SELECT c.id, c.source_title, c.source_url, c.saved_at
-               FROM captures c
-               LEFT JOIN capture_ai_tags t ON c.id = t.capture_id
-               WHERE t.capture_id IS NULL
-               ORDER BY c.saved_at DESC LIMIT ?""",
-            (limit,),
-        ).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
-
-def get_user_setting(user_id: str, key: str, default: str = "") -> str:
-    """Get a user setting value, or default if not set."""
-    conn = get_db(user_id)
-    try:
-        row = conn.execute(
-            "SELECT value FROM user_settings WHERE key=?", (key,)
-        ).fetchone()
-        return row["value"] if row else default
-    finally:
-        conn.close()
-
-
-def set_user_setting(user_id: str, key: str, value: str):
-    """Set a user setting value (upsert)."""
-    conn = get_db(user_id)
-    try:
-        conn.execute(
-            "INSERT OR REPLACE INTO user_settings (key, value) VALUES (?,?)",
-            (key, value),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def get_global_setting(key: str, default: str = "") -> str:
-    conn = get_users_db()
-    try:
-        row = conn.execute(
-            "SELECT value FROM global_settings WHERE key=?", (key,)
-        ).fetchone()
-        return row["value"] if row else default
-    finally:
-        conn.close()
-
-
-def set_global_setting(key: str, value: str):
-    conn = get_users_db()
-    try:
-        conn.execute(
-            "INSERT OR REPLACE INTO global_settings (key, value) VALUES (?,?)",
-            (key, value),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def count_active_sessions(timeout_minutes: int = 5) -> int:
-    return 0
-
-
-def list_captures_without_ai_data(user_id: str) -> list[dict]:
-    """Find captures that are missing AI processing for configured features.
-    
-    A capture is 'unprocessed' if:
-    - No capture_ai_tags row exists (no tagging/summary done), OR
-    - captures_configured features but the corresponding field is empty/missing, OR
-    - Entity extraction is configured but no capture_entities rows exist.
-    
-    Returns list of dicts with id, source_title.
-    """
-    conn = get_db(user_id)
-    try:
-        # Get configured features
-        assignments = conn.execute(
-            "SELECT feature FROM ai_feature_assignments"
-        ).fetchall()
-        features = {r["feature"] for r in assignments}
-
-        # Get all captures
-        all_caps = conn.execute(
-            "SELECT id, source_title FROM captures ORDER BY saved_at DESC"
-        ).fetchall()
-
-        unprocessed = []
-        for cap in all_caps:
-            # Check capture_ai_tags row
-            ai_row = conn.execute(
-                "SELECT tags, summary FROM capture_ai_tags WHERE capture_id=?",
-                (cap["id"],),
-            ).fetchone()
-
-            missing = False
-
-            if ai_row is None:
-                missing = True
-            else:
-                if "tagging" in features:
-                    try:
-                        tags = json.loads(ai_row["tags"]) if isinstance(ai_row["tags"], str) else ai_row["tags"]
-                        if not tags:
-                            missing = True
-                    except (json.JSONDecodeError, TypeError):
-                        missing = True
-                if "summary" in features and not missing:
-                    summary = (ai_row["summary"] or "").strip()
-                    if not summary:
-                        missing = True
-
-            if not missing and "entity_extraction" in features:
-                entity_count = conn.execute(
-                    "SELECT COUNT(*) as c FROM capture_entities WHERE capture_id=?",
-                    (cap["id"],),
-                ).fetchone()["c"]
-                if entity_count == 0:
-                    missing = True
-
-            if missing:
-                unprocessed.append({"id": cap["id"], "source_title": cap["source_title"] or ""})
-
-        return unprocessed
-    finally:
-        conn.close()
-# ─── Pending AI Jobs ──────────────────────────────────────────────
-
-
-def add_ai_job(user_id: str, capture_id: str, feature: str) -> dict:
-    """Add a pending AI job for a capture. If a pending job for this
-    capture+feature already exists, skip (no-op)."""
-    import uuid
-    from datetime import datetime, timezone
-    conn = get_db(user_id)
-    try:
-        existing = conn.execute(
-            "SELECT id FROM pending_ai_jobs WHERE capture_id=? AND feature=? AND status='pending'",
-            (capture_id, feature),
-        ).fetchone()
-        if existing:
-            return {"id": existing["id"], "capture_id": capture_id, "feature": feature, "status": "pending"}
-        job_id = uuid.uuid4().hex[:12]
-        now = datetime.now(timezone.utc).isoformat()
-        conn.execute(
-            "INSERT INTO pending_ai_jobs (id, capture_id, feature, status, created_at) VALUES (?,?,?,?,?)",
-            (job_id, capture_id, feature, "pending", now),
-        )
-        conn.commit()
-        return {"id": job_id, "capture_id": capture_id, "feature": feature, "status": "pending"}
-    finally:
-        conn.close()
-
-
-def get_pending_ai_jobs_grouped(user_id: str) -> list[dict]:
-    """Get all pending AI jobs joined with their feature assignments,
-    ordered by (provider_id, model) for efficient batch processing.
-    Returns empty list if no assignments exist for the feature."""
-    conn = get_db(user_id)
-    try:
-        rows = conn.execute(
-            """SELECT j.id, j.capture_id, j.feature, j.created_at,
-                      a.provider_id, a.model
-               FROM pending_ai_jobs j
-               JOIN ai_feature_assignments a ON j.feature = a.feature
-               WHERE j.status = 'pending'
-               ORDER BY a.provider_id, a.model, j.created_at"""
-        ).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
-
-def count_pending_ai_jobs(user_id: str) -> int:
-    """Count pending AI jobs for a user."""
-    conn = get_db(user_id)
-    try:
-        row = conn.execute(
-            "SELECT COUNT(*) as cnt FROM pending_ai_jobs WHERE status='pending'"
-        ).fetchone()
-        return row["cnt"] if row else 0
-    finally:
-        conn.close()
-
-
-def mark_ai_job_done(user_id: str, job_id: str):
-    """Mark a job as done."""
-    from datetime import datetime, timezone
-    conn = get_db(user_id)
-    try:
-        conn.execute(
-            "UPDATE pending_ai_jobs SET status='done', processed_at=? WHERE id=?",
-            (datetime.now(timezone.utc).isoformat(), job_id),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def mark_ai_job_error(user_id: str, job_id: str, error: str = ""):
-    """Mark a job as errored."""
-    from datetime import datetime, timezone
-    conn = get_db(user_id)
-    try:
-        conn.execute(
-            "UPDATE pending_ai_jobs SET status='error', error_message=?, processed_at=? WHERE id=?",
-            (error[:500], datetime.now(timezone.utc).isoformat(), job_id),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-# ─── Relations ─────────────────────────────────────────────────────
-
-
-RELATION_TYPES = (
-    "related", "related_to", "depends_on", "implements", "references",
-    "supports", "contradicts", "part_of", "similar_to", "version_of",
-)
-
-
-def insert_relation(
-    user_id: str,
-    source_type: str,
-    source_id: str,
-    target_type: str,
-    target_id: str,
-    relation_type: str,
-    strength: float = 0.5,
-    context: str = "",
-) -> str:
-    """Insert a relation. Returns the relation ID.
-    Skips duplicate (source, target, relation_type) if it already exists,
-    but updates strength and context to the higher/newer values.
-    """
-    from uuid import uuid4
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc).isoformat()
-    conn = get_db(user_id)
-    try:
-        # Check if same relation already exists
-        existing = conn.execute(
-            """SELECT id, strength, context FROM relations
-               WHERE source_type=? AND source_id=? AND target_type=? AND target_id=? AND relation_type=?""",
-            (source_type, source_id, target_type, target_id, relation_type),
-        ).fetchone()
-        if existing:
-            rid = existing["id"]
-            # Update strength to max, context to new if non-empty
-            new_strength = max(existing["strength"], strength)
-            new_context = context or existing["context"]
-            conn.execute(
-                "UPDATE relations SET strength=?, context=?, updated_at=? WHERE id=?",
-                (new_strength, new_context, now, rid),
-            )
-            conn.commit()
-            return rid
-        # Insert new relation
-        rid = uuid4().hex[:12]
-        conn.execute(
-            """INSERT INTO relations (id, source_type, source_id, target_type, target_id, relation_type, strength, context, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
-            (rid, source_type, source_id, target_type, target_id, relation_type, strength, context, now, now),
-        )
-        conn.commit()
-        return rid
-    finally:
-        conn.close()
-
-
-def get_relations_for_capture(user_id: str, capture_id: str, min_strength: float = 0.0) -> list[dict]:
-    """Get all relations where this capture is source or target."""
-    conn = get_db(user_id)
-    try:
-        rows = conn.execute(
-            """SELECT * FROM relations
-               WHERE (source_type='capture' AND source_id=?)
-                  OR (target_type='capture' AND target_id=?)
-               AND strength >= ?
-               ORDER BY relation_type IN ('related', 'related_to') ASC, strength DESC, created_at DESC""",
-            (capture_id, capture_id, min_strength),
-        ).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
-
-def get_relations_for_entity(user_id: str, entity_id: str, min_strength: float = 0.0) -> list[dict]:
-    """Get all relations where this entity is source or target."""
-    conn = get_db(user_id)
-    try:
-        rows = conn.execute(
-            """SELECT * FROM relations
-               WHERE (source_type='entity' AND source_id=?)
-                  OR (target_type='entity' AND target_id=?)
-               AND strength >= ?
-               ORDER BY strength DESC, created_at DESC""",
-            (entity_id, entity_id, min_strength),
-        ).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
-
-def get_relation_graph(user_id: str, capture_id: str | None = None, min_strength: float = 0.0, limit: int = 100, include_orphans: bool = False, include_entity_relations: bool = False) -> dict:
-    """Get a graph structure: nodes + edges relevant to a capture (or all).
-    
-    Returns dict with:
-      - nodes: list of {id, label, type ('capture'|'entity'), subtype}
-      - edges: list of {source_id, target_id, relation_type, strength, context}
-    """
-    conn = get_db(user_id)
-    try:
-        if capture_id:
-            entity_ids = [
-                r["entity_id"] for r in conn.execute(
-                    "SELECT entity_id FROM capture_entities WHERE capture_id=?", (capture_id,)
-                ).fetchall()
-            ]
-            placeholders = ",".join("?" for _ in entity_ids) if entity_ids else "NULL"
-            rows = conn.execute(
-                f"""SELECT * FROM relations WHERE strength >= ?
-                    AND ((source_type='capture' AND source_id=?)
-                      OR (target_type='capture' AND target_id=?)
-                      OR (source_type='entity' AND source_id IN ({placeholders}))
-                      OR (target_type='entity' AND target_id IN ({placeholders})))
-                    ORDER BY relation_type IN ('related', 'related_to') ASC, strength DESC LIMIT ?""",
-                [min_strength, capture_id, capture_id, *entity_ids, *entity_ids, limit],
-            ).fetchall()
-        else:
-            if not include_entity_relations:
-                rows = conn.execute(
-                    "SELECT * FROM relations WHERE strength >= ? AND source_type='capture' AND target_type='capture' ORDER BY relation_type IN ('related', 'related_to') ASC, strength DESC LIMIT ?",
-                    (min_strength, limit),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    "SELECT * FROM relations WHERE strength >= ? ORDER BY relation_type IN ('related', 'related_to') ASC, strength DESC LIMIT ?",
-                    (min_strength, limit),
-                ).fetchall()
-
-        relations = [dict(r) for r in rows]
-
-        # Collect unique node IDs
-        node_ids = set()
-        for r in relations:
-            node_ids.add((r["source_type"], r["source_id"]))
-            node_ids.add((r["target_type"], r["target_id"]))
-
-        # Build node info
-        nodes = []
-        for ntype, nid in node_ids:
-            label = nid[:12]
-            subtype = ""
-            if ntype == "capture":
-                row = conn.execute(
-                    "SELECT source_title, capture_type FROM captures WHERE id=?", (nid,)
-                ).fetchone()
-                if row:
-                    label = row["source_title"] or nid[:12]
-                    subtype = row["capture_type"]
-            elif ntype == "entity":
-                row = conn.execute(
-                    "SELECT name, type FROM entities WHERE id=?", (nid,)
-                ).fetchone()
-                if row:
-                    label = row["name"]
-                    subtype = row["type"]
-            nodes.append({"id": nid, "label": label, "type": ntype, "subtype": subtype})
-
-        edges = [
-            {
-                "source_id": r["source_id"],
-                "target_id": r["target_id"],
-                "relation_type": r["relation_type"],
-                "strength": r["strength"],
-                "context": r["context"],
-            }
-            for r in relations
-        ]
-
-        if include_orphans and not capture_id:
-            capture_ids_in_graph = set()
-            for n in nodes:
-                if n["type"] == "capture":
-                    capture_ids_in_graph.add(n["id"])
-            all_captures = conn.execute("SELECT id, source_title, capture_type FROM captures ORDER BY saved_at DESC").fetchall()
-            for ac in all_captures:
-                if ac["id"] not in capture_ids_in_graph:
-                    nodes.append({
-                        "id": ac["id"],
-                        "label": ac["source_title"] or ac["id"][:12],
-                        "type": "capture",
-                        "subtype": ac["capture_type"] or "",
-                        "orphan": True,
-                    })
-
-        return {"nodes": nodes, "edges": edges}
-    finally:
-        conn.close()
-
-
-def update_relation_type(
-    user_id: str, relation_id: str, new_type: str, context: str = ""
-):
-    """Update the relation_type (and optionally context) of an existing relation."""
-    conn = get_db(user_id)
-    try:
-        existing = conn.execute(
-            "SELECT id FROM relations WHERE id=?", (relation_id,)
-        ).fetchone()
-        if not existing:
-            logger.warning("Relation %s not found — cannot update type", relation_id)
-            return False
-        if context:
-            conn.execute(
-                "UPDATE relations SET relation_type=?, context=?, updated_at=? WHERE id=?",
-                (new_type, context, datetime.now(timezone.utc).isoformat(), relation_id),
-            )
-        else:
-            conn.execute(
-                "UPDATE relations SET relation_type=?, updated_at=? WHERE id=?",
-                (new_type, datetime.now(timezone.utc).isoformat(), relation_id),
-            )
-        conn.commit()
-        return True
-    finally:
-        conn.close()
-
-
-def delete_relations_for_capture(user_id: str, capture_id: str):
-    """Delete all relations involving this capture."""
-    conn = get_db(user_id)
-    try:
-        conn.execute(
-            "DELETE FROM relations WHERE (source_type='capture' AND source_id=?) OR (target_type='capture' AND target_id=?)",
-            (capture_id, capture_id),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def delete_relations_for_entity(user_id: str, entity_id: str):
-    """Delete all relations involving this entity."""
-    conn = get_db(user_id)
-    try:
-        conn.execute(
-            "DELETE FROM relations WHERE (source_type='entity' AND source_id=?) OR (target_type='entity' AND target_id=?)",
-            (entity_id, entity_id),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def delete_relation_by_id(user_id: str, relation_id: str):
-    """Delete a single relation by its ID."""
-    conn = get_db(user_id)
-    try:
-        conn.execute("DELETE FROM relations WHERE id=?", (relation_id,))
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def add_rejected_relation(user_id: str, source_id: str, target_id: str):
-    """Add a pair to the rejected_relations table (bidirectional — (a,b) and (b,a) both stored)."""
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc).isoformat()
-    conn = get_db(user_id)
-    try:
-        conn.execute(
-            "INSERT OR IGNORE INTO rejected_relations (source_id, target_id, created_at) VALUES (?,?,?)",
-            (source_id, target_id, now),
-        )
-        conn.execute(
-            "INSERT OR IGNORE INTO rejected_relations (source_id, target_id, created_at) VALUES (?,?,?)",
-            (target_id, source_id, now),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def is_relation_rejected(user_id: str, source_id: str, target_id: str) -> bool:
-    """Check if a relation pair has been rejected by AI."""
-    conn = get_db(user_id)
-    try:
-        row = conn.execute(
-            "SELECT 1 FROM rejected_relations WHERE source_id=? AND target_id=?",
-            (source_id, target_id),
-        ).fetchone()
-        return row is not None
-    finally:
-        conn.close()
+        rels=list(c.execute("SELECT * FROM atomic_relations ORDER BY strength DESC LIMIT ?",(limit*4,))); ids={r["source_atomic_id"] for r in rels}|{r["target_atomic_id"] for r in rels}
+        if include_orphans: ids|={r["id"] for r in c.execute("SELECT id FROM atomics ORDER BY relevance DESC,created_at DESC LIMIT ?",(limit,))}
+        if not ids: return {"nodes":[],"edges":[]}
+        ph=",".join("?" for _ in ids); rows=list(c.execute(f"SELECT id,type,content,source_id FROM atomics WHERE id IN ({ph}) LIMIT ?",[*ids,limit])); allowed={r["id"] for r in rows}
+        return {"nodes":[{"id":r["id"],"label":r["content"][:80],"type":r["type"],"subtype":r["type"],"source_id":r["source_id"]} for r in rows],"edges":[{"source_id":r["source_atomic_id"],"target_id":r["target_atomic_id"],"relation_type":r["relation_type"],"strength":r["strength"],"context":r["context"]} for r in rels if r["source_atomic_id"] in allowed and r["target_atomic_id"] in allowed]}
+    finally: c.close()

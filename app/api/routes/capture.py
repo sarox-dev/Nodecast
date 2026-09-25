@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.models.capture_package import CapturePackage, CaptureResponse as CPResponse
@@ -21,12 +21,8 @@ from app.services.raw_storage import (
     list_raw_captures,
     raw_exists,
 )
-from app.services.extractor_pipeline import extract_and_save
-from app.services.ai_tagging import tag_capture, summarize_capture
-from app.services.entity_extraction import extract_entities
 from app.services.ai_batch import add_pending_jobs_on_save
-from app.services.knowledge_store import delete_knowledge_for_capture
-from app.services.raw_storage import get_raw_html, load_raw_capture
+from app.services.database import delete_atomics_by_source
 from app.services.auth import get_current_user, get_optional_user
 
 router = APIRouter()
@@ -57,7 +53,6 @@ def capture_item(
     except Exception as e:
         raise HTTPException(422, f"Invalid Capture Package: {e}")
 
-    # Ensure captured_at is set
     if not package.captured_at:
         package.captured_at = saved_at
 
@@ -67,7 +62,6 @@ def capture_item(
     except FileExistsError as e:
         raise HTTPException(409, str(e))
 
-    # Save reference in user's SQLite
     insert_capture_ref(
         user_id=user_id,
         capture_id=package.capture_id,
@@ -82,22 +76,16 @@ def capture_item(
         raw_path=str(raw_path),
     )
 
-    # Run Extractor pipeline (non-blocking — produce Knowledge Objects)
-    extraction = None
-    try:
-        extraction = extract_and_save(user_id, package, html=page_html)
-    except Exception:
-        pass  # Extraction failure shouldn't break the save
+    has_anchor = bool(package.anchor and package.anchor.selected_text)
+    atomic_count = 0
 
-    msg = f"Saved to Nodecast ({package.capture_type})"
-    if extraction and extraction.knowledge_objects:
-        msg += f" — extracted {len(extraction.knowledge_objects)} knowledge objects"
-
-    # Enqueue AI processing jobs (processed in batch by model group)
-    try:
+    if has_anchor and page_html:
         add_pending_jobs_on_save(user_id, package.capture_id)
-    except Exception:
-        pass  # Enqueue failure shouldn't break the save
+
+    if has_anchor:
+        msg = "Saved with highlight — atomic extraction queued"
+    else:
+        msg = "Saved as bookmark — highlight text next time to extract knowledge"
 
     return CPResponse(
         success=True,
@@ -193,32 +181,24 @@ def delete_capture(capture_id: str, current_user: dict = Depends(get_current_use
 
 @router.post("/capture/{capture_id}/reextract")
 def reextract_capture(capture_id: str, current_user: dict = Depends(get_current_user)):
-    """Pārlaiž Extractor pipeline — dzēš vecos KnowledgeObjects un izvelk no jauna."""
+    """Delete derived atomics and enqueue the capture for atomic extraction."""
     user_id = current_user["user_id"]
     ref = get_capture_ref(user_id, capture_id)
     if not ref:
         raise HTTPException(404, "Capture not found")
 
-    raw = load_raw_capture(user_id, capture_id)
-    if not raw:
-        raise HTTPException(404, "Raw capture data not found")
-
-    # Get raw CapturePackage + HTML
     html = get_raw_html(user_id, capture_id)
-
-    # Delete old knowledge objects
-    deleted = delete_knowledge_for_capture(user_id, capture_id)
-
-    # Re-run extractor
-    result = extract_and_save(user_id, raw, html=html)
+    if not html:
+        raise HTTPException(400, "Capture has no HTML to extract")
+    deleted = delete_atomics_by_source(user_id, capture_id)
+    add_pending_jobs_on_save(user_id, capture_id)
 
     return {
         "success": True,
         "id": capture_id,
         "deleted": deleted,
-        "extracted": len(result.knowledge_objects),
-        "message": f"Re-extracted: {len(result.knowledge_objects)} knowledge objects",
-        "warnings": result.warnings,
+        "status": "queued",
+        "message": "Atomic re-extraction queued",
     }
 
 
@@ -397,10 +377,3 @@ def local_search(q: str = "", current_user: dict = Depends(get_current_user)):
     for r in results:
         r["_type"] = "saved"
     return results
-
-
-# ─── Bookmark import (simplified — no HTMLParser needed for now) ──
-
-@router.post("/import/bookmarks")
-def import_bookmarks(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
-    raise HTTPException(501, "Bookmark import not yet implemented for Capture Package format")

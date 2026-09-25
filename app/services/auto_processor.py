@@ -81,64 +81,14 @@ def _process_for_user(user_id: str):
             len(unprocessed),
         )
 
-        # Process them in background thread
-        from app.services.ai_tagging import tag_capture, summarize_capture
-        from app.services.entity_extraction import extract_entities
-        from app.services.ai_batch import _update_progress
+        # Use the same durable queue as extension saves. A separate extraction
+        # thread can race the active batch and create duplicate atomics.
+        from app.services.ai_batch import start_background_batch
+        from app.services.database import add_ai_job
 
-        total = len(unprocessed)
-        _update_progress(
-            user_id,
-            running=True,
-            total=total,
-            processed=0,
-            errors=0,
-            skipped=0,
-            current="Starting auto-process...",
-            operation="auto process",
-        )
-
-        def _run():
-            try:
-                for i, cap in enumerate(unprocessed):
-                    cap_errors = 0
-                    try:
-                        r = tag_capture(user_id, cap["id"])
-                        if r["status"] not in ("success", "skipped"):
-                            cap_errors += 1
-                    except Exception:
-                        cap_errors += 1
-
-                    try:
-                        r = summarize_capture(user_id, cap["id"])
-                        if r["status"] not in ("success", "skipped"):
-                            cap_errors += 1
-                    except Exception:
-                        cap_errors += 1
-
-                    try:
-                        r = extract_entities(user_id, cap["id"])
-                        if r["status"] not in ("success", "skipped"):
-                            cap_errors += 1
-                    except Exception:
-                        cap_errors += 1
-
-                    if cap_errors == 0:
-                        _update_progress(user_id, processed=i + 1)
-                    else:
-                        _update_progress(user_id, errors=i + 1)
-                    _update_progress(
-                        user_id,
-                        current=f"Auto {i + 1}/{total}: {cap.get('source_title', '')[:40]}",
-                    )
-            except Exception as exc:
-                logger.exception("Auto-process run failed for user %s: %s", user_id[:8], exc)
-                _update_progress(user_id, running=False, current=f"Error: {exc}")
-            finally:
-                _update_progress(user_id, running=False, operation="")
-
-        thread = threading.Thread(target=_run, daemon=True)
-        thread.start()
+        for capture in unprocessed:
+            add_ai_job(user_id, capture["id"], "atomic_extraction")
+        start_background_batch(user_id)
 
     except Exception as exc:
         logger.error("Auto-process error for user %s: %s", user_id[:8], exc)

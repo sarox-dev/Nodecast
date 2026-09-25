@@ -9,11 +9,11 @@ from app.api.routes.auth import router as auth_router
 from app.api.routes.layouts import router as layouts_router
 from app.api.routes.knowledge import router as knowledge_router
 from app.api.routes.renderers import router as renderers_router
-from app.api.routes.capture_view import router as capture_view_router
 from app.api.routes.ai_providers import router as ai_providers_router
 from app.api.routes.library import router as library_router
 from app.api.routes.entities import router as entities_router
 from app.api.routes.facts import router as facts_router
+from app.api.routes.atomics import router as atomics_router
 from app.services.database import init_db, user_count
 from app.services.auto_processor import start_auto_processor
 
@@ -40,25 +40,20 @@ app.include_router(auth_router)
 app.include_router(layouts_router)
 app.include_router(knowledge_router)
 app.include_router(renderers_router)
-app.include_router(capture_view_router)
 app.include_router(ai_providers_router)
 app.include_router(library_router)
 app.include_router(entities_router)
 app.include_router(facts_router)
+app.include_router(atomics_router)
 
 # ─── Auth status template variable ────────────────────────────────
 templates = Jinja2Templates(directory="app/templates")
 
 
-def _auth_context(request: Request) -> dict:
+async def _auth_context(request: Request) -> dict:
     """Check if user is logged in via cookie."""
     from app.services.auth import get_user_from_cookie
-    import asyncio
-    try:
-        loop = asyncio.get_running_loop()
-        user = loop.run_until_complete(get_user_from_cookie(request))
-    except RuntimeError:
-        user = None
+    user = await get_user_from_cookie(request)
     if user:
         return {"logged_in": True, "username": user["username"]}
     return {"logged_in": False, "username": ""}
@@ -77,11 +72,11 @@ def register_page(request: Request):
 
 
 @app.get("/")
-def home(request: Request):
+async def home(request: Request):
     # If no users exist, redirect to register (setup)
     if user_count() == 0:
         return RedirectResponse(url="/register")
-    ctx = _auth_context(request)
+    ctx = await _auth_context(request)
     return templates.TemplateResponse(request, "index.html", ctx)
 
 

@@ -41,29 +41,8 @@
             </div>
 
             <div class="sidebar-section">
-              <div class="sidebar-section-label">Projects</div>
-              <div class="sidebar-collapse">
-              <div id="sidebar-project-list" class="sidebar-project-list"></div>
-              <div class="sidebar-add-project">
-                <input id="sidebar-new-project" type="text" placeholder="New project..." />
-                <button id="sidebar-add-btn" type="button" title="Add project">+</button>
-              </div>
-              </div>
-            </div>
-
-            <div class="sidebar-section">
-              <div class="sidebar-section-label">Tags</div>
-              <div class="sidebar-collapse">
-              <div id="sidebar-tags" class="sidebar-tags"></div>
-              </div>
-            </div>
-
-            <div class="sidebar-section">
               <div class="sidebar-section-label">Actions</div>
               <div class="sidebar-collapse">
-              <button id="new-note-btn" class="sidebar-nav-btn" type="button">New note</button>
-              <button id="import-btn" class="sidebar-nav-btn" type="button">Import bookmarks</button>
-              <button id="manage-tags-btn" class="sidebar-nav-btn" type="button">Manage tags</button>
               </div>
             </div>
           </div>
@@ -76,8 +55,7 @@
         <div class="workspace-resizer" id="sidebar-resizer"></div>
 
         <main class="workspace-center">
-          <div id="content-view" class="content-view">
-          <form id="search-form" class="search-form" autocomplete="off">
+          <div id="content-view" class="content-view">          <form id="search-form" class="search-form" autocomplete="off">
             <div class="search-bar-wrapper" id="search-bar-wrapper">
               <input id="query" name="q" type="search" placeholder="Search your library..." autocomplete="off" spellcheck="false" />
               <button type="submit" class="search-submit" aria-label="Search">
@@ -177,7 +155,7 @@
                   </label>
                   <label class="graph-popup-row" style="flex-direction:row;align-items:center;gap:0.5rem;margin-top:0.3rem">
                     <label class="toggle" style="margin:0">
-                      <input type="checkbox" id="graph-show-entities" />
+                      <input type="checkbox" id="graph-show-entities" checked disabled />
                       <span class="toggle-slider"></span>
                     </label>
                     <span style="font-size:0.78rem;color:var(--text-secondary)">Show entity nodes</span>
@@ -190,7 +168,7 @@
               <span>Loading graph...</span>
             </div>
             <div id="graph-empty" class="graph-empty" hidden>
-              <p>No relations found. Save more captures with shared tags or entities to build a graph.</p>
+              <p>No atomic relations found yet. Save highlighted content from related sources to build the graph.</p>
             </div>
             <div id="graph-container" class="graph-container"></div>
             <div id="graph-stats" class="graph-stats" hidden>
@@ -198,18 +176,6 @@
             </div>
           </div>
         </main>
-
-        <div class="workspace-resizer" id="preview-resizer"></div>
-
-        <aside class="workspace-preview" id="workspace-preview">
-          <div class="preview-pane">
-            <div class="preview-header">
-              <div class="preview-title">Preview</div>
-              <div class="preview-hint">Hover • click to pin</div>
-            </div>
-            <div id="preview-content" class="preview-content"></div>
-          </div>
-        </aside>
       </div>
     </div>
 
@@ -309,38 +275,6 @@
       </div>
     </div>
 
-    <div id="note-modal" class="modal-overlay" hidden aria-hidden="true">
-      <div class="modal-panel note-modal-panel" role="dialog" aria-modal="true" aria-labelledby="note-modal-title">
-        <button id="note-close" class="modal-close" type="button" aria-label="Close">&times;</button>
-        <div class="modal-header">
-          <h3 id="note-modal-title" class="modal-title">New note</h3>
-        </div>
-        <div class="note-form-body">
-          <div class="note-field">
-            <label for="note-title">Title <span class="required">*</span></label>
-            <input id="note-title" type="text" placeholder="Note title" autocomplete="off" />
-          </div>
-          <div class="note-field">
-            <label for="note-project">Project</label>
-            <div class="project-select-wrap">
-              <select id="note-project" class="project-select">
-                <option value="">— None —</option>
-              </select>
-            </div>
-          </div>
-          <div class="note-field note-field-grow">
-            <label for="note-content">Content <span class="required">*</span></label>
-            <textarea id="note-content" placeholder="Write or paste your content here..." rows="8"></textarea>
-          </div>
-          <div id="note-status" class="note-status" hidden></div>
-        </div>
-        <div class="modal-actions">
-          <button id="note-cancel" class="modal-btn modal-btn-secondary" type="button">Cancel</button>
-          <button id="note-save" class="modal-btn modal-btn-primary" type="button">Save note</button>
-        </div>
-      </div>
-    </div>
-
     <div id="edit-modal" class="modal-overlay" hidden aria-hidden="true">
       <div class="modal-panel note-modal-panel" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
         <button id="edit-close" class="modal-close" type="button" aria-label="Close">&times;</button>
@@ -356,78 +290,11 @@
               </select>
             </div>
           </div>
-          <div class="note-field note-field-grow">
-            <label for="edit-tags">Tags</label>
-            <div id="edit-tags-container" class="edit-tags-container">
-              <div class="edit-tags-input-row">
-                <input id="edit-tags-input" type="text" placeholder="Search or create tag..." maxlength="32" autocomplete="off" />
-                <button id="edit-tags-add" class="modal-btn modal-btn-primary" type="button" style="padding:0.35rem 0.6rem;font-size:0.78rem">Add</button>
-              </div>
-              <div id="edit-tags-all" class="edit-tags-all"></div>
-              <div id="edit-tags-list" class="edit-tags-list"></div>
-              <div id="edit-tags-status" class="note-status" hidden></div>
-            </div>
-          </div>
           <div id="edit-status" class="note-status" hidden></div>
         </div>
         <div class="modal-actions">
           <button id="edit-cancel" class="modal-btn modal-btn-secondary" type="button">Cancel</button>
           <button id="edit-save" class="modal-btn modal-btn-primary" type="button">Save changes</button>
-        </div>
-      </div>
-    </div>
-
-    <div id="import-modal" class="modal-overlay" hidden aria-hidden="true">
-      <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="import-modal-title">
-        <button id="import-modal-close" class="modal-close" type="button" aria-label="Close">&times;</button>
-        <div class="modal-header">
-          <h3 id="import-modal-title" class="modal-title">Import bookmarks</h3>
-        </div>
-        <div class="import-body">
-          <p class="import-desc">Export your bookmarks from any browser as an HTML file, then upload it here.</p>
-          <div class="import-dropzone" id="import-dropzone">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="import-icon">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="17 8 12 3 7 8" />
-              <line x1="12" y1="3" x2="12" y2="15" />
-            </svg>
-            <p class="import-drop-text">Drop your <code>.html</code> bookmark file here, or <span class="import-browse-link" id="import-browse-link">browse</span></p>
-            <input type="file" id="import-file-input" accept=".html" hidden />
-          </div>
-          <div id="import-progress" class="import-progress" hidden>
-            <div class="import-spinner"></div>
-            <span id="import-status-text">Importing...</span>
-          </div>
-          <div id="import-result" class="import-result" hidden></div>
-        </div>
-        <div class="modal-actions">
-          <button id="import-done-btn" class="modal-btn modal-btn-primary" type="button" hidden>Done</button>
-        </div>
-      </div>
-    </div>
-
-        <div id="tag-manage-overlay" class="modal-overlay" hidden aria-hidden="true">
-      <div class="modal-panel tag-manage-panel" role="dialog" aria-modal="true" aria-labelledby="tag-manage-title">
-        <button id="tag-manage-close" class="modal-close" type="button" aria-label="Close">&times;</button>
-        <div class="modal-header">
-          <h3 id="tag-manage-title" class="modal-title">Manage tags</h3>
-        </div>
-        <div class="tag-manage-body">
-          <div class="tag-manage-toolbar">
-            <div class="tag-manage-search-wrap">
-              <input id="tag-manage-search" type="text" placeholder="Filter tags..." autocomplete="off" />
-            </div>
-            <div class="tag-manage-mode-btns">
-              <button id="tag-manage-mode-rename" class="tag-manage-mode-btn active" type="button">Rename</button>
-              <button id="tag-manage-mode-delete" class="tag-manage-mode-btn" type="button">Delete</button>
-            </div>
-          </div>
-          <div class="tag-manage-input-row">
-            <input id="tag-manage-new" type="text" placeholder="New tag name..." autocomplete="off" maxlength="32" />
-            <button id="tag-manage-add-btn" class="modal-btn modal-btn-primary" type="button">Add</button>
-          </div>
-          <div id="tag-manage-list" class="tag-manage-list"></div>
-          <div id="tag-manage-status" class="note-status" hidden></div>
         </div>
       </div>
     </div>
@@ -455,6 +322,12 @@
     {% include 'settings.html' %}
 
     <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="/static/js/ui-utils.js"></script>
+    <script src="/static/js/settings.js"></script>
+    <script src="/static/js/atomic-view.js"></script>
+    <script src="/static/js/entity-view.js"></script>
+    <script src="/static/js/graph-view.js"></script>
+    <script src="/static/js/web-search.js"></script>
     <script src="/static/js/app.js"></script>
   </body>
 </html>

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query
 from app.services.auth import get_current_user
-from app.services.database import get_facts_by_topic
+from app.services.database import get_atomics_by_type, search_atomics, enrich_atomics_with_sources
 
 router = APIRouter()
 
@@ -11,7 +11,7 @@ def api_facts(
     limit: int = 50,
     current_user: dict = Depends(get_current_user),
 ):
-    if not q:
-        return {"facts": [], "total": 0}
-    facts = get_facts_by_topic(current_user["user_id"], q, limit)
+    user_id = current_user["user_id"]
+    facts = search_atomics(user_id, q, type_="fact", limit=limit) if q else get_atomics_by_type(user_id, "fact", limit)
+    facts = enrich_atomics_with_sources(user_id, facts)
     return {"facts": facts, "total": len(facts)}

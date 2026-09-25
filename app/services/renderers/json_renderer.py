@@ -22,7 +22,7 @@ class JsonRenderer(BaseRenderer):
                 "url": capture_ref.get("source_url"),
                 "type": capture_ref.get("capture_type"),
             },
-            "knowledge_objects": objects,
+            "atomics": objects,
         }
         pretty = json.dumps(data, indent=2, ensure_ascii=False)
         escaped = (pretty.replace("&", "&amp;")

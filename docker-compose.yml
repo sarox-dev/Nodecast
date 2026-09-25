@@ -1,16 +1,4 @@
 services:
-  searxng:
-    container_name: searxng-nodecast
-    image: searxng/searxng
-    expose:
-      - "${SEARXNG_PORT}"
-    volumes:
-      - ./searxng:/etc/searxng
-    environment:
-      - SEARXNG_PORT=${SEARXNG_PORT}
-      - SEARXNG_BIND_ADDRESS=${SEARXNG_BIND_ADDRESS}
-      - SEARXNG_BASE_URL=${SEARXNG_URL}
-      - SEARXNG_METHOD=${SEARXNG_METHOD}
   app:
     container_name: nodecast-app
     build: .
@@ -24,9 +12,6 @@ services:
       - ./.env:/app/.env
     command: >
       sh -c "uvicorn app.main:app --host 0.0.0.0 --port ${APP_PORT:-5000} --reload"
-    depends_on:
-      - searxng
     environment:
-      - SEARXNG_URL=${SEARXNG_URL}
       - APP_HOST=${APP_HOST}
       - APP_PORT=${APP_PORT}
