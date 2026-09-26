@@ -1,15 +1,62 @@
 // ─── ui-utils.js — Shared UI utilities for Nodecast ──────────────────────
 
-window.showToast = function(message, type = 'error', duration = 5000) {
+const activeNotifications = new Map();
+
+window.showNotification = function({ title = '', message = '', type = 'info', duration = 5000, key = '', actionLabel = '', onAction = null } = {}) {
     const container = document.getElementById('toast-container');
-    if (!container) return;
+    if (!container || !message) return null;
+    const notificationKey = key || `${type}:${title}:${message}`;
+    if (activeNotifications.has(notificationKey)) return activeNotifications.get(notificationKey);
     const el = document.createElement('div');
-    el.className = `toast toast-${type}`;
-    el.innerHTML = `<span style="flex:1">${message}</span><button class="toast-dismiss">✕</button>`;
-    el.querySelector('.toast-dismiss').addEventListener('click', () => el.remove());
+    el.className = `toast toast-${['error', 'success', 'warning', 'info'].includes(type) ? type : 'info'}`;
+    el.setAttribute('role', type === 'error' ? 'alert' : 'status');
+    const icon = document.createElement('span');
+    icon.className = 'toast-status-icon';
+    icon.textContent = type === 'success' ? '✓' : type === 'error' ? '!' : type === 'warning' ? '!' : 'i';
+    const copy = document.createElement('span');
+    copy.className = 'toast-copy';
+    if (title) {
+        const heading = document.createElement('strong');
+        heading.textContent = title;
+        copy.appendChild(heading);
+    }
+    const body = document.createElement('span');
+    body.textContent = message;
+    copy.appendChild(body);
+    el.append(icon, copy);
+    if (actionLabel && typeof onAction === 'function') {
+        const action = document.createElement('button');
+        action.className = 'toast-action';
+        action.textContent = actionLabel;
+        action.addEventListener('click', () => { onAction(); remove(); });
+        el.appendChild(action);
+    }
+    const dismiss = document.createElement('button');
+    dismiss.className = 'toast-dismiss';
+    dismiss.type = 'button';
+    dismiss.setAttribute('aria-label', 'Dismiss notification');
+    dismiss.textContent = '×';
+    el.appendChild(dismiss);
+    const remove = () => {
+        activeNotifications.delete(notificationKey);
+        el.classList.add('toast-leaving');
+        window.setTimeout(() => el.remove(), 160);
+    };
+    dismiss.addEventListener('click', remove);
     container.appendChild(el);
-    setTimeout(() => { if (el.parentNode) el.remove(); }, duration);
+    activeNotifications.set(notificationKey, el);
+    if (duration > 0) window.setTimeout(() => { if (el.parentNode) remove(); }, duration);
+    return el;
 };
+
+window.showToast = function(message, type = 'error', duration = 5000) {
+    return window.showNotification({ message, type, duration });
+};
+
+window.addEventListener('unhandledrejection', event => {
+    const message = event.reason?.message || 'An unexpected operation failed.';
+    window.showNotification({ title: 'Something went wrong', message, type: 'error', key: `promise:${message}`, duration: 8000 });
+});
 
 function parseDate(isoStr) {
     if (!isoStr) return null;

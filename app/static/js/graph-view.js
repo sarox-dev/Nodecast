@@ -29,6 +29,7 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 
     window.setGraphMode = function() {
+        if (!window.nodecastWorkspaceStore?.get()?.selectedId) return;
         window.graphMode = true;
         webMode = false;
         const pageShell = document.getElementById('page-shell');
@@ -56,9 +57,20 @@ window.addEventListener('DOMContentLoaded', () => {
         }
         if (container) container.innerHTML = '';
         try {
-            const showOrphans = document.getElementById('graph-show-orphans')?.checked || false;
-            const r = await fetch(`/api/ai/relation-graph?limit=200&include_orphans=${showOrphans}`);
+            const selectedId = window.nodecastWorkspaceStore?.get()?.selectedId;
+            if (!selectedId) throw new Error('Select a memory first');
+            const showCandidates = document.getElementById('graph-show-orphans')?.checked || false;
+            const r = await fetch(`/api/memory/${encodeURIComponent(selectedId)}/graph?depth=1&include_candidates=${showCandidates}`);
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
             const data = await r.json();
+            data.nodes = (data.nodes || []).map(node => ({
+                ...node, label: node.title || node.summary || 'Memory',
+                type: node.kind || node.type || 'evidence',
+            }));
+            data.edges = (data.edges || []).map(edge => ({
+                ...edge, source_id: edge.source_atomic_id, target_id: edge.target_atomic_id,
+                strength: edge.confidence ?? edge.strength,
+            }));
             if (loadingEl) loadingEl.hidden = true;
             if (!data.nodes || data.nodes.length === 0) {
                 if (empty) empty.hidden = false;
@@ -71,10 +83,10 @@ window.addEventListener('DOMContentLoaded', () => {
             const statsText = document.getElementById('graph-stats-text');
             if (statsEl && statsText) {
                 const atomics = data.nodes.length;
-                const entities = data.nodes.filter(n => n.type === 'entity').length;
+                const entities = data.nodes.filter(n => n.type === 'concept').length;
                 const edges = data.edges.length;
-                const parts = [`${atomics} atomics`];
-                if (entities > 0) parts.push(`${entities} entities`);
+                const parts = [`${atomics} memories`];
+                if (entities > 0) parts.push(`${entities} concepts`);
                 parts.push(`${edges} connections`);
                 statsText.textContent = parts.join(' · ');
                 statsEl.hidden = false;

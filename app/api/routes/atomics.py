@@ -77,7 +77,8 @@ def api_get_atomic_children(
         rows = conn.execute(
             """SELECT a.* FROM atomics a
                JOIN atomic_relations ar ON a.id = ar.target_atomic_id
-               WHERE ar.source_atomic_id=? AND ar.relation_type IN ('child_of', 'part_of')
+               WHERE ar.source_atomic_id=? AND ar.relation_type='includes'
+                 AND ar.status != 'rejected'
                ORDER BY a.position ASC, a.created_at ASC""",
             (atomic_id,),
         ).fetchall()

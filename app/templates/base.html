@@ -4,11 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Nodecast Workspace</title>
-    <link rel="stylesheet" href="/static/css/base.css" />
+    <meta name="nodecast-core" content="workspace" />
+    <link rel="stylesheet" href="/static/css/base.css?v=20260926-2" />
     <link rel="stylesheet" href="/static/css/theme-default.css" />
     <link rel="stylesheet" href="/static/css/theme-light.css" />
-    <link rel="stylesheet" href="/static/css/settings.css" />
-    <link rel="stylesheet" href="/static/css/modal.css" />
+    <link rel="stylesheet" href="/static/css/settings.css?v=20260926-3" />
+    <link rel="stylesheet" href="/static/css/modal.css?v=20260926-1" />
+    <link rel="stylesheet" href="/static/css/workspace.css?v=20260926-4" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -23,41 +25,59 @@
         <aside class="workspace-sidebar" id="workspace-sidebar">
           <div class="sidebar-scroll">
             <div class="sidebar-brand">
-              <img class="brand-mark" src="/static/logo.png" alt="Nodecast logo" />
-              <div>
-                <div class="brand-name">Nodecast</div>
-                <div class="brand-subtitle" id="sidebar-brand-subtitle">Workspace</div>
-              </div>
-              <button id="logout-button" class="brand-logout-btn" type="button" title="Logout">↪</button>
+              <button id="sidebar-brand-settings" class="sidebar-brand-main" type="button" aria-label="Open Nodecast settings overview">
+                <img class="brand-mark" src="/static/logo.png" alt="" />
+                <span class="sidebar-brand-copy">
+                  <span class="brand-name">Nodecast</span>
+                  <span class="brand-subtitle" id="sidebar-brand-subtitle">Workspace</span>
+                </span>
+              </button>
+              <button id="logout-button" class="brand-logout-btn" type="button" title="Log out" aria-label="Log out"><span aria-hidden="true">↪</span></button>
             </div>
 
             <div class="sidebar-section">
-              <div class="sidebar-section-label">Navigate</div>
+              <div class="sidebar-section-label">Workspace</div>
               <div class="sidebar-collapse">
-              <button id="sidebar-library-nav" class="sidebar-nav-btn active" type="button">📚 Library</button>
-              <button id="sidebar-web-nav" class="sidebar-nav-btn" type="button">🌐 Web Search</button>
-              <button id="sidebar-graph-nav" class="sidebar-nav-btn" type="button">🔗 Graph</button>
+              <button id="sidebar-library-nav" class="sidebar-nav-btn active" type="button" data-workspace-view="library">
+                <span class="sidebar-nav-icon">⌂</span><span class="sidebar-nav-label">Library</span>
+              </button>
+              <button id="sidebar-web-nav" class="sidebar-nav-btn" type="button" data-workspace-view="web">
+                <span class="sidebar-nav-icon">⌕</span><span class="sidebar-nav-label">Web Search</span>
+              </button>
+              <button id="sidebar-sources-nav" class="sidebar-nav-btn" type="button" data-workspace-view="sources">
+                <span class="sidebar-nav-icon">▤</span><span class="sidebar-nav-label">Sources</span>
+              </button>
+              <button id="sidebar-entities-nav" class="sidebar-nav-btn" type="button" data-workspace-view="entities">
+                <span class="sidebar-nav-icon">◇</span><span class="sidebar-nav-label">Concepts</span>
+              </button>
+              <button id="sidebar-graph-nav" class="sidebar-nav-btn" type="button" data-workspace-view="graph">
+                <span class="sidebar-nav-icon">⌘</span><span class="sidebar-nav-label">Graph</span>
+              </button>
               </div>
             </div>
 
             <div class="sidebar-section">
-              <div class="sidebar-section-label">Actions</div>
+              <div class="sidebar-section-label">Saved views</div>
               <div class="sidebar-collapse">
+                <button id="sidebar-recent-view" class="sidebar-nav-btn sidebar-saved-view" type="button">
+                  <span class="sidebar-nav-icon">↺</span><span class="sidebar-nav-label">Recent memory</span>
+                </button>
+                <div id="workspace-saved-views" class="workspace-saved-views"></div>
               </div>
             </div>
           </div>
 
-          <div class="sidebar-actions">
-            <button id="settings-button" class="settings-sidebar-btn" type="button">Settings</button>
-          </div>
         </aside>
 
         <div class="workspace-resizer" id="sidebar-resizer"></div>
 
         <main class="workspace-center">
-          <div id="content-view" class="content-view">          <form id="search-form" class="search-form" autocomplete="off">
+          <header class="workspace-commandbar">
+            <form id="search-form" class="search-form" autocomplete="off">
             <div class="search-bar-wrapper" id="search-bar-wrapper">
+              <span class="workspace-search-icon" aria-hidden="true">⌕</span>
               <input id="query" name="q" type="search" placeholder="Search your library..." autocomplete="off" spellcheck="false" />
+              <kbd class="workspace-search-shortcut">Ctrl K</kbd>
               <button type="submit" class="search-submit" aria-label="Search">
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   <circle cx="11" cy="11" r="8" />
@@ -68,7 +88,6 @@
                 <div class="slash-hint-item" data-cmd="/entities">🧩 /entities &lt;name&gt; — Entity overview</div>
                 <div class="slash-hint-item" data-cmd="/sources">📄 /sources &lt;topic&gt; — Source list</div>
                 <div class="slash-hint-item" data-cmd="/table">🗂️ /table &lt;query&gt; — Table view</div>
-                <div class="slash-hint-item" data-cmd="/facts">💡 /facts &lt;topic&gt; — Key facts</div>
                 <div class="slash-hint-item" data-cmd="/sources">📄 /sources &lt;topic&gt; — Source list</div>
                 <div class="slash-hint-item" data-cmd="/table">🗂️ /table &lt;query&gt; — Table view</div>
                 <div class="slash-hint-item" data-cmd="/timeline">📅 /timeline &lt;query&gt; — Timeline view</div>
@@ -76,8 +95,28 @@
                 <div class="slash-hint-item" data-cmd="/cards">📇 /cards &lt;query&gt; — Card view</div>
                 <div class="slash-hint-item" data-cmd="/markdown">📝 /markdown &lt;query&gt; — Markdown view</div>
               </div>
+              <div id="web-suggestions" class="web-suggestions" role="listbox" aria-label="Search suggestions" hidden></div>
             </div>
           </form>
+            <button id="workspace-inspector-toggle" class="workspace-icon-button" type="button" aria-pressed="true" title="Toggle inspector" aria-label="Toggle inspector">◫</button>
+          </header>
+
+          <div id="content-view" class="content-view">
+          <div class="workspace-view-header" id="workspace-view-header">
+            <div class="workspace-view-copy">
+              <span class="workspace-view-eyebrow" id="workspace-view-eyebrow">Personal memory</span>
+              <h1 id="workspace-view-title">Library</h1>
+              <p id="workspace-view-description">Recent evidence and concepts from your saved sources.</p>
+            </div>
+            <div class="workspace-view-actions">
+              <button id="workspace-save-view" class="workspace-secondary-action" type="button" hidden>Save view</button>
+              <div class="workspace-view-switcher" id="workspace-view-switcher" aria-label="Result view">
+                <button type="button" data-projection="list" aria-pressed="true">List</button>
+                <button type="button" data-projection="focus" aria-pressed="false">Focus</button>
+                <button type="button" data-projection="sources" aria-pressed="false">Sources</button>
+              </div>
+            </div>
+          </div>
 
           <div id="loading-indicator" class="loading-indicator" hidden>
             <div class="spinner"></div>
@@ -117,7 +156,7 @@
           </div>
           </div>
 
-          <div id="toast-container" class="toast-container"></div>
+          <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
 
           <div id="graph-area" class="graph-area" hidden>
             <div class="graph-header">
@@ -151,14 +190,14 @@
                       <input type="checkbox" id="graph-show-orphans" />
                       <span class="toggle-slider"></span>
                     </label>
-                    <span style="font-size:0.78rem;color:var(--text-secondary)">Show orphan captures</span>
+                    <span style="font-size:0.78rem;color:var(--text-secondary)">Show candidate relations</span>
                   </label>
                   <label class="graph-popup-row" style="flex-direction:row;align-items:center;gap:0.5rem;margin-top:0.3rem">
                     <label class="toggle" style="margin:0">
                       <input type="checkbox" id="graph-show-entities" checked disabled />
                       <span class="toggle-slider"></span>
                     </label>
-                    <span style="font-size:0.78rem;color:var(--text-secondary)">Show entity nodes</span>
+                    <span style="font-size:0.78rem;color:var(--text-secondary)">Show concepts</span>
                   </label>
                 </div>
               </div>
@@ -176,6 +215,22 @@
             </div>
           </div>
         </main>
+
+        <aside id="workspace-inspector" class="workspace-inspector" aria-label="Context inspector">
+          <div class="workspace-inspector-header">
+            <div>
+              <span class="workspace-view-eyebrow">Context</span>
+              <h2 id="workspace-inspector-title">Nothing selected</h2>
+            </div>
+            <button id="workspace-inspector-close" class="workspace-icon-button" type="button" aria-label="Close inspector">×</button>
+          </div>
+          <div id="workspace-inspector-content" class="workspace-inspector-content">
+            <div class="workspace-inspector-empty">
+              <span>↳</span>
+              <p>Select a memory to inspect its evidence, source and relationships.</p>
+            </div>
+          </div>
+        </aside>
       </div>
     </div>
 
@@ -228,10 +283,10 @@
           <circle cx="12" cy="12" r="4" />
           <line x1="12" y1="8" x2="12" y2="6" />
         </svg>
-        <span class="toast-text">
-          <strong>Nodecast Extension</strong> not detected —
-          <button id="banner-install-link" class="toast-link">install it</button>
-          to save highlights from any website
+        <span class="extension-toast-text">
+          <strong id="extension-banner-title">Nodecast Extension not detected</strong>
+          <span id="extension-banner-copy">Install it to save highlights from any website.</span>
+          <button id="banner-install-link" class="extension-toast-action">Install</button>
         </span>
         <button id="banner-close" class="toast-close-btn" aria-label="Dismiss">&times;</button>
       </div>
@@ -322,12 +377,15 @@
     {% include 'settings.html' %}
 
     <script src="https://d3js.org/d3.v7.min.js"></script>
-    <script src="/static/js/ui-utils.js"></script>
-    <script src="/static/js/settings.js"></script>
-    <script src="/static/js/atomic-view.js"></script>
-    <script src="/static/js/entity-view.js"></script>
-    <script src="/static/js/graph-view.js"></script>
-    <script src="/static/js/web-search.js"></script>
-    <script src="/static/js/app.js"></script>
+    <script src="/static/js/ui-utils.js?v=20260926-2"></script>
+    <script src="/static/js/extension-bridge.js?v=20260926-2"></script>
+    <script src="/static/js/settings.js?v=20260926-5"></script>
+    <script src="/static/js/atomic-view.js?v=20260926-4"></script>
+    <script src="/static/js/entity-view.js?v=20260926-2"></script>
+    <script src="/static/js/graph-view.js?v=20260926-2"></script>
+    <script src="/static/js/web-search.js?v=20260925-1"></script>
+    <script src="/static/js/app.js?v=20260926-2"></script>
+    <script src="/static/js/workspace-store.js?v=20260926-2"></script>
+    <script src="/static/js/workspace-controller.js?v=20260926-2"></script>
   </body>
 </html>

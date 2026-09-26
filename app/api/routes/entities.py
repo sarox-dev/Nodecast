@@ -25,7 +25,7 @@ def api_list_entities(
     user_id = current_user["user_id"]
     conn = get_db(user_id)
     try:
-        where = ["a.type='entity'"]
+        where = ["a.role='concept'"]
         params = []
         if search:
             where.append("a.content LIKE ?")
@@ -38,7 +38,7 @@ def api_list_entities(
         # Count related atomics per entity
         rows = conn.execute(
             f"""SELECT a.id, a.content, a.properties,
-                       (SELECT COUNT(*) FROM atomic_relations ar WHERE ar.source_atomic_id=a.id AND ar.relation_type='references') as ref_count
+                       (SELECT COUNT(*) FROM atomic_relations ar WHERE ar.target_atomic_id=a.id AND ar.relation_type IN ('mentions','defines','uses','compares_with') AND ar.status!='rejected') as ref_count
                 FROM atomics a
                 WHERE {where_clause}
                 ORDER BY {'a.content ASC' if sort == 'name' else 'ref_count DESC'}
@@ -82,7 +82,7 @@ def api_get_entity(
     conn = get_db(user_id)
     try:
         row = conn.execute(
-            "SELECT * FROM atomics WHERE id=? AND type='entity'",
+            "SELECT * FROM atomics WHERE id=? AND role='concept'",
             (entity_id,),
         ).fetchone()
     finally:
@@ -103,8 +103,8 @@ def api_get_entity(
     relations = get_atomic_relations(user_id, entity_id)
     target_ids = []
     for r in relations:
-        if r["relation_type"] == "references" and r["source_atomic_id"] == entity_id:
-            target_ids.append(r["target_atomic_id"])
+        if r["relation_type"] in {"mentions", "defines", "uses", "compares_with"} and r["target_atomic_id"] == entity_id and r["status"] != "rejected":
+            target_ids.append(r["source_atomic_id"])
 
     # Get source captures from those atomics
     conn = get_db(user_id)

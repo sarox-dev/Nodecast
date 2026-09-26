@@ -44,7 +44,7 @@ def _get_existing_entity_atomics(user_id: str) -> list[dict]:
     conn = get_db(user_id)
     try:
         rows = conn.execute(
-            "SELECT id, content, properties FROM atomics WHERE type='entity' ORDER BY relevance DESC"
+            "SELECT id, content, properties FROM atomics WHERE role='concept' ORDER BY relevance DESC"
         ).fetchall()
         result = []
         for r in rows:
@@ -200,8 +200,10 @@ def extract_entities(user_id: str, capture_id: str) -> dict:
                 atomic_type="entity",
                 content=name,
                 properties=props,
-                source_id=capture_id,
+                source_id=None,
                 extracted_by="ai-entity-extraction",
+                role="concept",
+                canonical_key=name.strip().lower(),
             )
             existing.append({
                 "id": entity_id,
@@ -216,8 +218,9 @@ def extract_entities(user_id: str, capture_id: str) -> dict:
         for sa in source_atomics:
             if sa["type"] != "entity":
                 insert_atomic_relation(
-                    user_id, entity_id, sa["id"], "references",
-                    context=f"Entity {name} referenced in {sa.get('type', 'text')}",
+                    user_id, sa["id"], entity_id, "mentions",
+                    context=f"Entity {name} referenced in {sa.get('type', 'text')}", method="ai",
+                    reason=f"AI extracted {name} from this evidence", confidence=0.75, status="candidate",
                 )
 
         linked += 1

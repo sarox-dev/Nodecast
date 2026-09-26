@@ -6,7 +6,14 @@ import httpx
 logger = logging.getLogger(__name__)
 
 
-def call_ai_model(base_url: str, api_key: str, model: str, messages: list[dict], timeout: int = 120) -> str | None:
+class AIClientError(RuntimeError):
+    def __init__(self, code: str, message: str, status_code: int | None = None):
+        super().__init__(message)
+        self.code = code
+        self.status_code = status_code
+
+
+def call_ai_model(base_url: str, api_key: str, model: str, messages: list[dict], timeout: int = 120, raise_errors: bool = False) -> str | None:
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
@@ -30,4 +37,13 @@ def call_ai_model(base_url: str, api_key: str, model: str, messages: list[dict],
         return content.strip() or None
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
         logger.error("AI request failed for %s: %s", model, exc)
+        if raise_errors:
+            status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+            if status in {401, 403}:
+                raise AIClientError("ai_authentication_failed", "AI provider authentication failed. Check the API key in Settings → AI.", status) from exc
+            if status == 429:
+                raise AIClientError("ai_rate_limited", "AI provider rate limit reached. Local results are still available.", status) from exc
+            if isinstance(exc, httpx.TimeoutException):
+                raise AIClientError("ai_timeout", "AI provider timed out. Local results are still available.") from exc
+            raise AIClientError("ai_provider_error", "AI synthesis failed. Local results are still available.", status) from exc
         return None

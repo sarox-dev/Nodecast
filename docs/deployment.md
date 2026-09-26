@@ -1,6 +1,20 @@
 # Deployment
 
-Nodecast currently deploys as one local FastAPI service.
+Nodecast can run in Docker or as a native Python service. The release installers provide an interactive setup for both modes and can register a host-side automatic updater.
+
+```bash
+# Linux / macOS
+curl -fsSL https://github.com/sarox-dev/Nodecast/releases/latest/download/install.sh | bash
+```
+
+```powershell
+# Windows PowerShell
+irm https://github.com/sarox-dev/Nodecast/releases/latest/download/install.ps1 | iex
+```
+
+The first registered Nodecast account is the administrator. Only that account can see or change update settings. Automatic updates are always orchestrated by the host: systemd/launchd/cron on Linux or macOS and Task Scheduler on Windows. The application container is never given access to the Docker socket.
+
+For manual Docker deployment:
 
 ```bash
 cp .env.example .env

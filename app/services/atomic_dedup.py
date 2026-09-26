@@ -18,7 +18,7 @@ def deduplicate_atomics(user_id: str) -> dict:
     conn = get_db(user_id)
     try:
         rows = conn.execute(
-            "SELECT id, type, content, source_id, source_atomics FROM atomics WHERE type != 'entity' ORDER BY type, content, created_at ASC"
+            "SELECT id, type, content, source_id, source_atomics FROM atomics WHERE role='evidence' ORDER BY type, content, created_at ASC"
         ).fetchall()
     finally:
         conn.close()
@@ -65,13 +65,16 @@ def _merge_atomic(user_id: str, keep_id: str, remove_id: str) -> bool:
             if source_id != target_id:
                 conn.execute(
                     """INSERT INTO atomic_relations
-                       (id,source_atomic_id,target_atomic_id,relation_type,strength,context,created_at)
-                       VALUES (?,?,?,?,?,?,?)
+                       (id,source_atomic_id,target_atomic_id,relation_type,strength,method,reason,confidence,status,context,created_at,updated_at)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
                        ON CONFLICT(source_atomic_id,target_atomic_id,relation_type)
-                       DO UPDATE SET strength=MAX(strength,excluded.strength),context=excluded.context""",
+                       DO UPDATE SET strength=MAX(strength,excluded.strength),
+                         confidence=MAX(confidence,excluded.confidence),context=excluded.context""",
                     (
                         uuid4().hex[:16], source_id, target_id, relation["relation_type"],
-                        relation["strength"], relation["context"], relation["created_at"],
+                        relation["strength"], relation["method"], relation["reason"],
+                        relation["confidence"], relation["status"], relation["context"],
+                        relation["created_at"], relation["updated_at"],
                     ),
                 )
             conn.execute("DELETE FROM atomic_relations WHERE id=?", (relation["id"],))

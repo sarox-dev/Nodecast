@@ -1,4 +1,8 @@
-from fastapi import FastAPI, Request
+import json
+import os
+import re
+
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -12,9 +16,11 @@ from app.api.routes.renderers import router as renderers_router
 from app.api.routes.ai_providers import router as ai_providers_router
 from app.api.routes.library import router as library_router
 from app.api.routes.entities import router as entities_router
-from app.api.routes.facts import router as facts_router
 from app.api.routes.atomics import router as atomics_router
-from app.services.database import init_db, user_count
+from app.api.routes.extension import router as extension_router
+from app.api.routes.memory import router as memory_router
+from app.services.database import get_user_by_id, init_db, user_count
+from app.services.auth import get_current_user
 from app.services.auto_processor import start_auto_processor
 
 app = FastAPI()
@@ -23,6 +29,10 @@ app = FastAPI()
 def startup():
     # Auto-migrate existing data to per-user structure
     init_db()
+    from app.services.database import get_global_setting, set_global_setting
+    if get_global_setting("auto_update", "") == "":
+        enabled = os.getenv("AUTO_UPDATE_DEFAULT", "false").lower() == "true"
+        set_global_setting("auto_update", "true" if enabled else "false")
     # Start background AI auto-processor
     start_auto_processor()
 
@@ -43,8 +53,9 @@ app.include_router(renderers_router)
 app.include_router(ai_providers_router)
 app.include_router(library_router)
 app.include_router(entities_router)
-app.include_router(facts_router)
 app.include_router(atomics_router)
+app.include_router(extension_router)
+app.include_router(memory_router)
 
 # ─── Auth status template variable ────────────────────────────────
 templates = Jinja2Templates(directory="app/templates")
@@ -81,10 +92,6 @@ async def home(request: Request):
 
 
 # ─── Version helpers ──────────────────────────────────────────────
-import json
-import os
-
-
 def _load_version() -> dict:
     try:
         vp = os.path.join(os.path.dirname(__file__), "version.json")
@@ -98,14 +105,26 @@ VERSION_INFO = _load_version()
 CURRENT_VERSION = VERSION_INFO["version"]
 BUILD_DATE = VERSION_INFO["build"]
 
+
+def _version_tuple(value: str) -> tuple[int, ...]:
+    parts = [int(part) for part in re.findall(r"\d+", value)[:3]]
+    return tuple((parts + [0, 0, 0])[:3])
+
 # ─── API endpoints ────────────────────────────────────────────────
 @app.get("/api/version")
 def get_version():
     return {"version": CURRENT_VERSION, "build_date": BUILD_DATE}
 
 
+def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
+    user = get_user_by_id(current_user["user_id"])
+    if not user or not user["is_admin"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
 @app.get("/api/update/check")
-def check_update():
+def check_update(_admin: dict = Depends(require_admin)):
     import requests
     try:
         resp = requests.get(
@@ -120,7 +139,7 @@ def check_update():
                 "current_version": CURRENT_VERSION,
                 "build_date": BUILD_DATE,
                 "latest_version": latest,
-                "has_update": bool(latest and latest > CURRENT_VERSION),
+                "has_update": bool(latest and _version_tuple(latest) > _version_tuple(CURRENT_VERSION)),
                 "release_url": data.get("html_url", ""),
                 "release_notes": (data.get("body", "")[:1000] if data.get("body") else ""),
                 "published_at": data.get("published_at", ""),
@@ -131,7 +150,7 @@ def check_update():
 
 
 @app.get("/api/update/install")
-def install_update():
+def install_update(_admin: dict = Depends(require_admin)):
     return {
         "linux": "curl -fsSL https://github.com/sarox-dev/Nodecast/releases/latest/download/install.sh | bash",
         "windows": "irm https://github.com/sarox-dev/Nodecast/releases/latest/download/install.ps1 | iex",
@@ -173,15 +192,16 @@ def server_health():
 
 
 @app.get("/api/server/settings")
-def get_server_settings():
+def get_server_settings(_admin: dict = Depends(require_admin)):
     from app.services.database import get_global_setting
     return {
         "auto_update": get_global_setting("auto_update", "false") == "true",
+        "installation_mode": os.getenv("NODECAST_INSTALL_MODE", "docker"),
     }
 
 
 @app.put("/api/server/settings")
-def set_server_settings(body: dict):
+def set_server_settings(body: dict, _admin: dict = Depends(require_admin)):
     from app.services.database import set_global_setting
     if "auto_update" in body:
         set_global_setting("auto_update", "true" if body["auto_update"] else "false")

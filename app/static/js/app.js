@@ -44,10 +44,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         window.location.href = '/login';
     });
 
-    document.querySelector('.sidebar-brand')?.addEventListener('click', (e) => {
-        if (e.target.closest('button')) return;
-        openAccountSettings();
-    });
+    document.getElementById('sidebar-brand-settings')?.addEventListener('click', () => openSettings('Overview'));
 
     pageShell = document.getElementById('page-shell');
     form = document.getElementById('search-form');
@@ -60,7 +57,6 @@ window.addEventListener('DOMContentLoaded', async () => {
     emptyState = document.getElementById('empty-state');
     statusBar = document.getElementById('status-bar');
     const resultCount = document.getElementById('result-count');
-    const settingsButton = document.getElementById('settings-button');
     loadingIndicator = document.getElementById('loading-indicator');
     scrollTopButton = document.createElement('button');
     scrollTopButton.id = 'scroll-top-button';
@@ -103,12 +99,15 @@ window.addEventListener('DOMContentLoaded', async () => {
         if (settingsSearchInput?.value.trim()) filterSettings(settingsSearchInput.value);
     });
 
-    settingsButton.addEventListener('click', openSettings);
     settingsClose.addEventListener('click', closeSettings);
     settingsOverlay.addEventListener('click', (e) => { if (e.target === settingsOverlay) { if (_dirty) { _shakeActions(); } else { closeSettings(); } } });
     settingsSave.addEventListener('click', () => { _saveSettings(); applyTheme(); });
     settingsRevert.addEventListener('click', () => { renderSettings(); });
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !settingsOverlay.hidden) { if (_dirty) { _shakeActions(); } else { closeSettings(); } } });
+    if (new URLSearchParams(window.location.search).get('settings') === 'extension') {
+        openSettings('Extension');
+        history.replaceState({}, '', window.location.pathname + window.location.hash);
+    }
 
     const updateBanner = document.getElementById('update-banner');
     const updateBannerVersion = document.getElementById('update-banner-version');
@@ -298,15 +297,28 @@ window.addEventListener('DOMContentLoaded', async () => {
     const extBanner = document.getElementById('extension-banner');
     const bannerClose = document.getElementById('banner-close');
     const bannerInstallLink = document.getElementById('banner-install-link');
+    const extensionBannerTitle = document.getElementById('extension-banner-title');
+    const extensionBannerCopy = document.getElementById('extension-banner-copy');
     const installModal = document.getElementById('install-modal');
     const installClose = document.getElementById('install-close');
-    function checkExtensionInstalled() { if (localStorage.getItem('bannerDismissed') === 'true') return; const sentinel = document.querySelector('meta[name="nodecast-extension"]'); if (!sentinel || sentinel.content !== 'installed') extBanner.hidden = false; }
-    bannerClose.addEventListener('click', () => { extBanner.hidden = true; localStorage.setItem('bannerDismissed', 'true'); });
-    bannerInstallLink.addEventListener('click', () => { extBanner.hidden = true; installModal.hidden = false; installModal.inert = false; });
+    let extensionBannerClosed = false;
+    function renderExtensionBanner(status) {
+        if (!status?.checked || status.checking || status.detected || extensionBannerClosed) {
+            extBanner.hidden = true;
+            return;
+        }
+        extensionBannerTitle.textContent = 'Browser extension not found';
+        extensionBannerCopy.textContent = 'Install Nodecast Extension to save selected text.';
+        bannerInstallLink.textContent = 'Install';
+        bannerInstallLink.onclick = () => { extBanner.hidden = true; installModal.hidden = false; installModal.inert = false; };
+        extBanner.hidden = false;
+    }
+    bannerClose.addEventListener('click', () => { extensionBannerClosed = true; extBanner.hidden = true; });
     installClose.addEventListener('click', () => { installModal.hidden = true; installModal.inert = true; });
     installModal.addEventListener('click', (e) => { if (e.target === installModal) { installModal.hidden = true; installModal.inert = true; } });
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !installModal.hidden) { installModal.hidden = true; installModal.inert = true; } });
-    setTimeout(checkExtensionInstalled, 300);
+    window.addEventListener('nodecast:extension-status', (event) => renderExtensionBanner(event.detail));
+    window.nodecastExtension?.whenReady().then(renderExtensionBanner);
 
     const sidebarResizer = document.getElementById('sidebar-resizer');
     const workspaceSidebar = document.getElementById('workspace-sidebar');

@@ -15,3 +15,5 @@ services:
     environment:
       - APP_HOST=${APP_HOST}
       - APP_PORT=${APP_PORT}
+      - AUTO_UPDATE_DEFAULT=${AUTO_UPDATE_DEFAULT:-false}
+      - NODECAST_INSTALL_MODE=docker

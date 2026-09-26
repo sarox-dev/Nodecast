@@ -1,6 +1,6 @@
 """
 Deterministic cross-source relation discovery — finds atomics from different
-sources with shared keywords and creates related_to relations.
+sources with shared keywords and creates semantically_related candidates.
 
 Runs as a background job. Triggers after each new atomic batch.
 """
@@ -58,7 +58,7 @@ def extract_keywords(text: str) -> set[str]:
 def discover_relations_for_atomic(user_id: str, atomic_id: str) -> dict:
     """
     Find atomics from DIFFERENT sources with shared keywords
-    and create related_to relations. Returns stats.
+    and create semantically_related candidate relations. Returns stats.
     """
     conn = get_db(user_id)
     try:
@@ -127,7 +127,8 @@ def discover_relations_for_atomic(user_id: str, atomic_id: str) -> dict:
         context = f"shared: {', '.join(sorted(overlap)[:5])}"
         insert_atomic_relation(
             user_id, atomic_id, cand_id,
-            "related_to", strength=round(jaccard, 3), context=context,
+            "semantically_related", strength=round(jaccard, 3), context=context,
+            method="lexical", reason=context, confidence=round(jaccard, 3), status="candidate",
         )
         created += 1
 

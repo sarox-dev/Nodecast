@@ -85,26 +85,66 @@ SCHEMA="""
 PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS captures(id TEXT PRIMARY KEY,capture_type TEXT DEFAULT 'page',source_url TEXT DEFAULT '',source_title TEXT DEFAULT '',source_site_name TEXT DEFAULT '',captured_at TEXT DEFAULT '',saved_at TEXT DEFAULT '',tags TEXT DEFAULT '[]',project TEXT DEFAULT '',raw_path TEXT DEFAULT '');
 CREATE INDEX IF NOT EXISTS idx_captures_saved_at ON captures(saved_at);
-CREATE TABLE IF NOT EXISTS atomics(id TEXT PRIMARY KEY,type TEXT NOT NULL,content TEXT DEFAULT '',properties TEXT DEFAULT '{}',source_id TEXT,source_atomics TEXT DEFAULT '[]',confidence REAL DEFAULT 1.0,extracted_by TEXT DEFAULT '',created_at TEXT DEFAULT '',position INTEGER DEFAULT 0,relevance REAL DEFAULT 0.0,FOREIGN KEY(source_id) REFERENCES captures(id) ON DELETE CASCADE);
-CREATE INDEX IF NOT EXISTS idx_atomics_type ON atomics(type); CREATE INDEX IF NOT EXISTS idx_atomics_source ON atomics(source_id); CREATE INDEX IF NOT EXISTS idx_atomics_content ON atomics(content);
-CREATE TABLE IF NOT EXISTS atomic_relations(id TEXT PRIMARY KEY,source_atomic_id TEXT NOT NULL,target_atomic_id TEXT NOT NULL,relation_type TEXT NOT NULL,strength REAL DEFAULT 0.5,context TEXT DEFAULT '',created_at TEXT DEFAULT '',UNIQUE(source_atomic_id,target_atomic_id,relation_type),FOREIGN KEY(source_atomic_id) REFERENCES atomics(id) ON DELETE CASCADE,FOREIGN KEY(target_atomic_id) REFERENCES atomics(id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS atomics(id TEXT PRIMARY KEY,role TEXT NOT NULL DEFAULT 'evidence',type TEXT NOT NULL,content TEXT DEFAULT '',context_header TEXT DEFAULT '',canonical_key TEXT DEFAULT '',status TEXT DEFAULT 'ready',properties TEXT DEFAULT '{}',source_id TEXT,source_atomics TEXT DEFAULT '[]',confidence REAL DEFAULT 1.0,extracted_by TEXT DEFAULT '',created_at TEXT DEFAULT '',updated_at TEXT DEFAULT '',position INTEGER DEFAULT 0,relevance REAL DEFAULT 0.0,FOREIGN KEY(source_id) REFERENCES captures(id) ON DELETE CASCADE);
+CREATE INDEX IF NOT EXISTS idx_atomics_role_type ON atomics(role,type); CREATE INDEX IF NOT EXISTS idx_atomics_source ON atomics(source_id); CREATE INDEX IF NOT EXISTS idx_atomics_canonical ON atomics(canonical_key);
+CREATE TABLE IF NOT EXISTS atomic_relations(id TEXT PRIMARY KEY,source_atomic_id TEXT NOT NULL,target_atomic_id TEXT NOT NULL,relation_type TEXT NOT NULL,strength REAL DEFAULT 0.5,method TEXT DEFAULT 'ai',reason TEXT DEFAULT '',confidence REAL DEFAULT 0.5,status TEXT DEFAULT 'candidate',context TEXT DEFAULT '',created_at TEXT DEFAULT '',updated_at TEXT DEFAULT '',UNIQUE(source_atomic_id,target_atomic_id,relation_type),FOREIGN KEY(source_atomic_id) REFERENCES atomics(id) ON DELETE CASCADE,FOREIGN KEY(target_atomic_id) REFERENCES atomics(id) ON DELETE CASCADE);
 CREATE INDEX IF NOT EXISTS idx_ar_source ON atomic_relations(source_atomic_id); CREATE INDEX IF NOT EXISTS idx_ar_target ON atomic_relations(target_atomic_id); CREATE INDEX IF NOT EXISTS idx_ar_type ON atomic_relations(relation_type);
+CREATE VIRTUAL TABLE IF NOT EXISTS atomic_fts USING fts5(atomic_id UNINDEXED,content,context_header,canonical_key,tokenize='unicode61');
+CREATE TRIGGER IF NOT EXISTS atomic_fts_insert AFTER INSERT ON atomics BEGIN INSERT INTO atomic_fts(atomic_id,content,context_header,canonical_key) VALUES(new.id,new.content,new.context_header,new.canonical_key); END;
+CREATE TRIGGER IF NOT EXISTS atomic_fts_delete AFTER DELETE ON atomics BEGIN DELETE FROM atomic_fts WHERE atomic_id=old.id; END;
+CREATE TRIGGER IF NOT EXISTS atomic_fts_update AFTER UPDATE OF content,context_header,canonical_key ON atomics BEGIN DELETE FROM atomic_fts WHERE atomic_id=old.id; INSERT INTO atomic_fts(atomic_id,content,context_header,canonical_key) VALUES(new.id,new.content,new.context_header,new.canonical_key); END;
+CREATE TABLE IF NOT EXISTS atomic_embeddings(atomic_id TEXT NOT NULL,provider TEXT NOT NULL,model TEXT NOT NULL,dimensions INTEGER DEFAULT 0,embedding BLOB NOT NULL,created_at TEXT DEFAULT '',PRIMARY KEY(atomic_id,provider,model),FOREIGN KEY(atomic_id) REFERENCES atomics(id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS memory_feedback(id TEXT PRIMARY KEY,atomic_id TEXT NOT NULL,feedback TEXT NOT NULL,outcome TEXT DEFAULT '',created_at TEXT DEFAULT '',FOREIGN KEY(atomic_id) REFERENCES atomics(id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS ai_providers(id TEXT PRIMARY KEY,name TEXT NOT NULL,provider_type TEXT NOT NULL DEFAULT 'openai_compatible',base_url TEXT NOT NULL,api_key_encrypted TEXT DEFAULT '',default_model TEXT DEFAULT '',provider_key TEXT DEFAULT '',api_style TEXT DEFAULT 'openai',created_at TEXT DEFAULT '');
 CREATE TABLE IF NOT EXISTS ai_feature_assignments(id TEXT PRIMARY KEY,feature TEXT UNIQUE NOT NULL,provider_id TEXT NOT NULL,model TEXT NOT NULL,created_at TEXT DEFAULT '',FOREIGN KEY(provider_id) REFERENCES ai_providers(id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS pending_ai_jobs(id TEXT PRIMARY KEY,capture_id TEXT NOT NULL,feature TEXT NOT NULL,status TEXT DEFAULT 'pending',created_at TEXT DEFAULT '',processed_at TEXT DEFAULT '',error_message TEXT DEFAULT '',FOREIGN KEY(capture_id) REFERENCES captures(id) ON DELETE CASCADE);
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON pending_ai_jobs(status);
 CREATE TABLE IF NOT EXISTS user_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL DEFAULT '');
 """
+def _add_missing_columns(c, table, columns):
+    existing = {row[1] for row in c.execute(f"PRAGMA table_info({table})")}
+    for name, definition in columns.items():
+        if name not in existing:
+            c.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+
+
 def init_user_db(uid):
+    """Create or non-destructively upgrade a per-user database to schema v2."""
     c=sqlite3.connect(str(get_user_db_path(uid)))
-    try: c.executescript(SCHEMA); c.commit()
+    try:
+        # Old installs already have these tables. Add fields before SCHEMA creates
+        # indexes/triggers that reference them. Existing knowledge is retained.
+        if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='atomics'").fetchone():
+            _add_missing_columns(c, "atomics", {
+                "role": "TEXT NOT NULL DEFAULT 'evidence'",
+                "context_header": "TEXT DEFAULT ''",
+                "canonical_key": "TEXT DEFAULT ''",
+                "status": "TEXT DEFAULT 'ready'",
+                "updated_at": "TEXT DEFAULT ''",
+            })
+        if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='atomic_relations'").fetchone():
+            _add_missing_columns(c, "atomic_relations", {
+                "method": "TEXT DEFAULT 'ai'",
+                "reason": "TEXT DEFAULT ''",
+                "confidence": "REAL DEFAULT 0.5",
+                "status": "TEXT DEFAULT 'candidate'",
+                "updated_at": "TEXT DEFAULT ''",
+            })
+        c.executescript(SCHEMA)
+        c.execute("""INSERT INTO atomic_fts(atomic_id,content,context_header,canonical_key)
+                     SELECT a.id,a.content,a.context_header,a.canonical_key FROM atomics a
+                     WHERE NOT EXISTS (SELECT 1 FROM atomic_fts f WHERE f.atomic_id=a.id)""")
+        c.commit()
     finally: c.close()
 def get_db(uid):
     p=get_user_db_path(uid)
     if not p.exists(): init_user_db(uid)
     c=sqlite3.connect(str(p)); c.row_factory=sqlite3.Row; c.execute("PRAGMA journal_mode=WAL"); c.execute("PRAGMA foreign_keys=ON"); return c
 def init_db():
-    c=get_users_db(); c.close()
+    c=get_users_db()
+    try: user_ids=[row["id"] for row in c.execute("SELECT id FROM users")]
+    finally: c.close()
+    for uid in user_ids: init_user_db(uid)
 
 
 def insert_capture_ref(user_id,capture_id,capture_type,source_url,source_title,source_site_name,captured_at,saved_at,tags,project,raw_path):
@@ -241,12 +281,13 @@ def mark_ai_job_done(uid,jid): _finish(uid,jid,"done")
 def mark_ai_job_error(uid,jid,error=""): _finish(uid,jid,"error",error)
 
 
-def insert_atomic(user_id,atomic_type,content="",properties=None,source_id=None,source_atomics=None,confidence=1.0,extracted_by="",position=0,relevance=0.0):
+def insert_atomic(user_id,atomic_type,content="",properties=None,source_id=None,source_atomics=None,confidence=1.0,extracted_by="",position=0,relevance=0.0,role="evidence",context_header="",canonical_key="",status="ready"):
     aid=uuid.uuid4().hex[:16]; c=get_db(user_id)
-    try: c.execute("INSERT INTO atomics VALUES (?,?,?,?,?,?,?,?,?,?,?)",(aid,atomic_type,content,json.dumps(properties or {}),source_id,json.dumps(source_atomics or []),confidence,extracted_by,_now(),position,relevance)); c.commit(); return aid
+    now=_now()
+    try: c.execute("INSERT INTO atomics(id,role,type,content,context_header,canonical_key,status,properties,source_id,source_atomics,confidence,extracted_by,created_at,updated_at,position,relevance) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(aid,role,atomic_type,content,context_header,canonical_key,status,json.dumps(properties or {}),source_id,json.dumps(source_atomics or []),confidence,extracted_by,now,now,position,relevance)); c.commit(); return aid
     finally: c.close()
 def insert_atomics_batch(uid,items):
-    return [insert_atomic(uid,a.get("type","text"),a.get("content",""),a.get("properties"),a.get("source_id"),a.get("source_atomics"),a.get("confidence",1.0),a.get("extracted_by",""),a.get("position",0),a.get("relevance",0.0)) for a in items]
+    return [insert_atomic(uid,a.get("type","text"),a.get("content",""),a.get("properties"),a.get("source_id"),a.get("source_atomics"),a.get("confidence",1.0),a.get("extracted_by",""),a.get("position",0),a.get("relevance",0.0),a.get("role","evidence"),a.get("context_header",""),a.get("canonical_key",""),a.get("status","ready")) for a in items]
 def _atomic(r):
     d=dict(r)
     for key,default in (("properties",{}),("source_atomics",[])):
@@ -262,9 +303,16 @@ def get_atomics_by_type(uid,type_,limit=50):
     try: return [_atomic(r) for r in c.execute("SELECT * FROM atomics WHERE type=? ORDER BY relevance DESC,created_at DESC LIMIT ?",(type_,limit))]
     finally: c.close()
 def search_atomics(uid,query,type_=None,limit=50):
-    c=get_db(uid); p=f"%{query}%"
+    c=get_db(uid)
     try:
-        rows=c.execute("SELECT * FROM atomics WHERE type=? AND (content LIKE ? OR properties LIKE ?) ORDER BY relevance DESC,created_at DESC LIMIT ?",(type_,p,p,limit)) if type_ else c.execute("SELECT * FROM atomics WHERE content LIKE ? OR properties LIKE ? ORDER BY relevance DESC,created_at DESC LIMIT ?",(p,p,limit))
+        terms=[t.replace('"','') for t in query.split() if t.strip()]
+        match=" OR ".join(f'"{t}"' for t in terms)
+        if not match: return []
+        sql="SELECT a.*,bm25(atomic_fts) AS search_rank FROM atomic_fts JOIN atomics a ON a.id=atomic_fts.atomic_id WHERE atomic_fts MATCH ?"
+        params=[match]
+        if type_: sql+=" AND a.type=?"; params.append(type_)
+        sql+=" ORDER BY search_rank ASC,a.relevance DESC,a.created_at DESC LIMIT ?"; params.append(limit)
+        rows=c.execute(sql,params)
         return [_atomic(r) for r in rows]
     finally: c.close()
 def get_atomic_by_id(uid,aid):
@@ -280,10 +328,11 @@ def delete_atomics_by_source(uid,sid):
     c=get_db(uid)
     try: cur=c.execute("DELETE FROM atomics WHERE source_id=?",(sid,)); c.commit(); return cur.rowcount
     finally: c.close()
-def insert_atomic_relation(uid,source_atomic_id,target_atomic_id,relation_type,strength=0.5,context=""):
+def insert_atomic_relation(uid,source_atomic_id,target_atomic_id,relation_type,strength=0.5,context="",method="ai",reason="",confidence=None,status="candidate"):
     rid=uuid.uuid4().hex[:16]; c=get_db(uid)
+    now=_now(); confidence=strength if confidence is None else confidence
     try:
-        c.execute("INSERT INTO atomic_relations VALUES (?,?,?,?,?,?,?) ON CONFLICT(source_atomic_id,target_atomic_id,relation_type) DO UPDATE SET strength=MAX(strength,excluded.strength),context=excluded.context",(rid,source_atomic_id,target_atomic_id,relation_type,strength,context,_now())); c.commit(); r=c.execute("SELECT id FROM atomic_relations WHERE source_atomic_id=? AND target_atomic_id=? AND relation_type=?",(source_atomic_id,target_atomic_id,relation_type)).fetchone(); return r["id"]
+        c.execute("INSERT INTO atomic_relations(id,source_atomic_id,target_atomic_id,relation_type,strength,method,reason,confidence,status,context,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(source_atomic_id,target_atomic_id,relation_type) DO UPDATE SET strength=MAX(strength,excluded.strength),method=excluded.method,reason=excluded.reason,confidence=MAX(confidence,excluded.confidence),status=CASE WHEN atomic_relations.status='rejected' THEN 'rejected' ELSE excluded.status END,context=excluded.context,updated_at=excluded.updated_at",(rid,source_atomic_id,target_atomic_id,relation_type,strength,method,reason,confidence,status,context,now,now)); c.commit(); r=c.execute("SELECT id FROM atomic_relations WHERE source_atomic_id=? AND target_atomic_id=? AND relation_type=?",(source_atomic_id,target_atomic_id,relation_type)).fetchone(); return r["id"]
     finally: c.close()
 def get_atomic_relations(uid,aid):
     c=get_db(uid)

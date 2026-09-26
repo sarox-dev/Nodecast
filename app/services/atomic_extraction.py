@@ -5,6 +5,8 @@ Saves atomics + creates mandatory source relations.
 
 import json
 import logging
+import re
+from datetime import datetime, timezone
 
 from app.services.ai_crypto import decrypt_api_key
 from app.services.database import (
@@ -14,10 +16,11 @@ from app.services.database import (
     insert_atomic_relation,
     insert_capture_ref,
     get_capture_ref,
+    get_db,
+    insert_atomic,
 )
 from app.services.html_cleaner import extract_main_content
 from app.services.ai_client import call_ai_model
-from app.services.entity_extraction import extract_entities
 from app.services.atomic_relations import discover_relations_for_capture
 from app.services.aggregate_creator import create_aggregates_for_user
 
@@ -25,37 +28,41 @@ logger = logging.getLogger(__name__)
 
 FEATURE_ATOMIC_EXTRACTION = "atomic_extraction"
 
-ATOMIC_SYSTEM_PROMPT = """You are a knowledge atomization assistant. Given cleaned web content, extract the most important information as atomic knowledge fragments.
+ATOMIC_SYSTEM_PROMPT = """You enrich exact evidence fragments without rewriting them.
 
-Each atomic fragment must be:
-- The smallest logical piece of information that can stand alone
-- Self-contained (understandable without context)
-- One of these types:
-  - "heading" — section titles (h1-h6)
-  - "text" — important paragraphs, key facts, instructions
-  - "code_block" — code snippets with "language" in properties
-  - "quote" — notable quotes/citations
-  - "link" — important reference links with "url" in properties
-  - "image" — notable images with "src" and "alt" in properties
-  - "entity" — specific named tools, people, companies, concepts
+For each numbered fragment return its position, evidence type, short summary, and explicitly named concepts.
+Allowed types: claim, definition, procedure_step, problem, solution, outcome, warning, measurement, code_block, quote, text.
+Never paraphrase or return replacement evidence content.
+Output ONLY a JSON array like:
+[{"position":0,"type":"definition","summary":"Docker is described as a container runtime.","concepts":["Docker"]}]"""
 
-RULES:
-- Split the content into MULTIPLE atomics — one per logical piece.
-- Include position (0, 1, 2, ...) preserving original order.
-- For code blocks, add properties.language (e.g. "bash", "python").
-- For images, add properties.src and properties.alt.
-- For links, add properties.url.
-- Skip boilerplate, navigation, ads, and generic filler.
-- Output at most 25 atomics.
 
-Output ONLY a JSON array. NO markdown fences, NO extra text, NO comments.
-Example:
-[
-  {"type": "heading", "content": "Docker Quickstart", "position": 0},
-  {"type": "text", "content": "Docker is a container runtime for applications.", "position": 1},
-  {"type": "code_block", "content": "docker pull ubuntu", "properties": {"language": "bash"}, "position": 2},
-  {"type": "entity", "content": "Docker", "properties": {"type": "tool"}, "position": 3}
-]"""
+def split_evidence(text: str, source_title: str = "") -> list[dict]:
+    """Deterministically preserve source text as small, ordered evidence blocks."""
+    blocks = []
+    chunks = [chunk.strip() for chunk in re.split(r"\n\s*\n|(?<!\d\.)(?<=\.)\s+(?=[A-Z0-9])", text) if chunk.strip()]
+    if len(chunks) == 1:
+        chunks = [line.strip() for line in text.splitlines() if line.strip()]
+    for chunk in chunks[:50]:
+        lower = chunk.lower()
+        if re.search(r"(^|\n)(error|exception|traceback|failed)\b", lower) or re.search(r"\b[A-Z][A-Za-z]+Error\b", chunk):
+            kind = "problem"
+        elif re.match(r"^(step\s+\d+|\d+[.)]|[-*])\s*", lower):
+            kind = "procedure_step"
+        elif any(word in lower for word in ("solution", "fix", "resolve", "workaround")):
+            kind = "solution"
+        elif any(word in lower for word in ("warning", "caution", "do not", "never ")):
+            kind = "warning"
+        elif re.search(r"```|\b(docker|kubectl|pip|npm|curl|sudo)\s+[-\w]", chunk):
+            kind = "code_block"
+        elif re.search(r"\b\d+(?:\.\d+)?\s*(?:%|ms|s|mb|gb|kg|ml)\b", lower):
+            kind = "measurement"
+        elif re.search(r"\b(is|are|means|refers to|defined as)\b", lower):
+            kind = "definition"
+        else:
+            kind = "text"
+        blocks.append({"type": kind, "content": chunk[:4000], "context_header": source_title, "position": len(blocks)})
+    return blocks
 
 
 def extract_atomics_from_text(user_id: str, capture_id: str, cleaned_text: str) -> list[dict]:
@@ -64,52 +71,55 @@ def extract_atomics_from_text(user_id: str, capture_id: str, cleaned_text: str) 
     If no AI configured, creates a single 'text' atomic with the full cleaned text.
     Returns list of created atomics.
     """
-    assignment = get_ai_assignment_for_feature(user_id, FEATURE_ATOMIC_EXTRACTION)
-    if assignment:
-        provider = get_ai_provider(user_id, assignment["provider_id"])
-        if provider:
-            api_key = decrypt_api_key(provider.get("api_key_encrypted", ""))
-            messages = [
-                {"role": "system", "content": ATOMIC_SYSTEM_PROMPT},
-                {"role": "user", "content": cleaned_text[:8000]},
-            ]
-            result = call_ai_model(
-                base_url=provider["base_url"],
-                api_key=api_key,
-                model=assignment["model"],
-                messages=messages,
-                timeout=60,
-            )
-            if result:
-                parsed = _parse_atomics_json(result)
-                if parsed:
-                    normalized = _normalize_atomics(parsed)
-                    for a in normalized:
-                        a["source_id"] = capture_id
-                        a["extracted_by"] = "ai-atomic-extraction"
-                    ids = insert_atomics_batch(user_id, normalized)
-                    for i, aid in enumerate(ids):
-                        if i > 0:
-                            insert_atomic_relation(
-                                user_id, ids[i-1], aid, "precedes",
-                                strength=1.0,
-                            )
-                    logger.info("Extracted %d atomics from capture %s", len(ids), capture_id[:8])
-                    for i, a in enumerate(normalized):
-                        a["id"] = ids[i]
-                    return normalized
+    capture = get_capture_ref(user_id, capture_id) or {}
+    evidence = split_evidence(cleaned_text, capture.get("source_title", ""))
+    for item in evidence:
+        item.update({"role": "evidence", "source_id": capture_id, "extracted_by": "deterministic-evidence"})
+    ids = insert_atomics_batch(user_id, evidence)
+    for index, aid in enumerate(ids):
+        evidence[index]["id"] = aid
+        if index:
+            insert_atomic_relation(user_id, ids[index - 1], aid, "precedes", 1.0,
+                                   method="structural", reason="Adjacent evidence in the same capture",
+                                   confidence=1.0, status="accepted")
 
-    # Fallback: no AI or AI failed — create single text atomic
-    aid = insert_atomics_batch(user_id, [{
-        "type": "text",
-        "content": cleaned_text[:10000],
-        "source_id": capture_id,
-        "extracted_by": "fallback",
-        "position": 0,
-    }])
-    if aid:
-        return [{"id": aid[0], "type": "text", "content": cleaned_text[:10000], "source_id": capture_id}]
-    return []
+    assignment = get_ai_assignment_for_feature(user_id, FEATURE_ATOMIC_EXTRACTION)
+    provider = get_ai_provider(user_id, assignment["provider_id"]) if assignment else None
+    if provider and evidence:
+        numbered = "\n".join(f'{i}: {item["content"][:700]}' for i, item in enumerate(evidence))
+        result = call_ai_model(provider["base_url"], decrypt_api_key(provider.get("api_key_encrypted", "")),
+                               assignment["model"], [{"role":"system","content":ATOMIC_SYSTEM_PROMPT},{"role":"user","content":numbered[:8000]}], timeout=60)
+        parsed = _parse_atomics_json(result or "") or []
+        concept_mentions = []
+        conn = get_db(user_id)
+        try:
+            for enrichment in parsed:
+                pos = enrichment.get("position")
+                if not isinstance(pos, int) or pos < 0 or pos >= len(evidence): continue
+                kind = enrichment.get("type", "text")
+                if kind not in {"claim","definition","procedure_step","problem","solution","outcome","warning","measurement","code_block","quote","text"}: kind="text"
+                props={"summary": str(enrichment.get("summary", ""))[:500], "concepts": enrichment.get("concepts", [])[:12], "model": assignment["model"]}
+                conn.execute("UPDATE atomics SET type=?,properties=?,extracted_by=?,updated_at=? WHERE id=?",(kind,json.dumps(props),"ai-enriched",datetime.now(timezone.utc).isoformat(),ids[pos]))
+                evidence[pos].update({"type":kind,"properties":props,"extracted_by":"ai-enriched"})
+                concept_mentions.extend((ids[pos], str(name).strip()) for name in props["concepts"] if str(name).strip())
+            conn.commit()
+        finally: conn.close()
+        for evidence_id, name in concept_mentions:
+            canonical = name.casefold()
+            conn = get_db(user_id)
+            try:
+                row = conn.execute("SELECT id FROM atomics WHERE role='concept' AND canonical_key=?", (canonical,)).fetchone()
+            finally:
+                conn.close()
+            concept_id = row["id"] if row else insert_atomic(
+                user_id, "entity", name, properties={"entity_type":"concept","model":assignment["model"]},
+                role="concept", canonical_key=canonical, extracted_by="ai-enriched",
+            )
+            insert_atomic_relation(
+                user_id, evidence_id, concept_id, "mentions", .7,
+                method="ai", reason=f"AI extracted the explicit concept {name}", confidence=.7, status="candidate",
+            )
+    return evidence
 
 
 def _normalize_atomics(parsed: list) -> list[dict]:
@@ -182,27 +192,6 @@ def process_capture_to_atomics(user_id: str, capture_id: str, page_html: str | N
         return {"atomics": [], "message": "No clean content extracted"}
 
     atomics = extract_atomics_from_text(user_id, capture_id, cleaned)
-
-    # Include the user's highlighted selection as its own atomic if present
-    if anchor_text and not any(
-        a.get("content", "").strip() == anchor_text for a in atomics
-    ):
-        aid = insert_atomics_batch(user_id, [{
-            "type": "text",
-            "content": anchor_text[:2000],
-            "source_id": capture_id,
-            "extracted_by": "user-selection",
-            "position": -1,
-        }])
-        if aid:
-            atomics.insert(0, {"id": aid[0], "type": "text", "content": anchor_text[:2000], "source_id": capture_id})
-
-    # Auto-trigger entity extraction if atomics were created
-    if atomics:
-        try:
-            extract_entities(user_id, capture_id)
-        except Exception:
-            logger.exception("Entity extraction failed for capture %s", capture_id[:8])
 
     # Auto-trigger cross-source relation discovery
     if atomics:

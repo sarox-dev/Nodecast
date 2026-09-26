@@ -52,7 +52,7 @@ async function entitySearch(searchTerm) {
 function renderEntityCard(e) {
     const typeColors = { tool: '#1f6feb', person: '#8250df', concept: '#0d4429', framework: '#9e6a03', language: '#da3633', platform: '#238636', company: '#d29922' };
     const color = typeColors[e.type] || '#64748b';
-    return `<div class="entity-card" data-id="${escapeHtml(e.id)}">
+    return `<div class="entity-card" tabindex="0" data-id="${escapeHtml(e.id)}">
         <span class="entity-type-badge" style="background:${color}">${e.type}</span>
         <span class="entity-name">${escapeHtml(e.name)}</span>
         <span class="entity-count">${e.capture_count} reference${e.capture_count !== 1 ? 's' : ''}</span>

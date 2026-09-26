@@ -12,6 +12,7 @@ const settingsCategories = document.getElementById('settings-categories');
 const settingsCategoryTitle = document.getElementById('settings-category-title');
 const settingsCategoryDescription = document.getElementById('settings-category-description');
 const settingsSearchInput = document.getElementById('settings-search-input');
+const settingsChangeCopy = document.getElementById('settings-change-copy');
 const sidebarResizer = document.getElementById('sidebar-resizer');
 const workspaceSidebar = document.getElementById('workspace-sidebar');
 const tagManageOverlay = document.getElementById('tag-manage-overlay');
@@ -26,12 +27,18 @@ const renameModeBtn = document.getElementById('tag-manage-mode-rename');
 const deleteModeBtn = document.getElementById('tag-manage-mode-delete');
 
 
-let activeSettingsCategory = localStorage.getItem('activeSettingsCategory') || 'Appearance';
+let activeSettingsCategory = localStorage.getItem('activeSettingsCategory') || 'Overview';
 let accountData = null;
+let currentSettingsUser = null;
 let _dirty = false;
 let _tabSnapshot = {};
 let _savedInterval = 60;
 const settingsSchema = [
+    {
+        category: 'Overview',
+        description: 'Your Nodecast workspace at a glance.',
+        items: []
+    },
     {
         category: 'Account',
         description: 'Your account settings.',
@@ -44,10 +51,15 @@ const settingsSchema = [
     },
     {
         category: 'Updates',
-        description: 'Check for new versions and manage auto-updates.',
+        description: 'Check the installed version and control automatic updates for this Nodecast installation.',
         items: [
-            { key: 'autoUpdate', label: 'Auto update when available', type: 'checkbox', default: false },
+            { key: 'autoUpdate', label: 'Install updates automatically', type: 'checkbox', default: false },
         ]
+    },
+    {
+        category: 'Extension',
+        description: 'Connect the browser extension and control how captures are saved.',
+        items: []  // Custom rendering, persisted per Nodecast account
     },
     {
         category: 'Appearance',
@@ -59,9 +71,9 @@ const settingsSchema = [
     },
     {
         category: 'Search',
-        description: 'Search behavior settings.',
+        description: 'Choose where Web Search redirects and which provider supplies suggestions before Enter.',
         items: [
-            { key: 'preferredEngine', label: 'Default search engine',
+            { key: 'preferredEngine', label: 'Redirect Web Search to',
               type: 'select',
               options: [
                   { value: 'https://duckduckgo.com/?q=', label: 'DuckDuckGo' },
@@ -69,14 +81,57 @@ const settingsSchema = [
                   { value: 'https://www.bing.com/search?q=', label: 'Bing' },
                   { value: 'https://search.brave.com/search?q=', label: 'Brave' },
                   { value: 'https://www.startpage.com/do/dsearch?query=', label: 'Startpage' },
+                  { value: 'custom', label: 'Custom URL template' },
               ],
               default: 'https://duckduckgo.com/?q=' },
+            { key: 'customSearchUrl', label: 'Custom search URL — use {query}', type: 'text', default: '' },
+            { key: 'suggestionsEnabled', label: 'Show query suggestions while typing', type: 'checkbox', default: true },
+            { key: 'suggestionProvider', label: 'Suggestion provider',
+              type: 'select',
+              options: [
+                  { value: 'duckduckgo', label: 'DuckDuckGo' },
+                  { value: 'google', label: 'Google' },
+                  { value: 'bing', label: 'Bing' },
+                  { value: 'none', label: 'None' },
+              ],
+              default: 'duckduckgo' },
+            { key: 'webSearchOpenMode', label: 'Open results',
+              type: 'select',
+              options: [
+                  { value: 'same-tab', label: 'In the current tab' },
+                  { value: 'new-tab', label: 'In a new tab' },
+              ],
+              default: 'same-tab' },
             { key: 'autoLoad', label: 'Auto load more results on scroll', type: 'checkbox', default: true },
         ]
     },
 ];
 
 const settingsState = {};
+const SETTINGS_CATEGORY_META = {
+    Overview: { hint: 'Workspace status' },
+    Account: { hint: 'Identity and access' },
+    AI: { hint: 'Models and extraction' },
+    Updates: { hint: 'Version and releases' },
+    Extension: { hint: 'Capture from the web' },
+    Appearance: { hint: 'Theme and motion' },
+    Search: { hint: 'Web search behavior' },
+};
+
+function visibleSettingsSchema() {
+    return settingsSchema.filter(category => category.category !== 'Updates' || currentSettingsUser?.is_admin);
+}
+
+async function loadCurrentSettingsUser() {
+    if (currentSettingsUser) return currentSettingsUser;
+    try {
+        const response = await fetch('/auth/me');
+        currentSettingsUser = response.ok ? await response.json() : null;
+    } catch {
+        currentSettingsUser = null;
+    }
+    return currentSettingsUser;
+}
 
 function getValue(item) {
     const stored = localStorage.getItem(item.key);
@@ -105,23 +160,33 @@ function createField(item) {
 }
 
 function renderCategoryNav() {
-    settingsCategories.innerHTML = settingsSchema.map(cat => `
+    settingsCategories.innerHTML = visibleSettingsSchema().map(cat => `
         <li class="settings-category-item">
-          <button type="button" class="settings-category-button${cat.category === activeSettingsCategory ? ' active' : ''}" data-category="${cat.category}">${cat.category}</button>
+          <button type="button" class="settings-category-button${cat.category === activeSettingsCategory ? ' active' : ''}" data-category="${cat.category}">
+            <span class="settings-category-copy"><strong>${cat.category}</strong><small>${SETTINGS_CATEGORY_META[cat.category]?.hint || ''}</small></span>
+            <span class="settings-category-arrow" aria-hidden="true">›</span>
+          </button>
         </li>
     `).join('');
 }
 
 function renderSettings() {
+    if (activeSettingsCategory === 'Updates' && !currentSettingsUser?.is_admin) activeSettingsCategory = 'Overview';
     const category = settingsSchema.find(cat => cat.category === activeSettingsCategory) || settingsSchema[0];
     settingsCategoryTitle.textContent = category.category;
     settingsCategoryDescription.textContent = category.description || '';
-    if (category.category === 'Account') {
+    if (category.category === 'Overview') {
+        renderSettingsOverview();
+        return;
+    } else if (category.category === 'Account') {
         renderAccountSettings();
     } else if (category.category === 'AI') {
         renderAISettings();
     } else if (category.category === 'Updates') {
         renderUpdatesSettings();
+    } else if (category.category === 'Extension') {
+        renderExtensionSettings();
+        return;
     } else {
         settingsList.innerHTML = category.items.map(item => createField({ ...item, category: category.category })).join('');
     }
@@ -133,9 +198,144 @@ function renderSettings() {
 function _snapshotTab() {
     _tabSnapshot = {};
     const category = settingsSchema.find(cat => cat.category === activeSettingsCategory);
-    if (!category || category.category === 'Account' || category.category === 'AI' || category.category === 'Updates') return;
+    if (!category || ['Overview', 'Account', 'AI', 'Updates', 'Extension'].includes(category.category)) return;
     category.items.forEach(item => {
         _tabSnapshot[item.key] = getValue(item);
+    });
+}
+
+async function renderSettingsOverview() {
+    settingsList.innerHTML = '<div class="settings-overview-loading">Loading workspace status…</div>';
+    const [extension, account, providerData, serverSettings] = await Promise.all([
+        window.nodecastExtension?.whenReady() || Promise.resolve({ detected: false, connected: false }),
+        fetch('/auth/me').then(response => response.ok ? response.json() : null).catch(() => null),
+        fetch('/api/ai/providers').then(response => response.ok ? response.json() : null).catch(() => null),
+        fetch('/api/server/settings').then(response => response.ok ? response.json() : null).catch(() => null),
+    ]);
+    currentSettingsUser = account;
+    if (activeSettingsCategory !== 'Overview') return;
+
+    const storedTheme = localStorage.getItem('theme') || 'dark';
+    const theme = storedTheme === 'light' ? 'light' : 'dark';
+    const engine = localStorage.getItem('preferredEngine') || 'https://duckduckgo.com/?q=';
+    let engineName = 'DuckDuckGo';
+    try { engineName = engine === 'custom' ? 'Custom provider' : new URL(engine).hostname.replace(/^www\./, ''); } catch {}
+    const extensionState = extension.connected ? 'Connected' : (extension.detected ? 'Ready to connect' : 'Not installed');
+    const providerCount = Array.isArray(providerData?.providers) ? providerData.providers.length : 0;
+    const updateNotifications = serverSettings?.auto_update ?? getValue(settingsSchema.find(category => category.category === 'Updates').items[0]);
+    const overviewDetails = {
+        Account: account?.username || 'Local user',
+        AI: `${providerCount} ${providerCount === 1 ? 'provider' : 'providers'}`,
+        Updates: updateNotifications ? 'Automatic updates on' : 'Automatic updates off',
+        Extension: extensionState,
+        Appearance: theme[0].toUpperCase() + theme.slice(1),
+        Search: engineName,
+    };
+    const overviewRows = visibleSettingsSchema()
+        .filter(category => category.category !== 'Overview')
+        .map(category => {
+            const detail = overviewDetails[category.category] || SETTINGS_CATEGORY_META[category.category]?.hint || 'Open settings';
+            const statusClass = category.category === 'Extension' ? ` class="status-${extension.connected ? 'ok' : 'muted'}"` : '';
+            return `<button type="button" class="settings-overview-row" data-open-settings="${escapeHtml(category.category)}"><span>${escapeHtml(category.category)}</span><strong${statusClass}>${escapeHtml(detail)}</strong><span class="row-arrow">›</span></button>`;
+        })
+        .join('');
+
+    settingsList.innerHTML = `
+      <div class="settings-overview" data-category="Overview">
+        <div class="settings-overview-grid">
+          ${overviewRows}
+        </div>
+      </div>`;
+    settingsList.querySelectorAll('[data-open-settings]').forEach(button => {
+        button.addEventListener('click', () => openSettings(button.dataset.openSettings));
+    });
+    _clearDirty();
+}
+
+async function renderExtensionSettings() {
+    settingsList.innerHTML = '<div class="extension-settings-loading">Checking extension connection…</div>';
+    const status = await window.nodecastExtension?.whenReady() || { detected: false, connected: false };
+    let remote = null;
+    try {
+        const response = await fetch('/api/extension/settings');
+        if (response.ok) remote = await response.json();
+    } catch {}
+
+    const settings = remote?.settings || {
+        floating_button_enabled: true,
+        min_selection_length: 10,
+        notification_position: 'top-center',
+        default_project: '',
+    };
+    const stateClass = status.connected ? 'connected' : (status.detected ? 'available' : 'missing');
+    const stateTitle = status.connected ? 'Connected' : (status.detected ? 'Installed, not connected' : 'Not detected');
+    const stateCopy = status.connected
+        ? `Saving as ${escapeHtml(status.username || remote?.username || 'this account')}.`
+        : (status.detected
+            ? 'Connect once; Nodecast will securely create the extension token.'
+            : 'Install or reload the Chromium extension, then check again.');
+
+    settingsList.innerHTML = `
+      <div class="extension-settings" data-category="Extension">
+        <section class="extension-connection-card ${stateClass}">
+          <div class="extension-connection-main">
+            <span class="extension-state-dot" aria-hidden="true"></span>
+            <div><strong>${stateTitle}</strong><p>${stateCopy}</p></div>
+          </div>
+          <div class="extension-connection-meta">${status.version ? `v${escapeHtml(status.version)}` : ''}</div>
+          <div class="extension-connection-actions">
+            ${!status.detected ? '<button type="button" data-extension-action="install">Install instructions</button>' : ''}
+            ${status.detected && !status.connected ? '<button type="button" class="primary" data-extension-action="connect">Connect to this account</button>' : ''}
+            ${status.connected ? '<button type="button" data-extension-action="test">Test connection</button><button type="button" data-extension-action="disconnect">Disconnect</button>' : ''}
+            <button type="button" data-extension-action="check">Check again</button>
+          </div>
+          <div class="extension-action-status" aria-live="polite"></div>
+        </section>
+        <section class="extension-preferences" ${status.connected ? '' : 'aria-disabled="true"'}>
+          <h4>Capture behavior</h4>
+          <label class="settings-field toggle-field"><span>Show floating Save button after selecting text</span><input type="checkbox" data-key="floating_button_enabled" ${settings.floating_button_enabled ? 'checked' : ''} ${status.connected ? '' : 'disabled'} /></label>
+          <label class="settings-field"><span>Minimum selection length</span><input type="number" data-key="min_selection_length" min="1" max="500" value="${Number(settings.min_selection_length) || 10}" ${status.connected ? '' : 'disabled'} /></label>
+          <label class="settings-field"><span>Save notification position</span><select data-key="notification_position" ${status.connected ? '' : 'disabled'}>${['top-left','top-center','top-right','bottom-left','bottom-center','bottom-right'].map(value => `<option value="${value}" ${settings.notification_position === value ? 'selected' : ''}>${value.replace('-', ' ')}</option>`).join('')}</select></label>
+          <label class="settings-field"><span>Default project</span><input type="text" data-key="default_project" maxlength="200" value="${escapeHtml(settings.default_project || '')}" placeholder="No project" ${status.connected ? '' : 'disabled'} /></label>
+          <p class="extension-preference-hint">The floating button saves immediately. Keyboard shortcut and right-click remain available as backup methods.</p>
+        </section>
+      </div>`;
+
+    _tabSnapshot = { ...settings };
+    _clearDirty();
+
+    settingsList.querySelectorAll('[data-extension-action]').forEach(button => {
+        button.addEventListener('click', async () => {
+            const output = settingsList.querySelector('.extension-action-status');
+            button.disabled = true;
+            output.textContent = '';
+            try {
+                if (button.dataset.extensionAction === 'install') {
+                    const modal = document.getElementById('install-modal');
+                    modal.hidden = false; modal.inert = false;
+                } else if (button.dataset.extensionAction === 'connect') {
+                    output.textContent = 'Connecting…';
+                    await window.nodecastExtension.pair();
+                    output.textContent = 'Connected.';
+                } else if (button.dataset.extensionAction === 'disconnect') {
+                    await window.nodecastExtension.disconnect();
+                } else if (button.dataset.extensionAction === 'test') {
+                    output.textContent = 'Syncing settings…';
+                    const result = await window.nodecastExtension.syncSettings();
+                    if (!result?.success) throw new Error(result?.message || 'Connection test failed');
+                    output.textContent = 'Connection works.';
+                    button.disabled = false;
+                    return;
+                } else if (button.dataset.extensionAction === 'check') {
+                    await window.nodecastExtension.refresh();
+                }
+                await renderExtensionSettings();
+            } catch (error) {
+                output.textContent = error.message;
+                output.classList.add('error');
+                button.disabled = false;
+            }
+        });
     });
 }
 
@@ -144,6 +344,8 @@ function _markDirty() {
     _dirty = true;
     document.getElementById('settings-save').disabled = false;
     document.getElementById('settings-revert').disabled = false;
+    document.getElementById('settings-actions-bar')?.classList.add('has-changes');
+    if (settingsChangeCopy) settingsChangeCopy.textContent = 'Unsaved changes';
 }
 
 function _clearDirty() {
@@ -152,6 +354,8 @@ function _clearDirty() {
     const revertBtn = document.getElementById('settings-revert');
     if (saveBtn) saveBtn.disabled = true;
     if (revertBtn) revertBtn.disabled = true;
+    document.getElementById('settings-actions-bar')?.classList.remove('has-changes');
+    if (settingsChangeCopy) settingsChangeCopy.textContent = 'No unsaved changes';
 }
 
 function _shakeActions() {
@@ -814,10 +1018,12 @@ function attachAIHandlers() {
 
 async function renderUpdatesSettings() {
     // Load server auto_update setting
+    let serverSettings = null;
     try {
         const sr = await fetch('/api/server/settings');
         if (sr.ok) {
             const sd = await sr.json();
+            serverSettings = sd;
             if (sd.auto_update !== undefined) {
                 settingsState.autoUpdate = sd.auto_update;
             }
@@ -843,11 +1049,11 @@ async function renderUpdatesSettings() {
 
     // Auto-update checkbox
     html += '<div class="settings-field toggle-field" style="margin-top:1rem">';
-    html += '<span>Auto update when available</span>';
+    html += '<span>Install updates automatically</span>';
     html += `<label class="toggle"><input type="checkbox" data-key="autoUpdate" ${settingsState.autoUpdate ? 'checked' : ''} /><span class="toggle-slider"></span></label>`;
     html += '</div>';
 
-    html += '<p style="color:var(--text-dim);font-size:0.78rem;margin-top:0.25rem">When enabled, you&rsquo;ll see a banner when a new version is available.</p>';
+    html += `<p style="color:var(--text-dim);font-size:0.78rem;margin-top:0.25rem">The host-side updater checks every 30 minutes and safely restarts the ${escapeHtml(serverSettings?.installation_mode || 'Nodecast')} installation when a release is available.</p>`;
 
     html += '</div>';
     settingsList.innerHTML = html;
@@ -1267,7 +1473,9 @@ function readSettings() {
     });
 }
 
-function openSettings(category) {
+async function openSettings(category) {
+    await loadCurrentSettingsUser();
+    if (category === 'Updates' && !currentSettingsUser?.is_admin) category = 'Overview';
     if (category) activeSettingsCategory = category;
     renderCategoryNav(); renderSettings();
     if (settingsSearchInput?.value.trim()) filterSettings(settingsSearchInput.value);
@@ -1279,7 +1487,7 @@ function closeSettings() {
     document.activeElement?.blur(); settingsOverlay.inert = true; settingsOverlay.hidden = true;
 }
 
-function _saveSettings() {
+async function _saveSettings() {
     const category = settingsSchema.find(cat => cat.category === activeSettingsCategory);
     if (!category) return;
 
@@ -1317,6 +1525,43 @@ function _saveSettings() {
         return;
     }
 
+    if (category.category === 'Extension') {
+        const payload = {
+            floating_button_enabled: settingsList.querySelector('[data-key="floating_button_enabled"]')?.checked ?? true,
+            min_selection_length: Number(settingsList.querySelector('[data-key="min_selection_length"]')?.value) || 10,
+            notification_position: settingsList.querySelector('[data-key="notification_position"]')?.value || 'top-center',
+            default_project: settingsList.querySelector('[data-key="default_project"]')?.value.trim() || '',
+        };
+        try {
+            const response = await fetch('/api/extension/settings', {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+            });
+            if (!response.ok) throw new Error((await response.json()).detail || 'Could not save extension settings');
+            const sync = await window.nodecastExtension?.syncSettings();
+            if (sync && !sync.success) throw new Error(sync.message || 'Saved in Core, but extension sync failed');
+            _tabSnapshot = { ...payload };
+            _clearDirty();
+            showToast('Extension settings saved', 'success');
+        } catch (error) {
+            showToast(error.message, 'error');
+        }
+        return;
+    }
+
+    if (category.category === 'Search') {
+        const engine = settingsList.querySelector('[data-key="preferredEngine"]')?.value;
+        const customTemplate = settingsList.querySelector('[data-key="customSearchUrl"]')?.value.trim() || '';
+        if (engine === 'custom') {
+            try {
+                const candidate = new URL(customTemplate.replace('{query}', 'nodecast'));
+                if (!['http:', 'https:'].includes(candidate.protocol) || !customTemplate.includes('{query}')) throw new Error();
+            } catch {
+                showToast('Custom search URL must be an http(s) URL containing {query}', 'error');
+                return;
+            }
+        }
+    }
+
     // Regular settings
     category.items.forEach(item => {
         const input = settingsList.querySelector(`[data-key="${item.key}"]`);
@@ -1352,6 +1597,8 @@ let _cachedUpdateCheck = null;
 let _updateCheckTimer = null;
 
 async function _checkUpdate() {
+    await loadCurrentSettingsUser();
+    if (!currentSettingsUser?.is_admin) return;
     if (localStorage.getItem('updateBannerDismissed') === 'true') return;
     try {
         const [verR, checkR] = await Promise.all([

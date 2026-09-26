@@ -1,7 +1,7 @@
 """
 Aggregate Creator — AI-powered grouping of related atomics into aggregate nodes.
-Scans atomics with related_to relations, finds clusters, and creates
-type=aggregate atomics with child_of relations.
+Scans evidence with semantic candidate relations and creates
+role=aggregate atomics with includes relations.
 
 Idempotent: skips already-aggregated atomics.
 """
@@ -39,18 +39,18 @@ Output ONLY that line. No markdown, no JSON, no extra text."""
 
 
 def create_aggregates_for_user(user_id: str) -> dict:
-    """Scan all atomics with related_to relations and create aggregate nodes.
+    """Scan evidence with semantic relations and create aggregate nodes.
     Returns stats about created aggregates."""
     conn = get_db(user_id)
     try:
-        # Find atomics that have related_to relations and are NOT already child_of something
+        # Find evidence with lexical/semantic candidates not already included in an aggregate.
         rows = conn.execute("""
             SELECT DISTINCT a.id, a.type, a.content, a.source_id
             FROM atomics a
             JOIN atomic_relations ar ON a.id = ar.source_atomic_id
-            WHERE ar.relation_type = 'related_to'
+            WHERE ar.relation_type = 'semantically_related'
               AND a.id NOT IN (
-                SELECT target_atomic_id FROM atomic_relations WHERE relation_type = 'child_of'
+                SELECT target_atomic_id FROM atomic_relations WHERE relation_type = 'includes'
               )
             ORDER BY a.created_at DESC
         """).fetchall()
@@ -89,6 +89,8 @@ def create_aggregates_for_user(user_id: str) -> dict:
                     user_id, "aggregate", name,
                     properties={"source": "ai-aggregate"},
                     extracted_by="ai-aggregate",
+                    role="aggregate",
+                    canonical_key=name.strip().lower(),
                 )
         finally:
             conn.close()
@@ -97,14 +99,15 @@ def create_aggregates_for_user(user_id: str) -> dict:
         for a in group:
             existing_rels = get_atomic_relations(user_id, a["id"])
             already_child = any(
-                r["relation_type"] == "child_of" and r["target_atomic_id"] == agg_id
+                r["relation_type"] == "includes" and r["source_atomic_id"] == agg_id
                 for r in existing_rels
             )
             if not already_child:
                 insert_atomic_relation(
                     user_id, agg_id, a["id"],
-                    "child_of", strength=1.0,
-                    context=f"Grouped under {name}",
+                    "includes", strength=0.7,
+                    context=f"Grouped under {name}", method="ai",
+                    reason="AI validated a shared topic", confidence=0.7, status="candidate",
                 )
         created += 1
 

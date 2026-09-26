@@ -1,193 +1,110 @@
 #!/usr/bin/env bash
-set -e
+set -Eeuo pipefail
+
 REPO="sarox-dev/Nodecast"
+TTY="/dev/tty"
+[[ -r "$TTY" ]] || TTY="/dev/stdin"
+BLUE='\033[38;5;75m'; GREEN='\033[38;5;78m'; DIM='\033[2m'; RESET='\033[0m'
 
-echo "Nodecast Installer / Updater"
-echo ""
+title() {
+  printf "\n${BLUE}╭────────────────────────────────────────────╮\n"
+  printf "│              NODECAST SETUP                │\n"
+  printf "╰────────────────────────────────────────────╯${RESET}\n"
+  printf "${DIM}Local-first memory for you and your agents.${RESET}\n\n"
+}
+step() { printf "${BLUE}●${RESET} %s\n" "$1"; }
+ok() { printf "${GREEN}✓${RESET} %s\n" "$1"; }
+fail() { printf "Error: %s\n" "$1" >&2; exit 1; }
+ask() { local prompt="$1" default="$2" answer; read -r -p "$prompt" answer <"$TTY"; printf '%s' "${answer:-$default}"; }
 
-# Check Docker
-if ! command -v docker &>/dev/null 2>&1; then
-    echo "Error: Docker is required."
-    echo "Install from: https://docs.docker.com/get-docker/"
-    exit 1
+command -v curl >/dev/null || fail "curl is required"
+command -v unzip >/dev/null || fail "unzip is required"
+
+title
+OS="$(uname -s)"
+[[ "$OS" == "Linux" || "$OS" == "Darwin" ]] || fail "Use install.ps1 on Windows."
+
+MODE="${NODECAST_MODE:-}"
+if [[ -z "$MODE" ]]; then
+  printf "  ${BLUE}1${RESET}  Docker  ${DIM}isolated, easiest to maintain${RESET}\n"
+  printf "  ${BLUE}2${RESET}  Host    ${DIM}native Python service, lighter runtime${RESET}\n\n"
+  choice="$(ask "Install method [1]: " "1")"
+  [[ "$choice" == "2" ]] && MODE="host" || MODE="docker"
 fi
 
-# Detect existing installation
-if [ -f .env ] || [ -d "$HOME/Nodecast/.env" ]; then
-    EXISTING_DIR=$(pwd)
-    if [ ! -f "$EXISTING_DIR/.env" ] && [ -f "$HOME/Nodecast/.env" ]; then
-        EXISTING_DIR="$HOME/Nodecast"
-    fi
-    echo "Existing installation detected at: $EXISTING_DIR"
-    echo "Updating..."
-    cd "$EXISTING_DIR"
-    git pull origin main 2>/dev/null || {
-        echo "Git pull failed, doing full reinstall..."
-        # Clean up and re-download
-        cd ..
-        BACKUP_DIR="${EXISTING_DIR}.bak.$(date +%s)"
-        cp -r "$EXISTING_DIR" "$BACKUP_DIR"
-        rm -rf "$EXISTING_DIR"
-        mkdir -p "$EXISTING_DIR"
-        cd "$EXISTING_DIR"
-        LATEST_TAG=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | cut -d'"' -f4)
-        [ -z "$LATEST_TAG" ] && { echo "Error: Could not determine latest version."; exit 1; }
-        curl -fsSL "https://github.com/$REPO/archive/refs/tags/$LATEST_TAG.zip" -o release.zip
-        unzip -o release.zip -d /tmp/nodecast-extract/ >/dev/null 2>&1
-        EXTRACTED_DIR=$(find /tmp/nodecast-extract/ -maxdepth 1 -type d -name "Nodecast-**" | head -1)
-        cp -r "$EXTRACTED_DIR"/. "$EXISTING_DIR/"
-        rm -rf /tmp/nodecast-extract/ release.zip
-        # Restore .env
-        if [ -f "$BACKUP_DIR/.env" ]; then
-            cp "$BACKUP_DIR/.env" "$EXISTING_DIR/.env"
-        fi
-        echo "Restored .env from backup"
-    }
-    echo "Restarting Docker..."
-    docker compose down 2>/dev/null || true
-    docker compose up -d --build
-    echo ""
-    APP_PORT="${APP_PORT:-5000}"
-    if [ -f .env ]; then
-        ENV_PORT=$(grep "^APP_PORT=" .env | cut -d= -f2)
-        [ -n "$ENV_PORT" ] && APP_PORT="$ENV_PORT"
-    fi
-    echo "✓ Nodecast updated to latest version"
-    echo "  Running at http://localhost:${APP_PORT}"
-    exit 0
+AUTO_UPDATE="${NODECAST_AUTO_UPDATE:-}"
+if [[ -z "$AUTO_UPDATE" ]]; then
+  answer="$(ask "Enable automatic updates? [Y/n]: " "Y")"
+  [[ "$answer" =~ ^[Nn]$ ]] && AUTO_UPDATE="false" || AUTO_UPDATE="true"
 fi
 
-# Check Docker
-if ! command -v docker &>/dev/null 2>&1; then
-    echo "Error: Docker is required."
-    echo "Install from: https://docs.docker.com/get-docker/"
-    exit 1
-fi
-
-# Ask install directory
 DEFAULT_DIR="${HOME}/Nodecast"
-read -r -p "Install to [${DEFAULT_DIR}]: " INSTALL_DIR </dev/tty
-INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_DIR}"
-
-# Resolve tilde
+INSTALL_DIR="${NODECAST_INSTALL_DIR:-}"
+[[ -n "$INSTALL_DIR" ]] || INSTALL_DIR="$(ask "Install directory [$DEFAULT_DIR]: " "$DEFAULT_DIR")"
 INSTALL_DIR="${INSTALL_DIR/#\~/$HOME}"
 
-# Create directory
-mkdir -p "$INSTALL_DIR" || { echo "Error: Cannot create $INSTALL_DIR"; exit 1; }
-cd "$INSTALL_DIR"
-
-# Get latest release tag from GitHub
-echo "Checking latest version..."
-LATEST_TAG=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | cut -d'"' -f4)
-if [ -z "$LATEST_TAG" ]; then
-    echo "Error: Could not determine latest version."
-    echo "Visit https://github.com/$REPO/releases to install manually."
-    exit 1
-fi
-echo "Latest version: $LATEST_TAG"
-
-# Download and extract latest release
-echo "Downloading $LATEST_TAG..."
-curl -fsSL "https://github.com/$REPO/archive/refs/tags/$LATEST_TAG.zip" -o release.zip
-
-echo "Extracting..."
-unzip -o release.zip -d /tmp/nodecast-extract/ >/dev/null 2>&1
-EXTRACTED_DIR=$(find /tmp/nodecast-extract/ -maxdepth 1 -type d -name "Nodecast-**" | head -1)
-if [ -z "$EXTRACTED_DIR" ]; then
-    echo "Error: Extraction failed."
-    rm -f release.zip
-    exit 1
-fi
-if [ -d "$INSTALL_DIR/searxng" ]; then
-    # searxng files may be root-owned from Docker; remove before overwrite
-    sudo rm -rf "$INSTALL_DIR/searxng" 2>/dev/null || rm -rf "$INSTALL_DIR/searxng"
-fi
-cp -r "$EXTRACTED_DIR"/. "$INSTALL_DIR/"
-rm -rf /tmp/nodecast-extract/ release.zip
-
-echo "Setting up configuration..."
-
-# If .env doesn't exist, copy from .env.example
-if [ ! -f .env ]; then
-    if [ -f .env.example ]; then
-        cp .env.example .env
-        echo "  Created .env from .env.example"
-    fi
+if [[ "$MODE" == "docker" ]]; then
+  command -v docker >/dev/null || fail "Docker is required for Docker mode."
+  docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 is required."
 else
-    # Merge new variables from .env.example into .env (without overwriting existing values)
-    if [ -f .env.example ]; then
-        while IFS='=' read -r key val; do
-            # Skip comments and empty lines
-            [[ "$key" =~ ^#.*$ || -z "$key" ]] && continue
-            # If key not in .env, append it
-            if ! grep -q "^${key}=" .env; then
-                echo "${key}=${val}" >> .env
-                echo "  Added new config: ${key}"
-            fi
-        done < .env.example
-    fi
+  command -v python3 >/dev/null || fail "Python 3 is required for Host mode."
+  python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 11))' || fail "Python 3.11 or newer is required."
 fi
 
-# Generate keys if missing
-if [ -f .env ]; then
-    if grep -q "^JWT_SECRET=$" .env || ! grep -q "^JWT_SECRET=" .env; then
-        NEW_SECRET=$(openssl rand -hex 32 2>/dev/null || python3 -c "import secrets; print(secrets.token_hex(32))" 2>/dev/null || echo "")
-        if [ -n "$NEW_SECRET" ]; then
-            if grep -q "^JWT_SECRET=" .env; then
-                sed -i.bak "s/^JWT_SECRET=.*/JWT_SECRET=$NEW_SECRET/" .env && rm -f .env.bak
-            else
-                echo "JWT_SECRET=$NEW_SECRET" >> .env
-            fi
-            echo "  Generated JWT_SECRET"
-        fi
-    fi
-    if grep -q "^ENCRYPTION_KEY=$" .env || ! grep -q "^ENCRYPTION_KEY=" .env; then
-        NEW_KEY=$(openssl rand -hex 32 2>/dev/null || python3 -c "import secrets; print(secrets.token_hex(32))" 2>/dev/null || echo "")
-        if [ -n "$NEW_KEY" ]; then
-            if grep -q "^ENCRYPTION_KEY=" .env; then
-                sed -i.bak "s/^ENCRYPTION_KEY=.*/ENCRYPTION_KEY=$NEW_KEY/" .env && rm -f .env.bak
-            else
-                echo "ENCRYPTION_KEY=$NEW_KEY" >> .env
-            fi
-            echo "  Generated ENCRYPTION_KEY"
-        fi
-    fi
-fi
+step "Downloading the latest GitHub release"
+LATEST_TAG="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+[[ -n "$LATEST_TAG" ]] || fail "Could not determine the latest release."
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+curl -fsSL "https://github.com/$REPO/archive/refs/tags/$LATEST_TAG.zip" -o "$TMP_DIR/release.zip"
+unzip -q "$TMP_DIR/release.zip" -d "$TMP_DIR/extract"
+SOURCE_DIR="$(find "$TMP_DIR/extract" -mindepth 1 -maxdepth 1 -type d | head -1)"
+[[ -f "$SOURCE_DIR/app/version.json" ]] || fail "Downloaded release is incomplete."
 
-# Read port from .env (or default 5000)
-APP_PORT="${APP_PORT:-5000}"
-if [ -f .env ]; then
-    ENV_PORT=$(grep "^APP_PORT=" .env | cut -d= -f2)
-    [ -n "$ENV_PORT" ] && APP_PORT="$ENV_PORT"
-fi
-
-# Start
-echo ""
-read -r -p "Start Docker containers now? [Y/n]: " START_NOW </dev/tty
-START_NOW="${START_NOW:-Y}"
-if [[ "$START_NOW" =~ ^[Yy]$ ]]; then
-    echo "Starting Nodecast..."
-    docker compose up -d
-    echo ""
-    echo "✓ Nodecast is running at http://localhost:${APP_PORT}"
-    echo "  Installed to: $INSTALL_DIR"
-
-    # Auto-open browser
-    if command -v xdg-open &>/dev/null; then
-        xdg-open "http://localhost:${APP_PORT}" 2>/dev/null || true
-    elif command -v open &>/dev/null; then
-        open "http://localhost:${APP_PORT}" 2>/dev/null || true
-    fi
+mkdir -p "$INSTALL_DIR"
+if command -v rsync >/dev/null; then
+  rsync -a --delete --exclude='.env' --exclude='contents/' --exclude='.venv/' --exclude='.git/' "$SOURCE_DIR/" "$INSTALL_DIR/"
 else
-    echo ""
-    echo "✓ Nodecast downloaded to: $INSTALL_DIR"
-    echo "  Run 'docker compose up -d' in that directory to start."
+  (cd "$SOURCE_DIR" && tar --exclude='.env' --exclude='contents' --exclude='.venv' --exclude='.git' -cf - .) | (cd "$INSTALL_DIR" && tar -xf -)
+fi
+mkdir -p "$INSTALL_DIR/contents"
+
+if [[ ! -f "$INSTALL_DIR/.env" ]]; then cp "$INSTALL_DIR/.env.example" "$INSTALL_DIR/.env"; fi
+if grep -q '^AUTO_UPDATE_DEFAULT=' "$INSTALL_DIR/.env"; then
+  sed -i.bak "s/^AUTO_UPDATE_DEFAULT=.*/AUTO_UPDATE_DEFAULT=$AUTO_UPDATE/" "$INSTALL_DIR/.env" && rm -f "$INSTALL_DIR/.env.bak"
+else
+  printf '\nAUTO_UPDATE_DEFAULT=%s\n' "$AUTO_UPDATE" >> "$INSTALL_DIR/.env"
+fi
+APP_PORT="$(sed -n 's/^APP_PORT=//p' "$INSTALL_DIR/.env" | tail -1)"; APP_PORT="${APP_PORT:-5000}"
+
+if [[ "$MODE" == "docker" ]]; then
+  step "Building the Docker installation"
+  (cd "$INSTALL_DIR" && docker compose up -d --build)
+else
+  step "Creating the native Python environment"
+  python3 -m venv "$INSTALL_DIR/.venv"
+  "$INSTALL_DIR/.venv/bin/pip" install --disable-pip-version-check -q -r "$INSTALL_DIR/requirements.txt"
+  if [[ "$OS" == "Linux" ]] && command -v systemctl >/dev/null; then
+    mkdir -p "$HOME/.config/systemd/user"
+    SERVICE="$HOME/.config/systemd/user/nodecast.service"
+    printf '[Unit]\nDescription=Nodecast\nAfter=network-online.target\n\n[Service]\nType=simple\nWorkingDirectory=%s\nEnvironment=NODECAST_INSTALL_MODE=host\nEnvironment=AUTO_UPDATE_DEFAULT=%s\nExecStart=%s/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port %s\nRestart=on-failure\n\n[Install]\nWantedBy=default.target\n' "$INSTALL_DIR" "$AUTO_UPDATE" "$INSTALL_DIR" "$APP_PORT" > "$SERVICE"
+    systemctl --user daemon-reload
+    systemctl --user enable --now nodecast.service
+  elif [[ "$OS" == "Darwin" ]]; then
+    PLIST="$HOME/Library/LaunchAgents/dev.nodecast.app.plist"; mkdir -p "$(dirname "$PLIST")"
+    printf '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>Label</key><string>dev.nodecast.app</string><key>ProgramArguments</key><array><string>%s/.venv/bin/uvicorn</string><string>app.main:app</string><string>--host</string><string>127.0.0.1</string><string>--port</string><string>%s</string></array><key>WorkingDirectory</key><string>%s</string><key>EnvironmentVariables</key><dict><key>NODECAST_INSTALL_MODE</key><string>host</string><key>AUTO_UPDATE_DEFAULT</key><string>%s</string></dict><key>RunAtLoad</key><true/><key>KeepAlive</key><true/></dict></plist>' "$INSTALL_DIR" "$APP_PORT" "$INSTALL_DIR" "$AUTO_UPDATE" > "$PLIST"
+    launchctl bootout "gui/$(id -u)" "$PLIST" >/dev/null 2>&1 || true
+    launchctl bootstrap "gui/$(id -u)" "$PLIST"
+  else
+    fail "No supported service manager found."
+  fi
 fi
 
-# Offer auto-updater
-echo ""
-read -r -p "Install auto-updater? (recommended) [Y/n]: " INSTALL_UPDATER </dev/tty
-INSTALL_UPDATER="${INSTALL_UPDATER:-Y}"
-if [[ "$INSTALL_UPDATER" =~ ^[Yy]$ ]]; then
-    bash "$INSTALL_DIR/scripts/install-updater.sh"
-fi
+step "Installing the host-side update service"
+NODECAST_INSTALL_DIR="$INSTALL_DIR" NODECAST_MODE="$MODE" NODECAST_APP_PORT="$APP_PORT" bash "$INSTALL_DIR/scripts/install-updater.sh"
+[[ "$AUTO_UPDATE" == "true" ]] || printf "${DIM}  Update checks are installed but remain inactive until the admin enables them in Settings.${RESET}\n"
+
+printf "\n${GREEN}╭────────────────────────────────────────────╮\n"
+printf "│  Nodecast %s is ready                    \n" "$LATEST_TAG"
+printf "╰────────────────────────────────────────────╯${RESET}\n"
+printf "  Mode:      %s\n  Address:   http://localhost:%s\n  Directory: %s\n\n" "$MODE" "$APP_PORT" "$INSTALL_DIR"

@@ -77,6 +77,7 @@ function showLoading(show, page) {
         endOfResults.hidden = true;
     } else {
         loadingIndicator.hidden = true;
+        bottomLoading.hidden = true;
         clearSkeletons();
     }
 }
@@ -112,7 +113,7 @@ function formatTimeLong(isoStr) {
 // ─── Card/Results ─────────────────────────────────────────────
 function createCard(item) {
     const type = item.type || 'text';
-    const content = item.content || '';
+    const content = item.summary || item.content || '';
     const sourceUrl = item.source_url || '';
     const sourceTitle = item.source_site_name || item.source_title || '';
     const typeColors = { heading: '#1f6feb', text: '#64748b', code_block: '#238636', quote: '#8250df', link: '#9e6a03', image: '#da3633', entity: '#d29922', aggregate: '#22c55e' };
@@ -120,7 +121,7 @@ function createCard(item) {
 
     if (type === 'aggregate') {
         return `
-          <article class="result-card card-aggregate" data-type="aggregate" data-id="${escapeHtml(item.id)}">
+          <article class="result-card card-aggregate" tabindex="0" data-type="aggregate" data-id="${escapeHtml(item.id)}" data-source-url="${escapeHtml(sourceUrl)}" data-source-title="${escapeHtml(sourceTitle)}">
             <div class="card-meta">
               <span class="card-chip" style="background:${color};color:#fff;padding:0.15rem 0.4rem;border-radius:0.3rem;font-size:0.7rem;font-weight:600;text-transform:uppercase">📋 ${escapeHtml(content)}</span>
               <span class="card-domain">aggregate</span>
@@ -139,15 +140,15 @@ function createCard(item) {
         : '';
 
     return `
-      <article class="result-card" data-type="atomic" data-index="${allResults.findIndex(r => r === item)}">
+      <article class="result-card" tabindex="0" data-type="atomic" data-id="${escapeHtml(item.id || '')}" data-index="${allResults.findIndex(r => r === item)}" data-source-url="${escapeHtml(sourceUrl)}" data-source-title="${escapeHtml(sourceTitle)}">
         <div class="card-meta">
           <span class="card-chip" style="background:${color};color:#fff;padding:0.15rem 0.4rem;border-radius:0.3rem;font-size:0.7rem;font-weight:600;text-transform:uppercase">${escapeHtml(type)}</span>
           ${sourceBadge}
         </div>
         <div class="card-body">
-          <div class="card-title-row">
-            <span class="card-title">${escapeHtml(shortContent)}</span>
-          </div>
+          <div class="card-title-row"><span class="card-title">${escapeHtml(item.title || shortContent)}</span></div>
+          ${item.title && item.title !== shortContent ? `<p class="memory-card-summary">${escapeHtml(shortContent)}</p>` : ''}
+          ${item.match_reason ? `<div class="memory-card-footer"><span>${escapeHtml(item.match_reason)}</span><span>${Number(item.source_count || 0)} source${Number(item.source_count || 0) === 1 ? '' : 's'}</span></div>` : ''}
         </div>
       </article>`;
 }
@@ -186,30 +187,59 @@ async function doSearch(query, page) {
     loading = true;
     showLoading(true, page);
     try {
-        const resp = await fetch(`/api/atomics?q=${encodeURIComponent(query)}&limit=50`);
+        const resp = await fetch('/api/memory/query', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query, limit: 8, token_budget: 700 }),
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
-        const fetched = data.atomics || [];
+        const fetched = data.items || [];
+        window.currentMemoryViewModel = data;
         if (page === 1) {
             allResults = fetched;
             showLoading(false, page);
-            renderResults(false);
+            renderMemoryView(data);
         } else {
             allResults = allResults.concat(fetched);
             showLoading(false, page);
             renderResults(true);
         }
-        hasMore = fetched.length >= 50;
+        hasMore = Boolean(data.page?.has_more);
         currentPage = page;
         if (!hasMore && allResults.length > 0) endOfResults.hidden = false;
     } catch (err) {
         console.error('Search failed:', err);
         showLoading(false, page);
         resultsContainer.innerHTML = '<div class="message error">Search request failed.</div>';
+        if (typeof showNotification === 'function') showNotification({ title: 'Search failed', message: err.message || 'The search request could not be completed.', type: 'error', key: 'memory-search' });
         hasMore = false;
     } finally {
         loading = false;
         updatePaginationControls();
     }
+}
+
+function renderMemoryView(viewModel) {
+    const synthesis = viewModel.synthesis || {};
+    if (synthesis.status === 'error' && typeof showNotification === 'function') {
+        showNotification({
+            title: synthesis.http_status ? `AI error ${synthesis.http_status}` : 'AI synthesis unavailable',
+            message: synthesis.message || 'AI synthesis failed. Local results are still available.',
+            type: 'error', duration: 0, key: `ai:${synthesis.code || 'error'}`,
+            actionLabel: 'Open AI settings',
+            onAction: () => typeof openSettings === 'function' && openSettings('AI'),
+        });
+    }
+    const hasSynthesis = synthesis.status !== 'unavailable' && synthesis.status !== 'not_requested' && synthesis.summary;
+    const synthesisHtml = hasSynthesis ? `<section class="memory-synthesis memory-synthesis-${escapeHtml(viewModel.view || 'list')}">
+        <div class="memory-synthesis-label">AI synthesis</div>
+        <h2>${escapeHtml(synthesis.title || currentQuery)}</h2>
+        <p>${escapeHtml(synthesis.summary)}</p>
+        ${(synthesis.sections || []).map(section => `<div class="memory-synthesis-section"><h3>${escapeHtml(section.title)}</h3><p>${escapeHtml(section.content)}</p><span>${(section.evidence_ids || []).length} evidence</span></div>`).join('')}
+    </section>` : `<div class="memory-fallback-note">Local results · AI synthesis was not used</div>`;
+    resultsContainer.innerHTML = synthesisHtml + allResults.map(createCard).join('');
+    emptyState.hidden = allResults.length !== 0;
+    updatePaginationControls();
 }
 
 async function loadAggregateChildren(aggId) {
@@ -247,6 +277,7 @@ function updatePaginationControls() {
     const showEndMessage = !hasMore && !!currentQuery && allResults.length > 0;
     sentinel.hidden = !showSentinel;
     loadMoreButton.hidden = !showLoadMore;
+    bottomLoading.hidden = true;
     endOfResults.hidden = !showEndMessage;
     if (!sentinel.hidden) ensureSentinelObserved();
 }
@@ -264,13 +295,16 @@ async function loadLibrary() {
     webMode = false;
     currentQuery = '';
     try {
-        const resp = await fetch('/api/library');
+        const resp = await fetch('/api/memory?limit=8');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
-        resultsContainer.innerHTML = renderDashboard(data);
-        attachDashboardHandlers();
+        allResults = data.items || [];
+        window.currentMemoryViewModel = data;
+        renderMemoryView(data);
     } catch (err) {
         console.error('Library load failed:', err);
         resultsContainer.innerHTML = '<div class="message error">Could not load saved content.</div>';
+        if (typeof showNotification === 'function') showNotification({ title: 'Library unavailable', message: err.message || 'Could not load saved content.', type: 'error', key: 'library-load' });
     }
     loading = false;
 }
@@ -292,7 +326,7 @@ function renderDashboard(data) {
             <div class="dashboard-atoms-list">${atomics.map(a => {
                 const content = (a.content || '').slice(0, 100);
                 const type = a.type || 'text';
-                return `<div class="dashboard-atom-item">
+                return `<div class="dashboard-atom-item" tabindex="0" data-id="${escapeHtml(a.id || '')}" data-type="${escapeHtml(type)}" data-content="${escapeHtml(a.content || '')}" data-source-url="${escapeHtml(a.source_url || '')}" data-source-title="${escapeHtml(a.source_title || '')}" data-source-site="${escapeHtml(a.source_site_name || '')}">
                     <span class="dashboard-atom-type">${escapeHtml(type)}</span>
                     <span class="dashboard-atom-content">${escapeHtml(content)}</span>
                 </div>`;
@@ -406,7 +440,7 @@ async function entitySearch(searchTerm) {
 function renderEntityCard(e) {
     const typeColors = { tool: '#1f6feb', person: '#8250df', concept: '#0d4429', framework: '#9e6a03', language: '#da3633', platform: '#238636', company: '#d29922' };
     const color = typeColors[e.type] || '#64748b';
-    return `<div class="entity-card" data-id="${escapeHtml(e.id)}">
+    return `<div class="entity-card" tabindex="0" data-id="${escapeHtml(e.id)}">
         <span class="entity-type-badge" style="background:${color}">${e.type}</span>
         <span class="entity-name">${escapeHtml(e.name)}</span>
         <span class="entity-count">${e.capture_count} reference${e.capture_count !== 1 ? 's' : ''}</span>
@@ -488,13 +522,12 @@ async function openEntityDetail(entityId) {
 function routeQuery(query) {
     const hasArgs = query.includes(' ');
     if (query.startsWith('/entities')) return hasArgs ? entitySearch(query.slice('/entities '.length).trim()) : entitySearch('');
-    if (query.startsWith('/sources')) return hasArgs ? sourcesSearch(query.slice('/sources '.length).trim()) : loadAll('sources');
-    if (query.startsWith('/facts')) return hasArgs ? factsSearch(query.slice('/facts '.length).trim()) : loadAll('facts');
-    if (query.startsWith('/cards')) return hasArgs ? doSearch(query.slice('/cards '.length).trim(), 1) : loadAll('cards');
-    if (query.startsWith('/table')) return hasArgs ? doSearch(query.slice('/table '.length).trim(), 1) : loadAll('table');
-    if (query.startsWith('/timeline')) return hasArgs ? doSearch(query.slice('/timeline '.length).trim(), 1) : loadAll('timeline');
-    if (query.startsWith('/compare')) return hasArgs ? comparisonSearch(query.slice('/compare '.length).trim()) : (resultsContainer.innerHTML='<div class="message">Usage: /compare X and Y</div>', hasMore=false, endOfResults.hidden=true);
-    if (query.startsWith('/markdown')) return hasArgs ? doSearch(query.slice('/markdown '.length).trim(), 1) : loadAll('markdown');
+    if (query.startsWith('/sources')) return hasArgs ? sourcesSearch(query.slice('/sources '.length).trim()) : loadLibrary();
+    if (query.startsWith('/cards')) return hasArgs ? doSearch(query.slice('/cards '.length).trim(), 1) : loadLibrary();
+    if (query.startsWith('/table')) return hasArgs ? doSearch(query.slice('/table '.length).trim(), 1) : loadLibrary();
+    if (query.startsWith('/timeline')) return hasArgs ? doSearch(query.slice('/timeline '.length).trim(), 1) : loadLibrary();
+    if (query.startsWith('/compare')) return hasArgs ? doSearch(`compare ${query.slice('/compare '.length).trim()}`, 1) : (resultsContainer.innerHTML='<div class="message">Usage: /compare X and Y</div>', hasMore=false, endOfResults.hidden=true);
+    if (query.startsWith('/markdown')) return hasArgs ? doSearch(query.slice('/markdown '.length).trim(), 1) : loadLibrary();
     return detectIntent(query);
 }
 
