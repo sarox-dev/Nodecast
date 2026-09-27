@@ -1,12 +1,3 @@
-## v1.4.0 (2026-09-26)
-
-- feat: AI-first Atomic Schema v2 with evidence, concepts, aggregates and relation lifecycle
-- feat: Memory API, FTS5 retrieval, focused graph, source cards and local fallback
-- feat: Extension settings integration, modular Workspace shell and configurable web search
-- feat: cross-platform installer/update flow and admin-only update controls
-- fix: visible Memory Cards, source badges, result loading state and actionable AI/provider notifications
-
-
 ## v1.3.1 (2026-08-19)
 
 - ci: add Discord webhook notification on release (804ac0c)
