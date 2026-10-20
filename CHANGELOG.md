@@ -1,3 +1,11 @@
+## v1.4.0 (2026-10-20)
+
+- feat: add ChatGPT recall workflow and atomic memory UI (0637811)
+- chore: add release push helper (52a464b)
+- feat: ship AI-first memory workspace v1.4.0 (2290599)
+- refactor: migrate knowledge pipeline to atomics (f32d011)
+
+
 ## v1.3.1 (2026-08-19)
 
 - ci: add Discord webhook notification on release (804ac0c)
