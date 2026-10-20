@@ -82,6 +82,16 @@ fi
 mkdir -p "$INSTALL_DIR/contents"
 
 if [[ ! -f "$INSTALL_DIR/.env" ]]; then cp "$INSTALL_DIR/.env.example" "$INSTALL_DIR/.env"; fi
+if [[ "$MODE" == "docker" ]]; then
+  for pair in "NODECAST_UID=$(id -u)" "NODECAST_GID=$(id -g)"; do
+    key="${pair%%=*}"; value="${pair#*=}"
+    if grep -q "^${key}=" "$INSTALL_DIR/.env"; then
+      sed -i.bak "s/^${key}=.*/${key}=${value}/" "$INSTALL_DIR/.env" && rm -f "$INSTALL_DIR/.env.bak"
+    else
+      printf '%s=%s\n' "$key" "$value" >> "$INSTALL_DIR/.env"
+    fi
+  done
+fi
 if grep -q '^AUTO_UPDATE_DEFAULT=' "$INSTALL_DIR/.env"; then
   sed -i.bak "s/^AUTO_UPDATE_DEFAULT=.*/AUTO_UPDATE_DEFAULT=$AUTO_UPDATE/" "$INSTALL_DIR/.env" && rm -f "$INSTALL_DIR/.env.bak"
 else
@@ -91,7 +101,10 @@ APP_PORT="$(sed -n 's/^APP_PORT=//p' "$INSTALL_DIR/.env" | tail -1)"; APP_PORT="
 
 if [[ "$MODE" == "docker" ]]; then
   step "Building the Docker installation"
-  (cd "$INSTALL_DIR" && docker compose up -d --build)
+  (cd "$INSTALL_DIR" && docker compose build)
+  # One-time ownership migration for data created by older root containers.
+  (cd "$INSTALL_DIR" && docker compose run --rm --user root --cap-add CHOWN --entrypoint chown app -R "$(id -u):$(id -g)" /app/contents)
+  (cd "$INSTALL_DIR" && docker compose up -d)
 else
   step "Creating the native Python environment"
   python3 -m venv "$INSTALL_DIR/.venv"

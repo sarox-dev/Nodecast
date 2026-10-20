@@ -119,6 +119,34 @@ def test_request_middleware_rejects_cross_origin_cookie_and_large_body(monkeypat
     assert called[-1]["body"] == b"1234"
 
 
+def test_request_middleware_does_not_read_get_body(monkeypatch):
+    called = []
+
+    async def app(_scope, _receive, send):
+        called.append(True)
+        await send({"type": "http.response.start", "status": 204, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    async def receive():
+        raise AssertionError("GET middleware must not wait for a request body")
+
+    async def run():
+        sent = []
+
+        async def send(message):
+            sent.append(message)
+
+        await RequestSecurityMiddleware(app)(
+            {"type": "http", "method": "GET", "scheme": "http", "headers": [(b"host", b"localhost:5000")]},
+            receive,
+            send,
+        )
+        return sent[0]["status"]
+
+    assert asyncio.run(run()) == 204
+    assert called == [True]
+
+
 def test_auth_rate_limit_prunes_expired_keys(monkeypatch):
     auth_routes._attempts.clear()
     auth_routes._attempts["old"] = [0.0]

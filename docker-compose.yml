@@ -7,7 +7,9 @@ services:
     ports:
       - "127.0.0.1:${APP_PORT}:${APP_PORT}"
     volumes:
-      - ./contents:/app/contents
+      # :Z grants this container write access on SELinux hosts (Fedora/RHEL)
+      # while keeping the rest of the container filesystem read-only.
+      - ./contents:/app/contents:Z
     env_file:
       - .env
     read_only: true
@@ -15,6 +17,7 @@ services:
       - /tmp:size=64m,noexec,nosuid,nodev
     cap_drop:
       - ALL
+    user: "${NODECAST_UID:-1000}:${NODECAST_GID:-1000}"
     security_opt:
       - no-new-privileges:true
     restart: unless-stopped

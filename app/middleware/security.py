@@ -39,6 +39,12 @@ class RequestSecurityMiddleware:
                     await JSONResponse({"detail": "Cross-origin request rejected"}, status_code=403)(scope, receive, send)
                     return
 
+        # Reading receive() eagerly for bodyless requests can block Uvicorn:
+        # GET/HEAD/OPTIONS do not have to emit an http.request body event.
+        if method not in {"POST", "PUT", "PATCH"}:
+            await self.app(scope, receive, send)
+            return
+
         chunks = []
         received = 0
         more_body = True

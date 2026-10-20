@@ -35,7 +35,11 @@ docker compose logs -f app
 The default URL is `http://localhost:5000`; change `APP_PORT` and
 `NODECAST_PUBLIC_ORIGIN` together in `.env` if needed. Compose binds only to
 `127.0.0.1`, drops Linux capabilities, uses a read-only application filesystem and
-does not mount source code. Persist and back up `contents/` and `.env`: they contain
+does not mount source code. The container runs as the host user configured by
+`NODECAST_UID` and `NODECAST_GID`. The interactive Docker installer detects those
+values and performs a one-time ownership adjustment for `contents/`, allowing
+SQLite journal and WAL files to be created without granting broad container
+capabilities. Persist and back up `contents/` and `.env`: they contain
 accounts, per-user knowledge databases, raw captures, the JWT secret and the
 encryption key used for AI credentials.
 
