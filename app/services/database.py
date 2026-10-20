@@ -19,10 +19,14 @@ def get_users_db():
     conn = sqlite3.connect(str(USERS_DB_PATH)); conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript("""
-      CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,username TEXT UNIQUE NOT NULL,password_hash TEXT NOT NULL,is_admin INTEGER DEFAULT 0,created_at TEXT DEFAULT '');
+      CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,username TEXT UNIQUE NOT NULL,password_hash TEXT NOT NULL,is_admin INTEGER DEFAULT 0,created_at TEXT DEFAULT '',token_version INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS global_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL DEFAULT '');
       CREATE TABLE IF NOT EXISTS ai_oauth_transactions(state TEXT PRIMARY KEY,user_id TEXT NOT NULL,code_verifier TEXT NOT NULL,nonce TEXT NOT NULL,redirect_uri TEXT NOT NULL,created_at TEXT NOT NULL);
-    """); conn.commit(); return conn
+    """)
+    user_columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
+    if "token_version" not in user_columns:
+        conn.execute("ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0")
+    conn.commit(); return conn
 
 
 def user_count():
@@ -35,7 +39,7 @@ def user_exists(name):
     finally: c.close()
 def create_user_in_db(username,password_hash,is_admin=False):
     uid=uuid.uuid4().hex[:12]; c=get_users_db()
-    try: c.execute("INSERT INTO users VALUES (?,?,?,?,?)",(uid,username,password_hash,int(is_admin),_now())); c.commit(); return uid
+    try: c.execute("INSERT INTO users(id,username,password_hash,is_admin,created_at) VALUES (?,?,?,?,?)",(uid,username,password_hash,int(is_admin),_now())); c.commit(); return uid
     finally: c.close()
 def get_user_by_username(name):
     c=get_users_db()
@@ -45,7 +49,7 @@ def get_user_by_username(name):
 def get_user_by_id(uid):
     c=get_users_db()
     try:
-        r=c.execute("SELECT id,username,is_admin,created_at FROM users WHERE id=?",(uid,)).fetchone(); return dict(r) if r else None
+        r=c.execute("SELECT id,username,password_hash,is_admin,created_at,token_version FROM users WHERE id=?",(uid,)).fetchone(); return dict(r) if r else None
     finally: c.close()
 def get_all_users():
     c=get_users_db()
@@ -53,11 +57,11 @@ def get_all_users():
     finally: c.close()
 def update_password(uid,value):
     c=get_users_db()
-    try: c.execute("UPDATE users SET password_hash=? WHERE id=?",(value,uid)); c.commit()
+    try: c.execute("UPDATE users SET password_hash=?,token_version=token_version+1 WHERE id=?",(value,uid)); c.commit()
     finally: c.close()
 def update_username(uid,value):
     c=get_users_db()
-    try: c.execute("UPDATE users SET username=? WHERE id=?",(value,uid)); c.commit()
+    try: c.execute("UPDATE users SET username=?,token_version=token_version+1 WHERE id=?",(value,uid)); c.commit()
     finally: c.close()
 def delete_user(uid):
     c=get_users_db()
@@ -73,8 +77,8 @@ def clear_user_data(uid):
 
 REGISTER_SETTINGS_PATH=CONTENTS_DIR/"registration.json"
 def get_registration_setting():
-    try: return json.loads(REGISTER_SETTINGS_PATH.read_text()).get("open_registration",True)
-    except (FileNotFoundError,json.JSONDecodeError,OSError): return True
+    try: return json.loads(REGISTER_SETTINGS_PATH.read_text()).get("open_registration",False)
+    except (FileNotFoundError,json.JSONDecodeError,OSError): return False
 def set_registration_setting(value): REGISTER_SETTINGS_PATH.write_text(json.dumps({"open_registration":value}))
 
 

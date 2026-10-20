@@ -1,0 +1,9 @@
+services:
+  app:
+    read_only: false
+    restart: "no"
+    volumes:
+      - ./app:/app/app
+      - ./contents:/app/contents
+    command: >
+      sh -c "uvicorn app.main:app --host 0.0.0.0 --port ${APP_PORT:-5000} --reload"

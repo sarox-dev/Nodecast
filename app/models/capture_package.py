@@ -66,7 +66,12 @@ class Anchor(BaseModel):
 
 class CapturePackage(BaseModel):
     version: str = "1.0"
-    capture_id: str = Field(default_factory=lambda: uuid4().hex[:12])
+    capture_id: str = Field(
+        default_factory=lambda: uuid4().hex[:12],
+        min_length=12,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
     captured_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     )

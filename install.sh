@@ -18,7 +18,7 @@ fail() { printf "Error: %s\n" "$1" >&2; exit 1; }
 ask() { local prompt="$1" default="$2" answer; read -r -p "$prompt" answer <"$TTY"; printf '%s' "${answer:-$default}"; }
 
 command -v curl >/dev/null || fail "curl is required"
-command -v unzip >/dev/null || fail "unzip is required"
+command -v tar >/dev/null || fail "tar is required"
 
 title
 OS="$(uname -s)"
@@ -56,8 +56,20 @@ LATEST_TAG="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | 
 [[ -n "$LATEST_TAG" ]] || fail "Could not determine the latest release."
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
-curl -fsSL "https://github.com/$REPO/archive/refs/tags/$LATEST_TAG.zip" -o "$TMP_DIR/release.zip"
-unzip -q "$TMP_DIR/release.zip" -d "$TMP_DIR/extract"
+ARCHIVE="nodecast-${LATEST_TAG}.tar.gz"
+ASSET_ROOT="https://github.com/$REPO/releases/download/$LATEST_TAG"
+curl -fsSL "$ASSET_ROOT/$ARCHIVE" -o "$TMP_DIR/$ARCHIVE"
+curl -fsSL "$ASSET_ROOT/SHA256SUMS" -o "$TMP_DIR/SHA256SUMS"
+EXPECTED="$(awk -v file="$ARCHIVE" '$2 == file { print $1 }' "$TMP_DIR/SHA256SUMS")"
+[[ "$EXPECTED" =~ ^[0-9a-fA-F]{64}$ ]] || fail "Release checksum is missing or invalid."
+if command -v sha256sum >/dev/null; then
+  ACTUAL="$(sha256sum "$TMP_DIR/$ARCHIVE" | awk '{print $1}')"
+else
+  ACTUAL="$(shasum -a 256 "$TMP_DIR/$ARCHIVE" | awk '{print $1}')"
+fi
+[[ "$ACTUAL" == "$EXPECTED" ]] || fail "Release checksum verification failed."
+mkdir -p "$TMP_DIR/extract"
+tar -xzf "$TMP_DIR/$ARCHIVE" -C "$TMP_DIR/extract"
 SOURCE_DIR="$(find "$TMP_DIR/extract" -mindepth 1 -maxdepth 1 -type d | head -1)"
 [[ -f "$SOURCE_DIR/app/version.json" ]] || fail "Downloaded release is incomplete."
 

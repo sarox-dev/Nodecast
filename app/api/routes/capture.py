@@ -20,10 +20,11 @@ from app.services.raw_storage import (
     get_raw_html,
     list_raw_captures,
     raw_exists,
+    delete_raw_capture,
 )
 from app.services.ai_batch import add_pending_jobs_on_save
 from app.services.database import delete_atomics_by_source
-from app.services.auth import get_current_user, get_optional_user
+from app.services.auth import get_capture_user, get_current_user
 
 router = APIRouter()
 
@@ -38,7 +39,7 @@ from fastapi.responses import JSONResponse, Response
 @router.post("/capture", response_model=CPResponse)
 def capture_item(
     body: dict,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_capture_user),
 ):
     user_id = current_user["user_id"]
     now = datetime.now(timezone.utc)
@@ -61,6 +62,8 @@ def capture_item(
         raw_path = save_raw_capture(user_id, package, html=page_html)
     except FileExistsError as e:
         raise HTTPException(409, str(e))
+    except ValueError as e:
+        raise HTTPException(413, str(e))
 
     insert_capture_ref(
         user_id=user_id,
@@ -121,10 +124,25 @@ def get_capture(capture_id: str, current_user: dict = Depends(get_current_user))
 @router.get("/capture/{capture_id}/page.html")
 def get_capture_html(capture_id: str, current_user: dict = Depends(get_current_user)):
     user_id = current_user["user_id"]
+    if not get_capture_ref(user_id, capture_id):
+        raise HTTPException(404, "Capture not found")
     html = get_raw_html(user_id, capture_id)
     if html is None:
         raise HTTPException(404, "No page HTML for this capture")
-    return Response(content=html, media_type="text/html; charset=utf-8")
+    return Response(
+        content=html,
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Content-Security-Policy": (
+                "sandbox; default-src 'none'; img-src data: http: https:; "
+                "style-src 'unsafe-inline'; font-src data: http: https:; "
+                "form-action 'none'; base-uri 'none'"
+            ),
+            "Referrer-Policy": "no-referrer",
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-store",
+        },
+    )
 
 
 # ─── PATCH /api/capture/{capture_id} ──────────────────────────────
@@ -172,9 +190,8 @@ def delete_capture(capture_id: str, current_user: dict = Depends(get_current_use
     if not deleted:
         raise HTTPException(404, "Capture not found")
 
-    # Delete raw filesystem data (optional — keep for archive?)
-    # For now, keep raw files. User can manually clean up.
-    return {"success": True, "id": capture_id, "message": "Capture deleted (raw data retained)"}
+    delete_raw_capture(user_id, capture_id)
+    return {"success": True, "id": capture_id, "message": "Capture and raw snapshot deleted"}
 
 
 # ─── POST /api/capture/{capture_id}/reextract ─────────────────────

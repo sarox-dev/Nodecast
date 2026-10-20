@@ -1,6 +1,6 @@
 """
 Fernet-based encryption for AI provider API keys.
-Uses ENCRYPTION_KEY from .env — auto-generated if missing.
+Uses a configured ENCRYPTION_KEY or a generated key persisted under contents/.
 """
 
 import os
@@ -17,6 +17,7 @@ ENV_PATH = Path(__file__).resolve().parent.parent.parent / ".env"
 # Docker: also try /app/.env (volume-mounted searxng root, but root .env is at /app/.env)
 _DOCKER_ENV_PATH = Path("/app/.env")
 ENCRYPTION_KEY_VAR = "ENCRYPTION_KEY"
+PERSISTED_KEY_PATH = Path(__file__).resolve().parent.parent.parent / "contents" / ".encryption_key"
 
 
 def _load_env() -> dict[str, str]:
@@ -34,25 +35,6 @@ def _load_env() -> dict[str, str]:
     return env
 
 
-def _write_env_var(key: str, value: str):
-    """Append or replace a key=value in .env."""
-    existing = _load_env()
-    existing[key] = value
-    lines = []
-    found = False
-    env_path = ENV_PATH if ENV_PATH.exists() else (_DOCKER_ENV_PATH if _DOCKER_ENV_PATH.exists() else ENV_PATH)
-    if env_path.exists():
-        for line in env_path.read_text().splitlines():
-            if line.strip().startswith(f"{key}="):
-                lines.append(f"{key}={value}")
-                found = True
-            else:
-                lines.append(line)
-    if not found:
-        lines.append(f"{key}={value}")
-    env_path.write_text("\n".join(lines) + "\n")
-
-
 def _derive_key(passphrase: str, salt: bytes) -> bytes:
     """Derive a 32-byte Fernet key from a passphrase using PBKDF2."""
     kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=100_000)
@@ -60,20 +42,28 @@ def _derive_key(passphrase: str, salt: bytes) -> bytes:
 
 
 def get_or_create_encryption_key() -> str:
-    """Get the existing ENCRYPTION_KEY from .env, or generate a new one."""
+    """Use configured legacy keys, otherwise keep the generated key in persisted contents/."""
+    environment_key = os.getenv(ENCRYPTION_KEY_VAR, "").strip()
+    if environment_key:
+        return environment_key
     env = _load_env()
     key = env.get(ENCRYPTION_KEY_VAR, "")
     if key:
         return key
-    # Generate a new Fernet key
-    import secrets
+    if PERSISTED_KEY_PATH.exists():
+        return PERSISTED_KEY_PATH.read_text(encoding="utf-8").strip()
     key = Fernet.generate_key().decode()
-    _write_env_var(ENCRYPTION_KEY_VAR, key)
+    PERSISTED_KEY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PERSISTED_KEY_PATH.write_text(key, encoding="utf-8")
+    try:
+        PERSISTED_KEY_PATH.chmod(0o600)
+    except OSError:
+        pass
     return key
 
 
 def get_fernet() -> Fernet:
-    """Get a Fernet instance from the ENCRYPTION_KEY in .env."""
+    """Get a Fernet instance from the configured or persisted encryption key."""
     key_str = get_or_create_encryption_key()
     return Fernet(key_str.encode())
 

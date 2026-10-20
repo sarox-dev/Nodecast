@@ -22,6 +22,7 @@ from app.api.routes.memory import router as memory_router
 from app.services.database import get_user_by_id, init_db, user_count
 from app.services.auth import get_current_user
 from app.services.auto_processor import start_auto_processor
+from app.middleware.security import RequestSecurityMiddleware
 
 app = FastAPI()
 
@@ -36,12 +37,19 @@ def startup():
     # Start background AI auto-processor
     start_auto_processor()
 
+configured_origins = [
+    origin.strip()
+    for origin in os.getenv("NODECAST_CORS_ORIGINS", "").split(",")
+    if origin.strip()
+]
+app.add_middleware(RequestSecurityMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=configured_origins,
+    allow_origin_regex=r"^(chrome-extension|moz-extension)://[a-zA-Z0-9_-]+$",
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 app.include_router(search_router)
@@ -152,9 +160,8 @@ def check_update(_admin: dict = Depends(require_admin)):
 @app.get("/api/update/install")
 def install_update(_admin: dict = Depends(require_admin)):
     return {
-        "linux": "curl -fsSL https://github.com/sarox-dev/Nodecast/releases/latest/download/install.sh | bash",
-        "windows": "irm https://github.com/sarox-dev/Nodecast/releases/latest/download/install.ps1 | iex",
-        "message": "Run the appropriate command in your terminal to update Nodecast.",
+        "release_url": "https://github.com/sarox-dev/Nodecast/releases/latest",
+        "message": "Download the installer and SHA256SUMS from the release, verify the checksum, then run it.",
     }
 
 

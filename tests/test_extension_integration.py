@@ -9,11 +9,11 @@ USER = {"user_id": "user-1", "username": "coder"}
 
 
 def test_pairing_code_is_single_use(monkeypatch):
-    monkeypatch.setattr(extension, "create_token", lambda user_id, username: f"token:{user_id}:{username}")
+    monkeypatch.setattr(extension, "create_token", lambda user_id, username, scope="user": f"token:{user_id}:{username}:{scope}")
     created = extension.create_pairing_code(USER)
 
     first = extension.exchange_pairing_code(extension.PairingExchange(code=created["code"]))
-    assert first == {"token": "token:user-1:coder", "user_id": "user-1", "username": "coder"}
+    assert first == {"token": "token:user-1:coder:extension", "user_id": "user-1", "username": "coder"}
 
     with pytest.raises(HTTPException) as error:
         extension.exchange_pairing_code(extension.PairingExchange(code=created["code"]))

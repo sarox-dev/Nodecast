@@ -1,9 +1,12 @@
+import threading
+import time
+
 from fastapi import APIRouter, HTTPException, Depends, Response, Request
 from pydantic import BaseModel
 
 from app.services.auth import (
     hash_password, verify_password, create_token,
-    get_current_user, COOKIE_NAME
+    get_current_user, password_is_supported, set_session_cookie, COOKIE_NAME
 )
 from app.services.database import (
     init_user_db, user_exists,
@@ -14,6 +17,39 @@ from app.services.database import (
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+_attempts: dict[str, list[float]] = {}
+_attempts_lock = threading.Lock()
+_AUTH_WINDOW_SECONDS = 300
+_AUTH_MAX_ATTEMPTS = 8
+
+
+def _rate_key(request: Request, action: str, username: str = "") -> str:
+    client = request.client.host if request.client else "unknown"
+    return f"{action}:{client}:{username.casefold()}"
+
+
+def _check_rate_limit(key: str) -> None:
+    now = time.monotonic()
+    with _attempts_lock:
+        for existing_key in list(_attempts):
+            recent = [stamp for stamp in _attempts[existing_key] if now - stamp < _AUTH_WINDOW_SECONDS]
+            if recent:
+                _attempts[existing_key] = recent
+            else:
+                _attempts.pop(existing_key, None)
+        recent = _attempts.get(key, [])
+        if len(recent) >= _AUTH_MAX_ATTEMPTS:
+            raise HTTPException(429, "Too many authentication attempts. Try again later.")
+
+
+def _record_failure(key: str) -> None:
+    with _attempts_lock:
+        _attempts.setdefault(key, []).append(time.monotonic())
+
+
+def _clear_failures(key: str) -> None:
+    with _attempts_lock:
+        _attempts.pop(key, None)
 
 # ─── Schemas ──────────────────────────────────────────────────────
 class RegisterRequest(BaseModel):
@@ -41,12 +77,19 @@ class AdminDeleteUserRequest(BaseModel):
 # ─── API Token ────────────────────────────────────────────────────
 
 @router.post("/api-token")
-def get_api_token(req: LoginRequest, response: Response):
+def get_api_token(req: LoginRequest, request: Request):
     """Generate an API token for extension use. Accepts login credentials."""
+    key = _rate_key(request, "api-token", req.username)
+    ip_key = _rate_key(request, "api-token")
+    _check_rate_limit(key)
+    _check_rate_limit(ip_key)
     user = get_user_by_username(req.username.strip().lower())
     if not user or not verify_password(req.password, user["password_hash"]):
+        _record_failure(key)
+        _record_failure(ip_key)
         raise HTTPException(401, "Invalid username or password")
-    token = create_token(user["id"], user["username"])
+    _clear_failures(key)
+    token = create_token(user["id"], user["username"], scope="extension")
     return {"token": token, "user_id": user["id"], "username": user["username"]}
 
 
@@ -58,12 +101,15 @@ def check_users():
 
 # ─── Register ─────────────────────────────────────────────────────
 @router.post("/register")
-def register(req: RegisterRequest, response: Response):
+def register(req: RegisterRequest, response: Response, request: Request):
+    key = _rate_key(request, "register")
+    _check_rate_limit(key)
+    _record_failure(key)
     username = req.username.strip().lower()
     if not username or len(username) < 2:
         raise HTTPException(400, "Username must be at least 2 characters")
-    if not req.password or len(req.password) < 4:
-        raise HTTPException(400, "Password must be at least 4 characters")
+    if not password_is_supported(req.password):
+        raise HTTPException(400, "Password must be between 12 and 72 UTF-8 bytes")
 
     if user_exists(username):
         raise HTTPException(409, "Username already exists")
@@ -79,43 +125,44 @@ def register(req: RegisterRequest, response: Response):
     init_user_db(user_id)
 
     token = create_token(user_id, username)
-    response.set_cookie(
-        key=COOKIE_NAME, value=token,
-        httponly=True, samesite="lax", max_age=72 * 3600
-    )
+    set_session_cookie(response, token)
     return {
         "success": True,
         "user": {"user_id": user_id, "username": username, "is_admin": is_admin},
-        "token": token,
     }
 
 
 # ─── Login ────────────────────────────────────────────────────────
 @router.post("/login")
-def login(req: LoginRequest, response: Response):
+def login(req: LoginRequest, response: Response, request: Request):
     username = req.username.strip().lower()
+    key = _rate_key(request, "login", username)
+    ip_key = _rate_key(request, "login")
+    _check_rate_limit(key)
+    _check_rate_limit(ip_key)
     user = get_user_by_username(username)
     if not user:
+        _record_failure(key)
+        _record_failure(ip_key)
         raise HTTPException(401, "Invalid username or password")
     if not verify_password(req.password, user["password_hash"]):
+        _record_failure(key)
+        _record_failure(ip_key)
         raise HTTPException(401, "Invalid username or password")
 
+    _clear_failures(key)
     token = create_token(user["id"], username)
-    response.set_cookie(
-        key=COOKIE_NAME, value=token,
-        httponly=True, samesite="lax", max_age=72 * 3600
-    )
+    set_session_cookie(response, token)
     return {
         "success": True,
         "user": {"user_id": user["id"], "username": username, "is_admin": bool(user["is_admin"])},
-        "token": token,
     }
 
 
 # ─── Logout ──────────────────────────────────────────────────────
 @router.post("/logout")
 def logout(response: Response):
-    response.delete_cookie(key=COOKIE_NAME)
+    response.delete_cookie(key=COOKIE_NAME, path="/", samesite="strict")
     return {"success": True, "message": "Logged out"}
 
 
@@ -133,28 +180,23 @@ def me(current_user: dict = Depends(get_current_user)):
     }
 
 
-# ─── Get current token ────────────────────────────────────────────
-@router.get("/token")
-def get_token(current_user: dict = Depends(get_current_user)):
-    token = create_token(current_user["user_id"], current_user["username"])
-    return {"token": token}
-
-
 # ─── Change password ─────────────────────────────────────────────
 @router.post("/change-password")
-def change_password(req: ChangePasswordRequest, current_user: dict = Depends(get_current_user)):
+def change_password(req: ChangePasswordRequest, response: Response, current_user: dict = Depends(get_current_user)):
     user = get_user_by_id(current_user["user_id"])
     if not verify_password(req.current_password, user["password_hash"]):
         raise HTTPException(401, "Current password is incorrect")
-    if len(req.new_password) < 4:
-        raise HTTPException(400, "New password must be at least 4 characters")
+    if not password_is_supported(req.new_password):
+        raise HTTPException(400, "New password must be between 12 and 72 UTF-8 bytes")
     update_password(user["id"], hash_password(req.new_password))
+    refreshed = get_user_by_id(user["id"])
+    set_session_cookie(response, create_token(refreshed["id"], refreshed["username"]))
     return {"success": True, "message": "Password updated"}
 
 
 # ─── Change username ─────────────────────────────────────────────
 @router.post("/change-username")
-def change_username(req: ChangeUsernameRequest, current_user: dict = Depends(get_current_user)):
+def change_username(req: ChangeUsernameRequest, response: Response, current_user: dict = Depends(get_current_user)):
     user = get_user_by_id(current_user["user_id"])
     if not verify_password(req.password, user["password_hash"]):
         raise HTTPException(401, "Password is incorrect")
@@ -164,9 +206,9 @@ def change_username(req: ChangeUsernameRequest, current_user: dict = Depends(get
     if new_username != user["username"] and user_exists(new_username):
         raise HTTPException(409, "Username already taken")
     update_username(user["id"], new_username)
-    # Generate new token with new username
     token = create_token(user["id"], new_username)
-    return {"success": True, "message": "Username updated", "token": token}
+    set_session_cookie(response, token)
+    return {"success": True, "message": "Username updated"}
 
 
 # ─── Users list (admin only) ─────────────────────────────────────

@@ -5,6 +5,9 @@ from pathlib import Path
 JWT_SECRET = os.getenv("JWT_SECRET", "")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_HOURS = int(os.getenv("JWT_EXPIRY_HOURS", "72"))  # 3 dienas
+MAX_REQUEST_BYTES = int(os.getenv("MAX_REQUEST_BYTES", str(12 * 1024 * 1024)))
+MAX_SNAPSHOT_BYTES = int(os.getenv("MAX_SNAPSHOT_BYTES", str(10 * 1024 * 1024)))
+MAX_USER_STORAGE_BYTES = int(os.getenv("MAX_USER_STORAGE_BYTES", str(1024 * 1024 * 1024)))
 
 # Auto-generate JWT secret if not set
 if not JWT_SECRET:

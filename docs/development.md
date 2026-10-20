@@ -2,7 +2,7 @@
 
 ```bash
 cp .env.example .env
-docker compose up -d
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 python -m pytest tests/ -v
 ```
 
@@ -11,6 +11,9 @@ Local server:
 ```bash
 uvicorn app.main:app --reload --port 5000
 ```
+
+The default Compose file is the hardened local production profile. The development
+override explicitly enables source bind-mounting and Uvicorn reload.
 
 Before editing, use CodeGraph to inspect source and impact:
 

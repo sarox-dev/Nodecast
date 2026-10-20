@@ -388,9 +388,6 @@ async function renderAccountSettings() {
     // Username
     html += `<div class="settings-field"><span>Username</span><span style="color:var(--text-dim);font-size:0.85rem">${user?.username || ''}</span></div>`;
 
-    // Copy API Token
-    html += `<div class="settings-field"><span>API Token</span><button id="acc-copy-token" class="modal-btn modal-btn-primary" type="button" style="padding:0.35rem 0.75rem;font-size:0.78rem">Copy API Token</button></div>`;
-
     // Change username
     html += `<div class="settings-field" style="flex-direction:column;align-items:stretch;gap:0.4rem">
       <span>Change username</span>
@@ -452,16 +449,6 @@ async function renderAccountSettings() {
     settingsList.innerHTML = html;
 
     // Bind event handlers
-    document.getElementById('acc-copy-token')?.addEventListener('click', async () => {
-        try {
-            const r = await fetch('/auth/token');
-            const d = await r.json();
-            await navigator.clipboard.writeText(d.token);
-            document.getElementById('acc-copy-token').textContent = 'Copied!';
-            setTimeout(() => document.getElementById('acc-copy-token').textContent = 'Copy API Token', 2000);
-        } catch {}
-    });
-
     document.getElementById('acc-change-username')?.addEventListener('click', async () => {
         const newUsername = document.getElementById('acc-new-username').value.trim();
         const password = document.getElementById('acc-username-pw').value;
@@ -1111,20 +1098,10 @@ async function renderUpdatesSettings() {
                             </p>
                             <div class="update-release-notes">${_escapeHtml(data.release_notes || '')}</div>
                             <div class="update-install-cmd">
-                                <p style="margin:0 0 0.35rem 0;font-size:0.82rem">Install from terminal:</p>
-                                <code id="update-install-cmd-display">curl -fsSL https://github.com/sarox-dev/Nodecast/releases/latest/download/install.sh | bash</code>
-                                <button id="update-copy-cmd" class="modal-btn" type="button" style="padding:0.25rem 0.5rem;font-size:0.75rem">Copy</button>
+                                <p style="margin:0 0 0.35rem 0;font-size:0.82rem">Open the release, download the installer and SHA256SUMS, then verify it before running.</p>
+                                <a class="modal-btn" href="${_escapeHtml(data.release_url || 'https://github.com/sarox-dev/Nodecast/releases/latest')}" target="_blank" rel="noopener">Open release</a>
                             </div>
                         </div>`;
-                    const copyBtn = document.getElementById('update-copy-cmd');
-                    const cmdDisplay = document.getElementById('update-install-cmd-display');
-                    if (copyBtn && cmdDisplay) {
-                        copyBtn.addEventListener('click', () => {
-                            navigator.clipboard.writeText(cmdDisplay.textContent);
-                            copyBtn.textContent = 'Copied!';
-                            setTimeout(() => { copyBtn.textContent = 'Copy'; }, 2000);
-                        });
-                    }
                 } else {
                     area.innerHTML = `<div class="update-up-to-date">
                         <span style="color:#22c55e;font-size:1.2rem">✓</span>
@@ -1152,7 +1129,7 @@ async function renderUpdatesSettings() {
                         Released ${new Date(_cachedUpdateCheck.published_at).toLocaleDateString()}
                     </p>
                     <div class="update-install-cmd">
-                        <code>curl -fsSL https://github.com/sarox-dev/Nodecast/releases/latest/download/install.sh | bash</code>
+                        <a class="modal-btn" href="${_escapeHtml(_cachedUpdateCheck.release_url || 'https://github.com/sarox-dev/Nodecast/releases/latest')}" target="_blank" rel="noopener">Open verified release</a>
                     </div>
                 </div>`;
         } else {

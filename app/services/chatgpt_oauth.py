@@ -28,6 +28,7 @@ JWKS_ENDPOINT = "https://auth.openai.com/.well-known/jwks.json"
 ISSUER = "https://auth.openai.com"
 RESOURCE = "https://api.openai.com/v1"
 SCOPES = "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct"
+DYNAMIC_CLIENT_ID = "dynamic_agent_client"
 _refresh_locks: dict[str, threading.Lock] = {}
 _refresh_locks_guard = threading.Lock()
 
@@ -52,7 +53,7 @@ def begin_authorization(user_id: str, redirect_uri: str) -> str:
     create_ai_oauth_transaction(state, user_id, verifier, nonce, redirect_uri)
     params = {
         "response_type": "code",
-        "client_id": "dynamic_agent_client",
+        "client_id": DYNAMIC_CLIENT_ID,
         "redirect_uri": redirect_uri,
         "scope": SCOPES,
         "resource": RESOURCE,

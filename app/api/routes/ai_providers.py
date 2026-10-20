@@ -1,5 +1,6 @@
 """AI provider configuration and atomic-pipeline controls."""
 import html
+import os
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -7,14 +8,18 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from app.services.ai_crypto import decrypt_api_key, normalize_url_for_docker
-from app.services.chatgpt_oauth import begin_authorization, exchange_code, get_access_token, store_tokens
+from app.services.chatgpt_oauth import DYNAMIC_CLIENT_ID, begin_authorization, exchange_code, get_access_token, store_tokens
 from app.services.auth import get_current_user
 from app.services.ai_batch import get_batch_status, start_background_batch
 from app.services.database import (
     consume_ai_oauth_transaction, count_pending_ai_jobs, create_ai_provider, delete_ai_assignment, delete_ai_provider,
     get_ai_provider, get_atomic_graph, get_user_setting, list_ai_assignments,
     list_ai_providers, list_captures_without_ai_data, set_ai_assignment,
-    set_user_setting, update_ai_provider, add_ai_job,
+    set_user_setting, update_ai_provider, add_ai_job, get_user_by_id,
+)
+from app.services.outbound_security import (
+    UnsafeProviderURL,
+    validate_provider_destination,
 )
 
 router = APIRouter(prefix="/api/ai")
@@ -53,14 +58,29 @@ def _normalize_model_catalog(payload: dict, chatgpt_plan: bool = False) -> list[
     ]
 
 
+def _validated_provider_url(url: str, provider_key: str, user: dict) -> str:
+    account = get_user_by_id(user["user_id"])
+    try:
+        return validate_provider_destination(
+            normalize_url_for_docker(url),
+            provider_key,
+            is_admin=bool(account and account["is_admin"]),
+        )
+    except UnsafeProviderURL as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
 @router.get("/provider-presets")
 def presets(): return {"presets": PROVIDER_PRESETS}
 
 
 @router.post("/chatgpt/start")
 def start_chatgpt_oauth(request: Request, user=Depends(get_current_user)):
-    port = request.url.port or 5000
-    redirect_uri = f"http://127.0.0.1:{port}/api/ai/chatgpt/callback"
+    del request
+    redirect_uri = os.getenv(
+        "NODECAST_OAUTH_REDIRECT_URI",
+        f"http://127.0.0.1:{os.getenv('APP_PORT', '5000')}/api/ai/chatgpt/callback",
+    )
     return {"authorization_url": begin_authorization(user["user_id"], redirect_uri)}
 
 
@@ -72,17 +92,17 @@ def chatgpt_oauth_callback(
     transaction = consume_ai_oauth_transaction(state)
     if not transaction:
         return HTMLResponse("<h1>Authorization expired</h1><p>Close this window and try again from Nodecast.</p>", status_code=400)
-    if error or not code or not client_id:
+    if error or not code or client_id != DYNAMIC_CLIENT_ID:
         detail = html.escape(error_description or error or "Authorization was not completed")
         return HTMLResponse(f"<h1>ChatGPT was not connected</h1><p>{detail}</p>", status_code=400)
     try:
-        tokens, identity = exchange_code(transaction, code, client_id)
+        tokens, identity = exchange_code(transaction, code, DYNAMIC_CLIENT_ID)
         existing = next((p for p in list_ai_providers(transaction["user_id"]) if p.get("provider_type") == "chatgpt_oauth"), None)
         provider = existing or create_ai_provider(
             transaction["user_id"], "ChatGPT subscription", "https://api.openai.com/v1", "",
             "chatgpt_oauth", "chatgpt", "responses_oauth",
         )
-        store_tokens(transaction["user_id"], provider["id"], client_id, tokens, identity)
+        store_tokens(transaction["user_id"], provider["id"], DYNAMIC_CLIENT_ID, tokens, identity)
     except (httpx.HTTPError, ValueError) as exc:
         return HTMLResponse(f"<h1>ChatGPT connection failed</h1><p>{html.escape(str(exc))}</p>", status_code=400)
     return HTMLResponse("""<!doctype html><meta charset="utf-8"><title>ChatGPT connected</title>
@@ -90,10 +110,11 @@ def chatgpt_oauth_callback(
       <h1>ChatGPT connected to Nodecast</h1><p>You can close this window and return to Settings.</p>""")
 
 @router.post("/providers/test-connection")
-def test_connection(body: ProviderCreate):
+def test_connection(body: ProviderCreate, user=Depends(get_current_user)):
+    base_url = _validated_provider_url(body.base_url, body.provider_key, user)
     try:
         headers={"Authorization":f"Bearer {body.api_key}"} if body.api_key else {}
-        r=httpx.get(f"{normalize_url_for_docker(body.base_url).rstrip('/')}/models",headers=headers,timeout=10)
+        r=httpx.get(f"{base_url}/models",headers=headers,timeout=10,follow_redirects=False)
         return {"status":"ok","message":"Connected."} if r.is_success else {"status":"error","message":f"HTTP {r.status_code}"}
     except httpx.HTTPError: return {"status":"error","message":"Cannot connect to provider."}
 
@@ -109,10 +130,14 @@ def provider(provider_id:str,user=Depends(get_current_user)):
     row.pop("api_key_encrypted",None); return row
 @router.post("/providers")
 def create_provider(body:ProviderCreate,user=Depends(get_current_user)):
-    row=create_ai_provider(user["user_id"],body.name,normalize_url_for_docker(body.base_url),body.api_key,body.provider_type,body.provider_key,body.api_style); row.pop("api_key_encrypted",None); return row
+    base_url = _validated_provider_url(body.base_url, body.provider_key, user)
+    row=create_ai_provider(user["user_id"],body.name,base_url,body.api_key,body.provider_type,body.provider_key,body.api_style); row.pop("api_key_encrypted",None); return row
 @router.put("/providers/{provider_id}")
 def edit_provider(provider_id:str,body:ProviderUpdate,user=Depends(get_current_user)):
-    row=update_ai_provider(user["user_id"],provider_id,body.name,normalize_url_for_docker(body.base_url) if body.base_url else None,body.api_key,body.default_model)
+    existing = get_ai_provider(user["user_id"], provider_id)
+    if not existing: raise HTTPException(404,"Provider not found")
+    base_url = _validated_provider_url(body.base_url, existing.get("provider_key", ""), user) if body.base_url else None
+    row=update_ai_provider(user["user_id"],provider_id,body.name,base_url,body.api_key,body.default_model)
     if not row: raise HTTPException(404,"Provider not found")
     row.pop("api_key_encrypted",None); return row
 @router.delete("/providers/{provider_id}")
@@ -133,9 +158,18 @@ def models(provider_id:str,user=Depends(get_current_user)):
             return {"models":[],"error":"reconnect_required" if status in {401,403} else "provider_error","status":status}
         except (httpx.HTTPError,KeyError,TypeError,ValueError):
             return {"models":[],"error":"provider_unavailable"}
+    account = get_user_by_id(user["user_id"])
+    try:
+        base_url = validate_provider_destination(
+            row["base_url"],
+            row.get("provider_key", ""),
+            is_admin=bool(account and account["is_admin"]),
+        )
+    except UnsafeProviderURL:
+        return {"models":[],"error":"unsafe_provider_url"}
     headers={"Authorization":f"Bearer {decrypt_api_key(row['api_key_encrypted'])}"} if row["api_key_encrypted"] else {}
     try:
-        r=httpx.get(f"{row['base_url'].rstrip('/')}/models",headers=headers,timeout=10); r.raise_for_status()
+        r=httpx.get(f"{base_url}/models",headers=headers,timeout=10,follow_redirects=False); r.raise_for_status()
         return {"models":_normalize_model_catalog(r.json())}
     except (httpx.HTTPError,KeyError,ValueError): return {"models":[],"error":"offline"}
 

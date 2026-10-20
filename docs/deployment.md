@@ -32,6 +32,11 @@ docker compose up -d --build
 docker compose logs -f app
 ```
 
-The default URL is `http://localhost:5000`; change `APP_PORT` in `.env` if needed. Persist and back up `contents/` and `.env`: they contain accounts, per-user knowledge databases, raw captures, the JWT secret and the encryption key used for AI credentials.
+The default URL is `http://localhost:5000`; change `APP_PORT` and
+`NODECAST_PUBLIC_ORIGIN` together in `.env` if needed. Compose binds only to
+`127.0.0.1`, drops Linux capabilities, uses a read-only application filesystem and
+does not mount source code. Persist and back up `contents/` and `.env`: they contain
+accounts, per-user knowledge databases, raw captures, the JWT secret and the
+encryption key used for AI credentials.
 
 Nodecast has no SearXNG, Redis, PostgreSQL, Celery, or cloud-sync dependency. For remote exposure, put TLS and access controls in front of the app; the default configuration is intended for a trusted local machine.

@@ -36,7 +36,20 @@ else
   else systemctl --user stop nodecast.service; fi
 fi
 
-NODECAST_INSTALL_DIR="$INSTALL_DIR" NODECAST_MODE="$MODE" NODECAST_AUTO_UPDATE=true bash <(curl -fsSL https://github.com/sarox-dev/Nodecast/releases/latest/download/install.sh)
+UPDATE_TMP="$(mktemp -d)"
+trap 'rm -rf "$UPDATE_TMP"; rmdir "$LOCK" 2>/dev/null || true' EXIT
+ASSET_ROOT="https://github.com/sarox-dev/Nodecast/releases/download/v${LATEST}"
+curl -fsSL "$ASSET_ROOT/install.sh" -o "$UPDATE_TMP/install.sh"
+curl -fsSL "$ASSET_ROOT/SHA256SUMS" -o "$UPDATE_TMP/SHA256SUMS"
+EXPECTED="$(awk '$2 == "install.sh" { print $1 }' "$UPDATE_TMP/SHA256SUMS")"
+[[ "$EXPECTED" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "Installer checksum is missing or invalid." >&2; exit 1; }
+if command -v sha256sum >/dev/null; then
+  ACTUAL="$(sha256sum "$UPDATE_TMP/install.sh" | awk '{ print $1 }')"
+else
+  ACTUAL="$(shasum -a 256 "$UPDATE_TMP/install.sh" | awk '{ print $1 }')"
+fi
+[[ "$ACTUAL" == "$EXPECTED" ]] || { echo "Installer checksum verification failed." >&2; exit 1; }
+NODECAST_INSTALL_DIR="$INSTALL_DIR" NODECAST_MODE="$MODE" NODECAST_AUTO_UPDATE=true bash "$UPDATE_TMP/install.sh"
 
 for _ in $(seq 1 30); do
   curl -fsSL "http://localhost:${APP_PORT:-5000}/api/version" >/dev/null 2>&1 && exit 0

@@ -45,9 +45,21 @@ $tag = $release.tag_name
 $temp = Join-Path ([IO.Path]::GetTempPath()) ("nodecast-" + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $temp | Out-Null
 try {
-    $zip = Join-Path $temp "release.zip"
-    Invoke-WebRequest -Uri "https://github.com/$Repo/archive/refs/tags/$tag.zip" -OutFile $zip
-    Expand-Archive -Path $zip -DestinationPath (Join-Path $temp "extract") -Force
+    $archiveName = "nodecast-$tag.tar.gz"
+    $archive = Join-Path $temp $archiveName
+    $checksums = Join-Path $temp "SHA256SUMS"
+    $assetRoot = "https://github.com/$Repo/releases/download/$tag"
+    Invoke-WebRequest -Uri "$assetRoot/$archiveName" -OutFile $archive
+    Invoke-WebRequest -Uri "$assetRoot/SHA256SUMS" -OutFile $checksums
+    $checksumLine = Get-Content $checksums | Where-Object { $_ -match "^[0-9a-fA-F]{64}\s+\*?$([regex]::Escape($archiveName))$" } | Select-Object -First 1
+    if (-not $checksumLine) { throw "Release checksum is missing or invalid." }
+    $expected = ($checksumLine -split '\s+')[0].ToLowerInvariant()
+    $actual = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
+    if ($actual -ne $expected) { throw "Release checksum verification failed." }
+    $extract = Join-Path $temp "extract"
+    New-Item -ItemType Directory -Path $extract | Out-Null
+    tar -xzf $archive -C $extract
+    if ($LASTEXITCODE -ne 0) { throw "Could not extract the verified release." }
     $source = Get-ChildItem (Join-Path $temp "extract") -Directory | Select-Object -First 1
     if (-not (Test-Path (Join-Path $source.FullName "app\version.json"))) { throw "Downloaded release is incomplete." }
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null

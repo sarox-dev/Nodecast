@@ -25,9 +25,20 @@ try {
     } else {
         Stop-ScheduledTask -TaskName "Nodecast" -ErrorAction SilentlyContinue
     }
-    $script = (Invoke-WebRequest "https://github.com/sarox-dev/Nodecast/releases/latest/download/install.ps1").Content
+    $temp = Join-Path ([IO.Path]::GetTempPath()) ("nodecast-update-" + [guid]::NewGuid())
+    New-Item -ItemType Directory -Path $temp | Out-Null
+    $installer = Join-Path $temp "install.ps1"
+    $checksums = Join-Path $temp "SHA256SUMS"
+    $assetRoot = "https://github.com/sarox-dev/Nodecast/releases/download/v$latest"
+    Invoke-WebRequest "$assetRoot/install.ps1" -OutFile $installer
+    Invoke-WebRequest "$assetRoot/SHA256SUMS" -OutFile $checksums
+    $checksumLine = Get-Content $checksums | Where-Object { $_ -match '^[0-9a-fA-F]{64}\s+\*?install\.ps1$' } | Select-Object -First 1
+    if (-not $checksumLine) { throw "Installer checksum is missing or invalid." }
+    $expected = ($checksumLine -split '\s+')[0].ToLowerInvariant()
+    $actual = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLowerInvariant()
+    if ($actual -ne $expected) { throw "Installer checksum verification failed." }
     $env:NODECAST_INSTALL_DIR = $InstallDir; $env:NODECAST_MODE = $Mode; $env:NODECAST_AUTO_UPDATE = "true"
-    & ([scriptblock]::Create($script))
+    & $installer
 
     $healthy = $false
     1..30 | ForEach-Object {
@@ -37,4 +48,7 @@ try {
         }
     }
     if (-not $healthy) { throw "Update completed but health check failed. Backup: $backup" }
-} finally { Remove-Item $Lock -Recurse -Force -ErrorAction SilentlyContinue }
+} finally {
+    if ($temp) { Remove-Item $temp -Recurse -Force -ErrorAction SilentlyContinue }
+    Remove-Item $Lock -Recurse -Force -ErrorAction SilentlyContinue
+}

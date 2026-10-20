@@ -6,7 +6,7 @@ MODE="${NODECAST_MODE:-docker}"
 APP_PORT="${NODECAST_APP_PORT:-5000}"
 STATE_DIR="${HOME}/.nodecast"
 mkdir -p "$STATE_DIR"
-printf 'INSTALL_DIR=%s\nMODE=%s\nAPP_PORT=%s\n' "$INSTALL_DIR" "$MODE" "$APP_PORT" > "$STATE_DIR/config"
+printf 'INSTALL_DIR=%q\nMODE=%q\nAPP_PORT=%q\n' "$INSTALL_DIR" "$MODE" "$APP_PORT" > "$STATE_DIR/config"
 cp "$INSTALL_DIR/scripts/update-nodecast.sh" "$STATE_DIR/update.sh"
 chmod 700 "$STATE_DIR/update.sh"
 

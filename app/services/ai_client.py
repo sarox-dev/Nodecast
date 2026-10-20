@@ -4,6 +4,7 @@ import logging
 import httpx
 
 from app.services.ai_crypto import decrypt_api_key
+from app.services.outbound_security import validate_provider_destination
 
 logger = logging.getLogger(__name__)
 
@@ -97,8 +98,16 @@ def _call_chatgpt_plan(user_id: str, provider: dict, model: str, messages: list[
 def call_provider_model(user_id: str, provider: dict, model: str, messages: list[dict], timeout: int = 120, raise_errors: bool = False) -> str | None:
     """Dispatch through the provider contract, including isolated ChatGPT plan OAuth."""
     if provider.get("provider_type") != "chatgpt_oauth":
+        from app.services.database import get_user_by_id
+
+        account = get_user_by_id(user_id)
+        base_url = validate_provider_destination(
+            provider["base_url"],
+            provider.get("provider_key", ""),
+            is_admin=bool(account and account.get("is_admin")),
+        )
         return call_ai_model(
-            provider["base_url"], decrypt_api_key(provider.get("api_key_encrypted", "")),
+            base_url, decrypt_api_key(provider.get("api_key_encrypted", "")),
             model, messages, timeout=timeout, raise_errors=raise_errors,
         )
     try:

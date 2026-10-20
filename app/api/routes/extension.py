@@ -6,7 +6,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services.auth import create_token, get_current_user
+from app.services.auth import create_token, get_capture_user, get_current_user
 from app.services.database import get_user_setting, set_user_setting
 
 
@@ -66,7 +66,7 @@ def exchange_pairing_code(request: PairingExchange):
         pairing = _pairing_codes.pop(request.code, None)
     if not pairing:
         raise HTTPException(401, "Pairing code is invalid or expired")
-    token = create_token(pairing["user_id"], pairing["username"])
+    token = create_token(pairing["user_id"], pairing["username"], scope="extension")
     return {
         "token": token,
         "user_id": pairing["user_id"],
@@ -75,7 +75,7 @@ def exchange_pairing_code(request: PairingExchange):
 
 
 @router.get("/settings")
-def get_extension_settings(current_user: dict = Depends(get_current_user)):
+def get_extension_settings(current_user: dict = Depends(get_capture_user)):
     return {
         "username": current_user["username"],
         "settings": _load_settings(current_user["user_id"]).model_dump(),
@@ -85,7 +85,7 @@ def get_extension_settings(current_user: dict = Depends(get_current_user)):
 @router.put("/settings")
 def update_extension_settings(
     settings: ExtensionSettings,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_capture_user),
 ):
     if settings.notification_position not in {
         "top-left", "top-center", "top-right",

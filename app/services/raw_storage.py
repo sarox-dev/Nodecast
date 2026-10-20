@@ -10,14 +10,26 @@ Struktūra:
 
 import json
 import os
+import shutil
 from pathlib import Path
 
-from app.core.security import CONTENTS_DIR
+from app.core.security import CONTENTS_DIR, MAX_SNAPSHOT_BYTES, MAX_USER_STORAGE_BYTES
 from app.models.capture_package import CapturePackage
 
 
 def _raw_dir(user_id: str, capture_id: str) -> Path:
-    return CONTENTS_DIR / "users" / user_id / "raw" / capture_id
+    raw_root = (CONTENTS_DIR / "users" / user_id / "raw").resolve()
+    candidate = (raw_root / capture_id).resolve()
+    if candidate.parent != raw_root:
+        raise ValueError("Invalid capture ID")
+    return candidate
+
+
+def _user_raw_size(user_id: str) -> int:
+    raw_root = (CONTENTS_DIR / "users" / user_id / "raw").resolve()
+    if not raw_root.exists():
+        return 0
+    return sum(path.stat().st_size for path in raw_root.rglob("*") if path.is_file())
 
 
 def save_raw_capture(
@@ -35,6 +47,12 @@ def save_raw_capture(
     Atgriež ceļu līdz raw direktorijai.
     """
     raw_path = _raw_dir(user_id, package.capture_id)
+    html_size = len(html.encode("utf-8")) if html else 0
+    package_size = len(package.model_dump_json(exclude_none=True).encode("utf-8"))
+    if html_size > MAX_SNAPSHOT_BYTES:
+        raise ValueError("Page snapshot is too large")
+    if _user_raw_size(user_id) + html_size + package_size > MAX_USER_STORAGE_BYTES:
+        raise ValueError("User storage quota exceeded")
     if raw_path.exists():
         raise FileExistsError(
             f"Raw Capture {package.capture_id} already exists — "
@@ -81,6 +99,14 @@ def get_raw_html(user_id: str, capture_id: str) -> str | None:
 
 def raw_exists(user_id: str, capture_id: str) -> bool:
     return _raw_dir(user_id, capture_id).exists()
+
+
+def delete_raw_capture(user_id: str, capture_id: str) -> bool:
+    raw_path = _raw_dir(user_id, capture_id)
+    if not raw_path.exists():
+        return False
+    shutil.rmtree(raw_path)
+    return True
 
 
 def raw_size(user_id: str, capture_id: str) -> int:
