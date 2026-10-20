@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Nodecast Workspace</title>
     <meta name="nodecast-core" content="workspace" />
-    <link rel="stylesheet" href="/static/css/base.css?v=20260926-2" />
+    <link rel="stylesheet" href="/static/css/base.css?v=20261020-1" />
     <link rel="stylesheet" href="/static/css/theme-default.css" />
     <link rel="stylesheet" href="/static/css/theme-light.css" />
     <link rel="stylesheet" href="/static/css/settings.css?v=20260926-3" />
@@ -39,7 +39,7 @@
               <div class="sidebar-section-label">Workspace</div>
               <div class="sidebar-collapse">
               <button id="sidebar-library-nav" class="sidebar-nav-btn active" type="button" data-workspace-view="library">
-                <span class="sidebar-nav-icon">⌂</span><span class="sidebar-nav-label">Library</span>
+                <span class="sidebar-nav-icon">⌂</span><span class="sidebar-nav-label">Ask your library</span>
               </button>
               <button id="sidebar-web-nav" class="sidebar-nav-btn" type="button" data-workspace-view="web">
                 <span class="sidebar-nav-icon">⌕</span><span class="sidebar-nav-label">Web Search</span>
@@ -76,7 +76,7 @@
             <form id="search-form" class="search-form" autocomplete="off">
             <div class="search-bar-wrapper" id="search-bar-wrapper">
               <span class="workspace-search-icon" aria-hidden="true">⌕</span>
-              <input id="query" name="q" type="search" placeholder="Search your library..." autocomplete="off" spellcheck="false" />
+              <input id="query" name="q" type="search" placeholder="Ask what you remember..." autocomplete="off" spellcheck="false" />
               <kbd class="workspace-search-shortcut">Ctrl K</kbd>
               <button type="submit" class="search-submit" aria-label="Search">
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -104,9 +104,9 @@
           <div id="content-view" class="content-view">
           <div class="workspace-view-header" id="workspace-view-header">
             <div class="workspace-view-copy">
-              <span class="workspace-view-eyebrow" id="workspace-view-eyebrow">Personal memory</span>
-              <h1 id="workspace-view-title">Library</h1>
-              <p id="workspace-view-description">Recent evidence and concepts from your saved sources.</p>
+              <span class="workspace-view-eyebrow" id="workspace-view-eyebrow">Personal recall</span>
+              <h1 id="workspace-view-title">Ask your library</h1>
+              <p id="workspace-view-description">Ask naturally. Every answer stays linked to your saved evidence.</p>
             </div>
             <div class="workspace-view-actions">
               <button id="workspace-save-view" class="workspace-secondary-action" type="button" hidden>Save view</button>
@@ -130,15 +130,6 @@
               <span class="status-dot"></span>
               <span id="result-count"></span>
             </span>
-          </div>
-
-          <div id="ai-progress-bar" class="ai-progress-bar" hidden>
-            <div class="ai-progress-inner">
-              <span id="ai-progress-text">AI Processing...</span>
-              <div class="ai-progress-track">
-                <div id="ai-progress-fill" class="ai-progress-fill" style="width:0%"></div>
-              </div>
-            </div>
           </div>
 
           <div class="results-area">
@@ -379,12 +370,12 @@
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <script src="/static/js/ui-utils.js?v=20260926-2"></script>
     <script src="/static/js/extension-bridge.js?v=20260926-2"></script>
-    <script src="/static/js/settings.js?v=20260926-5"></script>
-    <script src="/static/js/atomic-view.js?v=20260926-4"></script>
+    <script src="/static/js/settings.js?v=20261020-3"></script>
+    <script src="/static/js/atomic-view.js?v=20261020-1"></script>
     <script src="/static/js/entity-view.js?v=20260926-2"></script>
     <script src="/static/js/graph-view.js?v=20260926-2"></script>
     <script src="/static/js/web-search.js?v=20260925-1"></script>
-    <script src="/static/js/app.js?v=20260926-2"></script>
+    <script src="/static/js/app.js?v=20261020-1"></script>
     <script src="/static/js/workspace-store.js?v=20260926-2"></script>
     <script src="/static/js/workspace-controller.js?v=20260926-2"></script>
   </body>

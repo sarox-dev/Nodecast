@@ -30,7 +30,8 @@ def test_exact_error_query_returns_traceable_local_fallback(tmp_path, monkeypatc
     assert result["query"]["intent"] == "problem"
     assert result["items"][0]["id"] == atomic_id
     assert result["items"][0]["source_url"] == "https://docs.example/error"
-    assert result["synthesis"]["status"] == "unavailable"
+    assert result["synthesis"]["status"] == "local_only"
+    assert result["synthesis_status"] == "local_only"
 
 
 def test_domain_does_not_create_relation_and_rejection_is_persisted(tmp_path, monkeypatch):
@@ -95,10 +96,9 @@ def test_ai_auth_error_is_returned_as_actionable_synthesis_status(tmp_path, monk
     user_id = _user_db(tmp_path, monkeypatch)
     database.insert_capture_ref(user_id, "cap-a", "snippet", "https://example.com", "AI source", "example.com", "", "", [], "", "")
     database.insert_atomic(user_id, "text", "AI agents use saved context", source_id="cap-a")
-    monkeypatch.setattr(memory_retrieval, "get_ai_assignment_for_feature", lambda *_: {"provider_id":"provider-a","model":"broken-model"})
+    monkeypatch.setattr(memory_retrieval, "get_ai_assignment_for_feature", lambda _uid, feature: {"provider_id":"provider-a","model":"broken-model"} if feature == "recall_synthesis" else None)
     monkeypatch.setattr(memory_retrieval, "get_ai_provider", lambda *_: {"base_url":"https://provider.invalid","api_key_encrypted":""})
-    monkeypatch.setattr(memory_retrieval, "decrypt_api_key", lambda *_: "bad-key")
-    monkeypatch.setattr(memory_retrieval, "call_ai_model", lambda *args, **kwargs: (_ for _ in ()).throw(AIClientError("ai_authentication_failed", "AI provider authentication failed. Check the API key in Settings → AI.", 401)))
+    monkeypatch.setattr(memory_retrieval, "call_provider_model", lambda *args, **kwargs: (_ for _ in ()).throw(AIClientError("ai_authentication_failed", "AI provider authentication failed. Check the API key in Settings → AI.", 401)))
     result = query_memory(user_id, "AI", limit=5)
     assert result["items"]
     assert result["synthesis"] == {
@@ -106,3 +106,20 @@ def test_ai_auth_error_is_returned_as_actionable_synthesis_status(tmp_path, monk
         "message":"AI provider authentication failed. Check the API key in Settings → AI.",
         "http_status":401, "model":"broken-model",
     }
+    assert result["synthesis_status"] == "error"
+    assert result["evidence"] == result["items"]
+    assert result["sources"][0]["url"] == "https://example.com"
+
+
+def test_recall_synthesis_uses_only_its_own_assignment_and_cites_evidence(tmp_path, monkeypatch):
+    user_id = _user_db(tmp_path, monkeypatch)
+    database.insert_capture_ref(user_id, "cap-a", "snippet", "https://example.com", "Docker guide", "example.com", "", "", [], "", "")
+    atomic_id = database.insert_atomic(user_id, "definition", "Docker packages applications into containers.", source_id="cap-a")
+    requested_features = []
+    monkeypatch.setattr(memory_retrieval, "get_ai_assignment_for_feature", lambda _uid, feature: requested_features.append(feature) or ({"provider_id":"provider-a","model":"recall-model"} if feature == "recall_synthesis" else None))
+    monkeypatch.setattr(memory_retrieval, "get_ai_provider", lambda *_: {"base_url":"https://provider.invalid","api_key_encrypted":""})
+    monkeypatch.setattr(memory_retrieval, "call_provider_model", lambda *_args, **_kwargs: '{"view":"focus","title":"Docker","summary":"Saved Docker definition.","sections":[{"title":"Definition","content":"Docker packages applications into containers.","evidence_ids":["' + atomic_id + '"]}]}')
+    result = query_memory(user_id, "What did I save about Docker?", limit=5)
+    assert requested_features == ["recall_synthesis"]
+    assert result["synthesis_status"] == "success"
+    assert result["answer"]["sections"][0]["evidence_ids"] == [atomic_id]

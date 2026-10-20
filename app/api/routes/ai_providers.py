@@ -1,13 +1,17 @@
 """AI provider configuration and atomic-pipeline controls."""
+import html
+
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from app.services.ai_crypto import decrypt_api_key, normalize_url_for_docker
+from app.services.chatgpt_oauth import begin_authorization, exchange_code, get_access_token, store_tokens
 from app.services.auth import get_current_user
 from app.services.ai_batch import get_batch_status, start_background_batch
 from app.services.database import (
-    count_pending_ai_jobs, create_ai_provider, delete_ai_assignment, delete_ai_provider,
+    consume_ai_oauth_transaction, count_pending_ai_jobs, create_ai_provider, delete_ai_assignment, delete_ai_provider,
     get_ai_provider, get_atomic_graph, get_user_setting, list_ai_assignments,
     list_ai_providers, list_captures_without_ai_data, set_ai_assignment,
     set_user_setting, update_ai_provider, add_ai_job,
@@ -25,6 +29,7 @@ class AssignmentSet(BaseModel):
 
 
 PROVIDER_PRESETS = [
+    {"key":"chatgpt","name":"ChatGPT subscription","default_base_url":"https://api.openai.com/v1","requires_api_key":False,"api_style":"responses_oauth","oauth":True},
     {"key":"openai","name":"OpenAI","default_base_url":"https://api.openai.com/v1","requires_api_key":True,"api_style":"openai"},
     {"key":"openrouter","name":"OpenRouter","default_base_url":"https://openrouter.ai/api/v1","requires_api_key":True,"api_style":"openai"},
     {"key":"anthropic","name":"Anthropic","default_base_url":"https://api.anthropic.com/v1","requires_api_key":True,"api_style":"anthropic"},
@@ -35,8 +40,54 @@ PROVIDER_PRESETS = [
 ]
 
 
+def _normalize_model_catalog(payload: dict, chatgpt_plan: bool = False) -> list[dict]:
+    if chatgpt_plan:
+        return [
+            {"id": model["slug"], "name": model.get("display_name") or model["slug"], "object": "model"}
+            for model in payload.get("models", [])
+            if model.get("slug") and model.get("visibility") == "list"
+        ]
+    return [
+        {"id": model["id"], "name": model.get("display_name") or model["id"], "object": model.get("object", "model")}
+        for model in payload.get("data", []) if model.get("id")
+    ]
+
+
 @router.get("/provider-presets")
 def presets(): return {"presets": PROVIDER_PRESETS}
+
+
+@router.post("/chatgpt/start")
+def start_chatgpt_oauth(request: Request, user=Depends(get_current_user)):
+    port = request.url.port or 5000
+    redirect_uri = f"http://127.0.0.1:{port}/api/ai/chatgpt/callback"
+    return {"authorization_url": begin_authorization(user["user_id"], redirect_uri)}
+
+
+@router.get("/chatgpt/callback", response_class=HTMLResponse)
+def chatgpt_oauth_callback(
+    state: str = Query(...), code: str | None = Query(None), client_id: str | None = Query(None),
+    error: str | None = Query(None), error_description: str | None = Query(None),
+):
+    transaction = consume_ai_oauth_transaction(state)
+    if not transaction:
+        return HTMLResponse("<h1>Authorization expired</h1><p>Close this window and try again from Nodecast.</p>", status_code=400)
+    if error or not code or not client_id:
+        detail = html.escape(error_description or error or "Authorization was not completed")
+        return HTMLResponse(f"<h1>ChatGPT was not connected</h1><p>{detail}</p>", status_code=400)
+    try:
+        tokens, identity = exchange_code(transaction, code, client_id)
+        existing = next((p for p in list_ai_providers(transaction["user_id"]) if p.get("provider_type") == "chatgpt_oauth"), None)
+        provider = existing or create_ai_provider(
+            transaction["user_id"], "ChatGPT subscription", "https://api.openai.com/v1", "",
+            "chatgpt_oauth", "chatgpt", "responses_oauth",
+        )
+        store_tokens(transaction["user_id"], provider["id"], client_id, tokens, identity)
+    except (httpx.HTTPError, ValueError) as exc:
+        return HTMLResponse(f"<h1>ChatGPT connection failed</h1><p>{html.escape(str(exc))}</p>", status_code=400)
+    return HTMLResponse("""<!doctype html><meta charset="utf-8"><title>ChatGPT connected</title>
+      <style>body{font:16px system-ui;max-width:34rem;margin:15vh auto;padding:2rem;color:#18181b}h1{font-size:1.5rem}</style>
+      <h1>ChatGPT connected to Nodecast</h1><p>You can close this window and return to Settings.</p>""")
 
 @router.post("/providers/test-connection")
 def test_connection(body: ProviderCreate):
@@ -72,16 +123,27 @@ def remove_provider(provider_id:str,user=Depends(get_current_user)):
 def models(provider_id:str,user=Depends(get_current_user)):
     row=get_ai_provider(user["user_id"],provider_id)
     if not row: raise HTTPException(404,"Provider not found")
+    if row.get("provider_type") == "chatgpt_oauth":
+        try:
+            token = get_access_token(user["user_id"], provider_id)
+            r=httpx.get("https://api.openai.com/v1/models",headers={"Authorization":f"Bearer {token}"},timeout=15); r.raise_for_status()
+            return {"models":_normalize_model_catalog(r.json(), chatgpt_plan=True)}
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            return {"models":[],"error":"reconnect_required" if status in {401,403} else "provider_error","status":status}
+        except (httpx.HTTPError,KeyError,TypeError,ValueError):
+            return {"models":[],"error":"provider_unavailable"}
     headers={"Authorization":f"Bearer {decrypt_api_key(row['api_key_encrypted'])}"} if row["api_key_encrypted"] else {}
     try:
         r=httpx.get(f"{row['base_url'].rstrip('/')}/models",headers=headers,timeout=10); r.raise_for_status()
-        return {"models":[{"id":m["id"],"object":m.get("object","model")} for m in r.json().get("data",[])]}
+        return {"models":_normalize_model_catalog(r.json())}
     except (httpx.HTTPError,KeyError,ValueError): return {"models":[],"error":"offline"}
 
 @router.get("/features")
 def features():
     return {"features":[
         {"id":"atomic_extraction","name":"Atomic extraction","description":"Extract structured atomics from highlighted captures."},
+        {"id":"recall_synthesis","name":"Recall synthesis","description":"Answer questions from retrieved saved evidence with citations."},
         {"id":"entity_extraction","name":"Entity extraction","description":"Reuse and connect entity atomics."},
         {"id":"aggregate_creation","name":"Aggregate creation","description":"Name related atomic clusters."},
     ]}
@@ -99,14 +161,18 @@ def unassign(assignment_id:str,user=Depends(get_current_user)):
 def process_unprocessed(user=Depends(get_current_user)):
     captures=list_captures_without_ai_data(user["user_id"])
     for capture in captures: add_ai_job(user["user_id"],capture["id"],"atomic_extraction")
-    result=start_background_batch(user["user_id"]); result["total"]=len(captures); return result
+    return start_background_batch(user["user_id"], "atomic_extraction")
 @router.post("/regenerate-all")
 def regenerate_all(user=Depends(get_current_user)):
+    if get_batch_status(user["user_id"]).get("running"):
+        return {"status": "already_running", "message": "AI processing is already running"}
     from app.services.database import get_db
     conn=get_db(user["user_id"])
     try: conn.execute("DELETE FROM atomics"); conn.execute("DELETE FROM pending_ai_jobs"); conn.commit()
     finally: conn.close()
-    return process_unprocessed(user)
+    captures=list_captures_without_ai_data(user["user_id"])
+    for capture in captures: add_ai_job(user["user_id"],capture["id"],"atomic_extraction")
+    return start_background_batch(user["user_id"], "regenerate")
 @router.get("/auto-process-settings")
 def auto_settings(user=Depends(get_current_user)): return {"interval_minutes":int(get_user_setting(user["user_id"],"ai_auto_process_interval","60"))}
 @router.put("/auto-process-settings")

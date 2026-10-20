@@ -46,7 +46,7 @@ const settingsSchema = [
     },
     {
         category: 'AI',
-        description: 'Connect AI providers to atomic extraction, entity linking, and aggregation.',
+        description: 'Connect AI providers to extract saved evidence and answer questions from your library.',
         items: []  // Custom rendering
     },
     {
@@ -612,7 +612,7 @@ async function renderAISettings() {
             const online = info ? info.online : false;
             const hasAssignment = aiAssignments.some(a => a.provider_id === p.id);
             const providerKey = p.provider_key || '';
-            const iconPath = `/static/assets/AI_providers/${providerKey}.svg`;
+            const iconPath = `/static/assets/AI_providers/${providerKey === 'chatgpt' ? 'openai' : providerKey}.svg`;
             const iconStyle = providerKey === 'lmstudio' ? ' style="filter:invert(1)"' : '';
             const iconHtml = providerKey
                 ? `<img src="${iconPath}" width="18" height="18"${iconStyle} alt="" style="vertical-align:middle;margin-right:0.3rem" />`
@@ -630,7 +630,7 @@ async function renderAISettings() {
                 ${hasAssignment ? '<span class="ai-badge" style="background:var(--accent);color:#fff;font-size:0.7rem;padding:0.1rem 0.4rem;border-radius:4px;margin-left:0.3rem">assigned</span>' : ''}
               </div>
               <div style="display:flex;gap:0.3rem">
-                <button class="ai-edit-provider modal-btn modal-btn-secondary" style="padding:0.25rem 0.5rem;font-size:0.75rem" data-id="${p.id}" data-name="${escapeHtml(p.name)}" data-url="${escapeHtml(p.base_url)}" data-key="${escapeHtml(providerKey)}">Edit</button>
+                ${p.provider_type === 'chatgpt_oauth' ? '' : `<button class="ai-edit-provider modal-btn modal-btn-secondary" style="padding:0.25rem 0.5rem;font-size:0.75rem" data-id="${p.id}" data-name="${escapeHtml(p.name)}" data-url="${escapeHtml(p.base_url)}" data-key="${escapeHtml(providerKey)}">Edit</button>`}
                 <button class="ai-delete-provider modal-btn" style="padding:0.25rem 0.5rem;font-size:0.75rem;background:var(--danger,#f87171);color:#fff;border:none" data-id="${p.id}" data-name="${escapeHtml(p.name)}">Delete</button>
               </div>
             </div>`;
@@ -664,7 +664,7 @@ async function renderAISettings() {
             const info = providerModels.get(assignment.provider_id);
             if (info && info.models && info.models.length > 0) {
                 modelOptions = info.models.map(m =>
-                    `<option value="${escapeHtml(m.id)}" ${m.id === assignment.model ? 'selected' : ''}>${escapeHtml(m.id)}</option>`
+                    `<option value="${escapeHtml(m.id)}" ${m.id === assignment.model ? 'selected' : ''}>${escapeHtml(m.name || m.id)}</option>`
                 ).join('');
             } else {
                 modelOptions = `<option value="${escapeHtml(assignment.model)}" selected>${escapeHtml(assignment.model)}</option>`;
@@ -697,6 +697,13 @@ async function renderAISettings() {
     html += '<div class="settings-list" style="gap:0.4rem">';
     html += `<button id="ai-process-unprocessed" class="modal-btn modal-btn-primary" type="button" style="padding:0.4rem 0.75rem;font-size:0.82rem">Process unprocessed captures</button>`;
     html += `<button id="ai-regenerate-all" class="modal-btn" type="button" style="padding:0.4rem 0.75rem;font-size:0.82rem;background:var(--danger,#f87171);color:#fff;border:none">Regenerate all data (⚠ destructive)</button>`;
+    html += `<div id="ai-progress-bar" class="ai-progress-bar" role="progressbar" aria-label="AI processing progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden>
+      <div class="ai-progress-copy">
+        <span id="ai-progress-text">Preparing AI processing…</span>
+        <span id="ai-progress-detail"></span>
+      </div>
+      <div class="ai-progress-track"><div id="ai-progress-fill" class="ai-progress-fill" style="width:0%"></div></div>
+    </div>`;
     html += '<span id="ai-bulk-status" class="note-status" style="margin-top:0.4rem" hidden></span>';
 
     // Auto-process slider — saves to server
@@ -764,9 +771,13 @@ function attachAIHandlers() {
                 const r = await fetch(`/api/ai/providers/${providerId}/models`);
                 const data = r.ok ? await r.json() : { models: [] };
                 if (data.models && data.models.length > 0) {
-                    modelSel.innerHTML = data.models.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.id)}</option>`).join('');
+                    modelSel.innerHTML = data.models.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name || m.id)}</option>`).join('');
                 } else {
-                    modelSel.innerHTML = '<option value="">No models found</option>';
+                    const message = data.error === 'reconnect_required' ? 'Reconnect ChatGPT' : 'No models found';
+                    modelSel.innerHTML = `<option value="">${message}</option>`;
+                    if (data.error && typeof showNotification === 'function') {
+                        showNotification({ title: 'Could not load AI models', message: data.error === 'reconnect_required' ? 'ChatGPT authorization must be renewed.' : 'The provider model catalog is unavailable.', type: 'error', key: `ai-models:${providerId}` });
+                    }
                 }
             } catch {
                 modelSel.innerHTML = '<option value="">Failed to load models</option>';
@@ -794,6 +805,7 @@ function attachAIHandlers() {
                 status.textContent = 'Processing in background — see progress bar above';
                 status.style.color = 'var(--text-dim)';
                 status.hidden = false;
+                renderBatchProgress({ running: true, operation: 'atomic_extraction', total: d.total || 0, processed: 0, errors: 0, skipped: 0 });
                 pollBatchProgress((finalStatus) => {
                     this.textContent = 'Process unprocessed captures';
                     this.disabled = false;
@@ -840,6 +852,7 @@ function attachAIHandlers() {
                 status.textContent = 'Regenerating in background — see progress bar above';
                 status.style.color = 'var(--text-dim)';
                 status.hidden = false;
+                renderBatchProgress({ running: true, operation: 'regenerate', total: d.total || 0, processed: 0, errors: 0, skipped: 0 });
                 pollBatchProgress((finalStatus) => {
                     this.textContent = 'Regenerate all data (⚠ destructive)';
                     this.disabled = false;
@@ -1175,44 +1188,81 @@ function _formatInterval(minutes) {
 let batchPollId = null;
 let batchPollCallback = null;
 
-function pollBatchProgress(callback) {
-    if (batchPollId) return;  // already polling
-    if (callback) batchPollCallback = callback;
+function renderBatchProgress(status) {
     const bar = document.getElementById('ai-progress-bar');
     const fill = document.getElementById('ai-progress-fill');
     const text = document.getElementById('ai-progress-text');
-    if (!bar || !fill || !text) return;
+    const detail = document.getElementById('ai-progress-detail');
+    if (!bar || !fill || !text || !detail) return;
+
+    const total = Math.max(Number(status.total) || 0, 0);
+    const processed = Number(status.processed) || 0;
+    const errors = Number(status.errors) || 0;
+    const skipped = Number(status.skipped) || 0;
+    const done = processed + errors + skipped;
+    const pct = total > 0 ? Math.min(Math.round((done / total) * 100), 100) : 0;
+    const operation = status.operation === 'regenerate' ? 'Regenerating library' : 'Processing captures';
+    document.querySelectorAll('#ai-process-unprocessed, #ai-regenerate-all').forEach(button => {
+        button.disabled = Boolean(status.running);
+    });
+
+    if (!status.running && total === 0) {
+        bar.hidden = true;
+        return;
+    }
+
+    bar.hidden = false;
+    bar.setAttribute('aria-valuenow', String(status.running ? pct : 100));
+    fill.style.width = `${status.running ? pct : 100}%`;
+    text.textContent = status.running
+        ? `${operation} · ${done} of ${total}`
+        : `Completed · ${processed} processed${errors ? `, ${errors} failed` : ''}${skipped ? `, ${skipped} skipped` : ''}`;
+    detail.textContent = status.running
+        ? (status.current || (total ? 'Preparing first capture…' : 'Checking captures…'))
+        : (errors ? 'Some captures could not be processed.' : 'AI data is up to date.');
+    bar.dataset.state = status.running ? 'running' : (errors ? 'error' : 'complete');
+}
+
+function pollBatchProgress(callback) {
+    if (callback) batchPollCallback = callback;
+    if (batchPollId !== null) return;
 
     function poll() {
         fetch('/api/ai/batch-status')
-            .then(r => r.json())
+            .then(r => {
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                return r.json();
+            })
             .then(status => {
+                renderBatchProgress(status);
                 if (status.running) {
-                    bar.hidden = false;
-                    const total = status.total || 1;
-                    const done = (status.processed || 0) + (status.errors || 0) + (status.skipped || 0);
-                    const pct = Math.round((done / total) * 100);
-                    fill.style.width = Math.min(pct, 100) + '%';
-                    const op = status.operation ? status.operation.replace(/_/g, ' ') : 'AI';
-                    text.textContent = `${op}: ${done}/${total} (${status.current || 'processing...'})`;
                     batchPollId = setTimeout(poll, 2000);
                 } else {
-                    // Done
-                    bar.hidden = true;
-                    fill.style.width = '0%';
                     batchPollId = null;
                     if (batchPollCallback) {
                         batchPollCallback(status);
                         batchPollCallback = null;
                     }
+                    if ((status.errors || 0) > 0 && typeof showNotification === 'function') {
+                        showNotification({
+                            title: 'AI processing finished with errors',
+                            message: `${status.errors} capture${status.errors === 1 ? '' : 's'} could not be processed.`,
+                            type: 'error',
+                            key: 'ai-batch-errors',
+                        });
+                    }
                     updatePendingCount();
                 }
             })
             .catch(() => {
+                batchPollId = null;
+                if (typeof showNotification === 'function') {
+                    showNotification({ title: 'Progress unavailable', message: 'Nodecast could not read the AI processing status.', type: 'error', key: 'ai-batch-progress' });
+                }
                 batchPollId = setTimeout(poll, 5000);
             });
     }
-    poll();
+    batchPollId = setTimeout(poll, 0);
 }
 
 async function checkRunningBatch() {
@@ -1220,19 +1270,9 @@ async function checkRunningBatch() {
     try {
         const r = await fetch('/api/ai/batch-status');
         const status = await r.json();
+        renderBatchProgress(status);
         if (status.running) {
             pollBatchProgress();
-        } else {
-            // No batch running — trigger processing if anything is unprocessed
-            // (silent — only starts if there's work to do)
-            fetch('/api/ai/process-unprocessed', { method: 'POST' })
-                .then(r => r.json())
-                .then(data => {
-                    if (data.status === 'started') {
-                        pollBatchProgress();
-                    }
-                })
-                .catch(() => {});
         }
     } catch {}
 }
@@ -1272,13 +1312,43 @@ function openProviderSelector() {
             overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
 
             overlay.querySelectorAll('.ai-preset-select').forEach(btn => {
-                btn.addEventListener('click', () => {
+                btn.addEventListener('click', async () => {
+                    if (btn.dataset.oauth === 'true') {
+                        const authWindow = window.open('', 'nodecast-chatgpt-oauth', 'popup,width=620,height=760');
+                        try {
+                            const response = await fetch('/api/ai/chatgpt/start', { method: 'POST' });
+                            const data = await response.json();
+                            if (!response.ok || !data.authorization_url) throw new Error(data.detail || 'Could not start ChatGPT authorization');
+                            overlay.remove();
+                            if (authWindow) authWindow.location.href = data.authorization_url;
+                            else window.location.href = data.authorization_url;
+                            const started = Date.now();
+                            const poll = setInterval(async () => {
+                                if (Date.now() - started > 300000) { clearInterval(poll); return; }
+                                try {
+                                    const providersResponse = await fetch('/api/ai/providers');
+                                    const providersData = await providersResponse.json();
+                                    if ((providersData.providers || []).some(provider => provider.provider_type === 'chatgpt_oauth')) {
+                                        clearInterval(poll);
+                                        if (authWindow && !authWindow.closed) authWindow.close();
+                                        if (typeof showNotification === 'function') showNotification({ title: 'ChatGPT connected', message: 'You can now assign your ChatGPT plan to Nodecast AI features.', type: 'success', key: 'chatgpt-connected' });
+                                        renderAISettings();
+                                    }
+                                } catch {}
+                            }, 1500);
+                        } catch (error) {
+                            if (authWindow) authWindow.close();
+                            if (typeof showNotification === 'function') showNotification({ title: 'ChatGPT connection failed', message: error.message, type: 'error', key: 'chatgpt-oauth' });
+                        }
+                        return;
+                    }
                     overlay.remove();
                     openAIProviderModal(null, {
                         key: btn.dataset.key,
                         name: btn.dataset.name,
                         url: btn.dataset.url,
                         requiresApiKey: btn.dataset.apikey === 'true',
+                        apiStyle: btn.dataset.apiStyle,
                     });
                 });
             });
@@ -1290,10 +1360,10 @@ function openProviderSelector() {
 }
 
 function _providerPresetBtn(p) {
-    const iconPath = `/static/assets/AI_providers/${p.key}.svg`;
+    const iconPath = `/static/assets/AI_providers/${p.key === 'chatgpt' ? 'openai' : p.key}.svg`;
     const iconStyle = p.key === 'lmstudio' ? ' style="filter:invert(1)"' : '';
-    const desc = p.default_base_url || 'Custom base URL';
-    return `<button class="ai-preset-select" type="button" style="display:flex;align-items:center;gap:0.6rem;padding:0.5rem 0.6rem;border:1px solid var(--border);border-radius:8px;background:var(--bg,#0d1117);color:var(--text);cursor:pointer;transition:background 0.15s;text-align:left;width:100%" data-key="${p.key}" data-url="${p.default_base_url}" data-apikey="${p.requires_api_key}" data-name="${p.name}"
+    const desc = p.oauth ? 'Use your eligible Plus or Pro plan — no API key' : (p.default_base_url || 'Custom base URL');
+    return `<button class="ai-preset-select" type="button" style="display:flex;align-items:center;gap:0.6rem;padding:0.5rem 0.6rem;border:1px solid var(--border);border-radius:8px;background:var(--bg,#0d1117);color:var(--text);cursor:pointer;transition:background 0.15s;text-align:left;width:100%" data-key="${p.key}" data-url="${p.default_base_url}" data-apikey="${p.requires_api_key}" data-name="${p.name}" data-oauth="${Boolean(p.oauth)}" data-api-style="${p.api_style || 'openai'}"
       onmouseover="this.style.background='var(--surface,#161b22)'" onmouseout="this.style.background='var(--bg,#0d1117)'">
       <img src="${iconPath}" width="28" height="28"${iconStyle} alt="" style="flex-shrink:0" />
       <div style="flex:1">

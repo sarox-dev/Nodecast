@@ -28,3 +28,40 @@ def test_process_batch_drains_jobs_added_while_running(monkeypatch):
     assert marked_done == ["job-1", "job-2"]
     assert result == {"total": 2, "processed": 2, "errors": 0, "skipped": 0}
 
+
+def test_start_background_batch_publishes_progress_before_thread_starts(monkeypatch):
+    started = []
+
+    class FakeThread:
+        def __init__(self, target, args, daemon):
+            self.target = target
+            self.args = args
+            self.daemon = daemon
+
+        def start(self):
+            started.append((self.target, self.args, self.daemon))
+
+    ai_batch._status.clear()
+    monkeypatch.setattr(ai_batch, "count_pending_ai_jobs", lambda _uid: 7)
+    monkeypatch.setattr(ai_batch.threading, "Thread", FakeThread)
+
+    result = ai_batch.start_background_batch("user-1", "regenerate")
+    status = ai_batch.get_batch_status("user-1")
+
+    assert result == {"status": "started", "total": 7}
+    assert status["running"] is True
+    assert status["operation"] == "regenerate"
+    assert status["total"] == 7
+    assert status["pending"] == 7
+    assert started[0][1] == ("user-1", "regenerate")
+    ai_batch._status.clear()
+
+
+def test_start_background_batch_does_not_start_duplicate_worker(monkeypatch):
+    ai_batch._status.clear()
+    ai_batch._status["user-1"] = {"running": True}
+    monkeypatch.setattr(ai_batch, "count_pending_ai_jobs", lambda _uid: 3)
+
+    assert ai_batch.start_background_batch("user-1") == {"status": "already_running"}
+    ai_batch._status.clear()
+

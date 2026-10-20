@@ -6,8 +6,7 @@ import re
 import uuid
 from collections import defaultdict
 
-from app.services.ai_client import AIClientError, call_ai_model
-from app.services.ai_crypto import decrypt_api_key
+from app.services.ai_client import AIClientError, call_provider_model
 from app.services.database import (
     enrich_atomics_with_sources,
     get_ai_assignment_for_feature,
@@ -21,6 +20,7 @@ from app.services.database import (
 
 ERROR_RE = re.compile(r"(?:\b[A-Z][A-Za-z]+Error\b|\b(?:error|exception|traceback|failed)\b|\b[A-Z]{2,8}-?\d{3,}\b)", re.I)
 COMPARE_RE = re.compile(r"\b(?:compare|comparison|difference|differences|versus|vs\.?|atšķirīb)\b", re.I)
+FEATURE_RECALL_SYNTHESIS = "recall_synthesis"
 
 
 def detect_intent(query: str) -> str:
@@ -71,15 +71,21 @@ def _diverse(items: list[dict], limit: int) -> list[dict]:
 
 
 def _ai_synthesis(user_id: str, query: str, intent: str, evidence: list[dict]) -> dict | None:
-    assignment = get_ai_assignment_for_feature(user_id, "atomic_extraction")
+    """Create a cited answer from a small, already-retrieved evidence packet.
+
+    Recall has its own assignment: a capture-enrichment model must never become a
+    surprise query-time provider call merely because it was configured earlier.
+    """
+    assignment = get_ai_assignment_for_feature(user_id, FEATURE_RECALL_SYNTHESIS)
     provider = get_ai_provider(user_id, assignment["provider_id"]) if assignment else None
     if not provider or not evidence: return None
     compact = [{"id": a["id"], "type": a.get("type"), "text": (a.get("content") or "")[:650], "source": a.get("source_title") or a.get("source_url")} for a in evidence[:12]]
-    prompt = """Use only the supplied saved evidence. Return JSON with keys view, title, summary, sections.
+    prompt = """Answer only from the supplied saved evidence. Return JSON with keys view, title, summary, sections.
 view must be list, focus, compare, or problem. sections is an array of {title,content,evidence_ids}.
-For compare, use shared dimensions as section titles and never invent missing values. For problem, organize exact problem, causes, solutions and outcomes. Keep the entire answer concise."""
+Every section MUST cite one or more supplied evidence_ids. Do not make claims that lack a citation.
+For compare, use shared dimensions as section titles and never invent missing values. For problem, organize exact problem, causes, solutions and outcomes. Keep the answer concise."""
     try:
-        result = call_ai_model(provider["base_url"], decrypt_api_key(provider.get("api_key_encrypted", "")), assignment["model"], [
+        result = call_provider_model(user_id, provider, assignment["model"], [
             {"role":"system","content":prompt},
             {"role":"user","content":json.dumps({"query":query,"intent":intent,"evidence":compact},ensure_ascii=False)[:12000]},
         ], timeout=45, raise_errors=True)
@@ -95,7 +101,17 @@ For compare, use shared dimensions as section titles and never invent missing va
         data=json.loads(text)
         if data.get("view") not in {"list","focus","compare","problem"}: return None
         valid={a["id"] for a in evidence}
-        for section in data.get("sections",[]): section["evidence_ids"]=[i for i in section.get("evidence_ids",[]) if i in valid]
+        sections=[]
+        for section in data.get("sections",[]):
+            if not isinstance(section, dict): continue
+            cited=[i for i in section.get("evidence_ids",[]) if i in valid]
+            if not cited: continue
+            section["evidence_ids"]=cited
+            sections.append(section)
+        if not sections:
+            return None
+        data["sections"] = sections
+        data["status"] = "success"
         data["model"]=assignment["model"]
         return data
     except (json.JSONDecodeError, AttributeError, TypeError): return None
@@ -106,18 +122,36 @@ def query_memory(user_id: str, query: str, limit: int = 8, token_budget: int = 7
     raw = enrich_atomics_with_sources(user_id, search_atomics(user_id, query, limit=30))
     evidence = [a for a in raw if a.get("role", "evidence") == "evidence" and a.get("status", "ready") != "rejected"]
     evidence = _diverse(evidence, 12)
-    synthesis = _ai_synthesis(user_id, query, intent, evidence) if intent in {"compare","problem","focus"} else None
-    synthesized_view = synthesis.get("view") if synthesis and synthesis.get("status") != "error" else None
-    view = requested_view if requested_view != "auto" else (synthesized_view or (intent if intent in {"compare","problem","focus"} else "list"))
-    cards=[]; used=0
+    cards=[]; packet=[]; used=0
     for atomic in evidence:
         card=_card(atomic)
         if cards and used + card["token_estimate"] > token_budget: break
         cards.append(card); used += card["token_estimate"]
+        packet.append(atomic)
         if len(cards) >= max(1,min(limit,8)): break
+    # The model may cite only evidence the UI can open directly in this packet.
+    synthesis = _ai_synthesis(user_id, query, intent, packet)
+    synthesized_view = synthesis.get("view") if synthesis and synthesis.get("status") != "error" else None
+    view = requested_view if requested_view != "auto" else (synthesized_view or (intent if intent in {"compare","problem","focus"} else "list"))
+    source_groups={}
+    for atomic in packet:
+        source_id=atomic.get("source_id") or "derived"
+        source_groups.setdefault(source_id, {
+            "source_id":source_id,
+            "title":atomic.get("source_title") or "Saved evidence",
+            "url":atomic.get("source_url", ""),
+            "evidence_ids":[],
+        })["evidence_ids"].append(atomic["id"])
+    synthesis_status=(synthesis or {}).get("status", "local_only")
+    answer = synthesis if synthesis_status == "success" else None
     return {
         "query":{"text":query,"intent":intent}, "view":view, "items":cards,
-        "synthesis": synthesis or {"status":"unavailable","reason":"AI provider unavailable or no synthesis required"},
+        "evidence": cards,
+        "sources": list(source_groups.values()),
+        "answer": answer,
+        "synthesis_status": synthesis_status,
+        "synthesis": synthesis or {"status":"local_only","reason":"No Recall synthesis provider is configured."},
+        "capabilities":["open","expand","trace_sources","graph"],
         "available_views":["list","focus","sources","compare","problem","graph"],
         "page":{"cursor":None,"has_more":len(evidence)>len(cards)}, "token_estimate":used,
         "result_id":hashlib.sha256(f"{user_id}:{query}".encode()).hexdigest()[:16],

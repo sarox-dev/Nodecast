@@ -10,8 +10,7 @@ import json
 import logging
 from collections import defaultdict
 
-from app.services.ai_crypto import decrypt_api_key
-from app.services.ai_client import call_ai_model
+from app.services.ai_client import call_provider_model
 from app.services.database import (
     get_ai_assignment_for_feature,
     get_ai_provider,
@@ -174,10 +173,9 @@ def _ai_verify_group(user_id: str, group: list[dict]) -> str | None:
         {"role": "system", "content": AGGREGATE_SYSTEM_PROMPT},
         {"role": "user", "content": context[:4000]},
     ]
-    api_key = decrypt_api_key(provider.get("api_key_encrypted", ""))
-    result = call_ai_model(
-        base_url=provider["base_url"],
-        api_key=api_key,
+    result = call_provider_model(
+        user_id=user_id,
+        provider=provider,
         model=assignment["model"],
         messages=messages,
         timeout=30,

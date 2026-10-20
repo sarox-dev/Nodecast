@@ -706,6 +706,9 @@ body::before {
   border-radius: 12px;
   background: var(--bg-card);
 }
+.memory-empty-library { max-width: 42rem; margin: 3.5rem auto; padding: 1.5rem; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); }
+.memory-empty-library h2 { margin: 0.5rem 0; font-size: 1.35rem; }
+.memory-empty-library p { margin: 0; color: var(--text-secondary); line-height: 1.6; }
 
 .memory-synthesis-label,
 .memory-fallback-note {
@@ -722,6 +725,9 @@ body::before {
 .memory-synthesis-section h3 { margin: 0 0 0.25rem; font-size: 0.86rem; }
 .memory-synthesis-section p { margin: 0; color: var(--text-secondary); line-height: 1.5; }
 .memory-synthesis-section span { display: block; margin-top: 0.35rem; color: var(--text-tertiary); font-size: 0.7rem; }
+.memory-synthesis-citations { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.55rem; }
+.memory-synthesis-citations button { border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: 0.72rem; padding: 0.2rem 0.5rem; }
+.memory-synthesis-citations button:hover { border-color: var(--accent); color: var(--accent); }
 .memory-fallback-note { margin: 0 0 0.75rem; }
 
 .graph-header {

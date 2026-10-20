@@ -120,40 +120,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         setTimeout(() => { _checkUpdate(); _scheduleUpdateCheck(); }, 1000);
     }
 
-    function clearSkeletons() { resultsContainer.querySelectorAll('.result-card.skeleton').forEach(card => card.remove()); }
-
-    function renderLoadingSkeletons(count = 4, append = false) {
-        if (!append) resultsContainer.innerHTML = '';
-        const skeletons = Array.from({ length: count }, () => `<article class="result-card skeleton"><div class="card-meta"><span class="skeleton-dot"></span><span class="skeleton-line skeleton-short"></span></div><span class="card-title skeleton-line skeleton-title"></span><p class="card-content skeleton-line skeleton-paragraph"></p></article>`).join('');
-        resultsContainer.insertAdjacentHTML('beforeend', skeletons);
-    }
-
-    function showLoading(show, page) {
-        if (show) {
-            loadingIndicator.hidden = false;
-            if (page === 1) renderLoadingSkeletons(5, false);
-            else renderLoadingSkeletons(3, true);
-            bottomLoading.hidden = false;
-            endOfResults.hidden = true;
-        } else {
-            loadingIndicator.hidden = true;
-            clearSkeletons();
-        }
-    }
-
-    form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const query = queryInput.value.trim();
-        if (!query) return;
-        currentQuery = query;
-        currentPage = 1;
-        hasMore = true;
-        loading = false;
-        allResults = [];
-        emptyState.hidden = true;
-        await routeQuery(query);
-        queryInput.blur();
-    });
+    initAtomicView();
 
     const slashHints = document.getElementById('slash-hints');
     queryInput.addEventListener('input', () => {
@@ -171,19 +138,6 @@ window.addEventListener('DOMContentLoaded', async () => {
 
     document.getElementById('sidebar-library-nav')?.addEventListener('click', () => setWebMode(false));
     document.getElementById('sidebar-web-nav')?.addEventListener('click', () => setWebMode(true));
-
-    observer = new IntersectionObserver((entries) => {
-        if (entries[0].isIntersecting && !loading && hasMore && currentQuery && settingsState.autoLoad !== false) {
-            doSearch(currentQuery, currentPage + 1);
-        }
-    }, { rootMargin: '300px' });
-
-    function ensureSentinelObserved() {
-        if (sentinel && !sentinel.hidden) { observer.unobserve(sentinel); observer.observe(sentinel); }
-    }
-    observer.observe(sentinel);
-
-    loadMoreButton?.addEventListener('click', () => { if (!loading && hasMore && currentQuery) doSearch(currentQuery, currentPage + 1); });
 
     scrollTopButton.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
     function handleScrollTopVisibility() { scrollTopButton.hidden = window.scrollY <= window.innerHeight; }

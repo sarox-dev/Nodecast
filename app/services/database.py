@@ -21,6 +21,7 @@ def get_users_db():
     conn.executescript("""
       CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,username TEXT UNIQUE NOT NULL,password_hash TEXT NOT NULL,is_admin INTEGER DEFAULT 0,created_at TEXT DEFAULT '');
       CREATE TABLE IF NOT EXISTS global_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL DEFAULT '');
+      CREATE TABLE IF NOT EXISTS ai_oauth_transactions(state TEXT PRIMARY KEY,user_id TEXT NOT NULL,code_verifier TEXT NOT NULL,nonce TEXT NOT NULL,redirect_uri TEXT NOT NULL,created_at TEXT NOT NULL);
     """); conn.commit(); return conn
 
 
@@ -96,6 +97,7 @@ CREATE TRIGGER IF NOT EXISTS atomic_fts_update AFTER UPDATE OF content,context_h
 CREATE TABLE IF NOT EXISTS atomic_embeddings(atomic_id TEXT NOT NULL,provider TEXT NOT NULL,model TEXT NOT NULL,dimensions INTEGER DEFAULT 0,embedding BLOB NOT NULL,created_at TEXT DEFAULT '',PRIMARY KEY(atomic_id,provider,model),FOREIGN KEY(atomic_id) REFERENCES atomics(id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS memory_feedback(id TEXT PRIMARY KEY,atomic_id TEXT NOT NULL,feedback TEXT NOT NULL,outcome TEXT DEFAULT '',created_at TEXT DEFAULT '',FOREIGN KEY(atomic_id) REFERENCES atomics(id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS ai_providers(id TEXT PRIMARY KEY,name TEXT NOT NULL,provider_type TEXT NOT NULL DEFAULT 'openai_compatible',base_url TEXT NOT NULL,api_key_encrypted TEXT DEFAULT '',default_model TEXT DEFAULT '',provider_key TEXT DEFAULT '',api_style TEXT DEFAULT 'openai',created_at TEXT DEFAULT '');
+CREATE TABLE IF NOT EXISTS ai_oauth_credentials(provider_id TEXT PRIMARY KEY,client_id TEXT NOT NULL,access_token_encrypted TEXT NOT NULL,refresh_token_encrypted TEXT DEFAULT '',id_token_encrypted TEXT DEFAULT '',expires_at TEXT DEFAULT '',account_id TEXT DEFAULT '',account_email TEXT DEFAULT '',granted_scopes TEXT DEFAULT '',updated_at TEXT DEFAULT '',FOREIGN KEY(provider_id) REFERENCES ai_providers(id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS ai_feature_assignments(id TEXT PRIMARY KEY,feature TEXT UNIQUE NOT NULL,provider_id TEXT NOT NULL,model TEXT NOT NULL,created_at TEXT DEFAULT '',FOREIGN KEY(provider_id) REFERENCES ai_providers(id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS pending_ai_jobs(id TEXT PRIMARY KEY,capture_id TEXT NOT NULL,feature TEXT NOT NULL,status TEXT DEFAULT 'pending',created_at TEXT DEFAULT '',processed_at TEXT DEFAULT '',error_message TEXT DEFAULT '',FOREIGN KEY(capture_id) REFERENCES captures(id) ON DELETE CASCADE);
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON pending_ai_jobs(status);
@@ -207,6 +209,44 @@ def delete_ai_provider(uid,pid):
     c=get_db(uid)
     try: cur=c.execute("DELETE FROM ai_providers WHERE id=?",(pid,)); c.commit(); return cur.rowcount>0
     finally: c.close()
+
+
+def save_ai_oauth_credentials(uid, provider_id, client_id, access_token, refresh_token="", id_token="", expires_at="", account_id="", account_email="", granted_scopes=""):
+    c=get_db(uid)
+    try:
+        c.execute("""INSERT INTO ai_oauth_credentials VALUES (?,?,?,?,?,?,?,?,?,?)
+                     ON CONFLICT(provider_id) DO UPDATE SET client_id=excluded.client_id,access_token_encrypted=excluded.access_token_encrypted,
+                     refresh_token_encrypted=excluded.refresh_token_encrypted,id_token_encrypted=excluded.id_token_encrypted,expires_at=excluded.expires_at,
+                     account_id=excluded.account_id,account_email=excluded.account_email,granted_scopes=excluded.granted_scopes,updated_at=excluded.updated_at""",
+                  (provider_id,client_id,encrypt_api_key(access_token),encrypt_api_key(refresh_token),encrypt_api_key(id_token),expires_at,account_id,account_email,granted_scopes,_now()))
+        c.commit()
+    finally: c.close()
+
+
+def get_ai_oauth_credentials(uid, provider_id):
+    c=get_db(uid)
+    try:
+        row=c.execute("SELECT * FROM ai_oauth_credentials WHERE provider_id=?",(provider_id,)).fetchone()
+        return dict(row) if row else None
+    finally: c.close()
+
+
+def create_ai_oauth_transaction(state, user_id, code_verifier, nonce, redirect_uri):
+    c=get_users_db()
+    try:
+        c.execute("DELETE FROM ai_oauth_transactions WHERE datetime(created_at) < datetime('now','-10 minutes')")
+        c.execute("INSERT INTO ai_oauth_transactions VALUES (?,?,?,?,?,?)",(state,user_id,code_verifier,nonce,redirect_uri,_now()))
+        c.commit()
+    finally: c.close()
+
+
+def consume_ai_oauth_transaction(state):
+    c=get_users_db()
+    try:
+        row=c.execute("SELECT * FROM ai_oauth_transactions WHERE state=? AND datetime(created_at) >= datetime('now','-10 minutes')",(state,)).fetchone()
+        c.execute("DELETE FROM ai_oauth_transactions WHERE state=?",(state,)); c.commit()
+        return dict(row) if row else None
+    finally: c.close()
 def list_ai_assignments(uid):
     c=get_db(uid)
     try: return [dict(r) for r in c.execute("SELECT * FROM ai_feature_assignments ORDER BY feature")]
@@ -267,7 +307,7 @@ def add_ai_job(uid,cid,feature):
     finally: c.close()
 def get_pending_ai_jobs_grouped(uid):
     c=get_db(uid)
-    try: return [dict(r) for r in c.execute("SELECT j.id,j.capture_id,j.feature,j.created_at,COALESCE(a.provider_id,'') provider_id,COALESCE(a.model,'') model FROM pending_ai_jobs j LEFT JOIN ai_feature_assignments a ON a.feature=j.feature WHERE j.status='pending' ORDER BY a.provider_id,a.model,j.created_at")]
+    try: return [dict(r) for r in c.execute("SELECT j.id,j.capture_id,j.feature,j.created_at,COALESCE(c.source_title,'') source_title,COALESCE(a.provider_id,'') provider_id,COALESCE(a.model,'') model FROM pending_ai_jobs j LEFT JOIN captures c ON c.id=j.capture_id LEFT JOIN ai_feature_assignments a ON a.feature=j.feature WHERE j.status='pending' ORDER BY a.provider_id,a.model,j.created_at")]
     finally: c.close()
 def count_pending_ai_jobs(uid):
     c=get_db(uid)

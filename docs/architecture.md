@@ -7,7 +7,7 @@
 
 ## Product boundary
 
-Nodecast is not a general web-search engine or a manual note organizer. It is a local memory layer for knowledge a person deliberately saves, with exact source provenance.
+Nodecast is not a general web-search engine or a manual note organizer. It is a local personal-recall layer for knowledge a person deliberately saves, with exact source provenance. The main question is not “where did I file this?” but “what have I already encountered about this?”
 
 ## Pipeline
 
@@ -32,6 +32,16 @@ Core and the MV3 extension communicate through a small `window.postMessage` brid
 For a highlighted capture, the content script snapshots the selection and CapturePackage before the floating button receives focus. The button is isolated in Shadow DOM, constrained to the viewport and reports saving/success/error states. Password fields, editable controls and the Core workspace itself do not receive a floating save control.
 
 A save without highlighted text is a bookmark: Nodecast stores source metadata and does not extract page knowledge. A highlighted save queues background atomic processing.
+
+## Recall boundary
+
+ChatGPT plan access is an optional per-user provider using OpenAI's official
+Authorization Code + PKCE flow. OAuth access, refresh and ID tokens are Fernet-encrypted
+in the user's database. ChatGPT plan requests use the Responses API with `store: false`
+and `stream: true`; Nodecast sends only the selected Memory Packet and never requests or
+imports ChatGPT conversations or ChatGPT Memory.
+
+`POST /api/memory/query` is the one query boundary. It first produces a small local evidence packet using FTS and source diversity. An optional per-user `recall_synthesis` assignment can then create a concise answer from that packet only. Every returned section must cite evidence IDs that are visible in the same response. If no Recall model is configured or it fails, the API reports the condition and returns local evidence plus sources rather than inventing an answer.
 
 ## Data model
 

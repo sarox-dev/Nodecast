@@ -30,6 +30,13 @@ function initAtomicView() {
         if (!loading && hasMore && currentQuery) doSearch(currentQuery, currentPage + 1);
     });
 
+    resultsContainer?.addEventListener('click', event => {
+        const citation = event.target.closest('[data-evidence-id]');
+        if (!citation) return;
+        const card = resultsContainer.querySelector(`.result-card[data-id="${CSS.escape(citation.dataset.evidenceId)}"]`);
+        card?.click();
+    });
+
     form?.addEventListener('submit', async (e) => {
         e.preventDefault();
         const query = queryInput.value.trim();
@@ -70,10 +77,10 @@ function renderLoadingSkeletons(count = 4, append = false) {
 
 function showLoading(show, page) {
     if (show) {
-        loadingIndicator.hidden = false;
+        loadingIndicator.hidden = page !== 1;
+        bottomLoading.hidden = page === 1;
         if (page === 1) renderLoadingSkeletons(5, false);
         else renderLoadingSkeletons(3, true);
-        bottomLoading.hidden = false;
         endOfResults.hidden = true;
     } else {
         loadingIndicator.hidden = true;
@@ -174,8 +181,8 @@ function renderResults(append = false) {
             <div class="empty-icon">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></svg>
             </div>
-            <h3>No knowledge atoms found</h3>
-            <p>No results for "${escapeHtml(currentQuery)}". Try different keywords.</p>`;
+            <h3>No saved evidence found</h3>
+            <p>Nothing saved matches "${escapeHtml(currentQuery)}" yet. Try a different phrasing.</p>`;
     } else {
         emptyState.hidden = true;
     }
@@ -220,7 +227,7 @@ async function doSearch(query, page) {
 }
 
 function renderMemoryView(viewModel) {
-    const synthesis = viewModel.synthesis || {};
+    const synthesis = viewModel.answer || viewModel.synthesis || {};
     if (synthesis.status === 'error' && typeof showNotification === 'function') {
         showNotification({
             title: synthesis.http_status ? `AI error ${synthesis.http_status}` : 'AI synthesis unavailable',
@@ -230,15 +237,20 @@ function renderMemoryView(viewModel) {
             onAction: () => typeof openSettings === 'function' && openSettings('AI'),
         });
     }
-    const hasSynthesis = synthesis.status !== 'unavailable' && synthesis.status !== 'not_requested' && synthesis.summary;
-    const synthesisHtml = hasSynthesis ? `<section class="memory-synthesis memory-synthesis-${escapeHtml(viewModel.view || 'list')}">
+    const hasSynthesis = viewModel.synthesis_status === 'success' && synthesis.summary;
+    const isEmptyLibrary = !currentQuery && allResults.length === 0;
+    const synthesisHtml = isEmptyLibrary ? `<section class="memory-empty-library">
+        <span class="memory-synthesis-label">Your private recall layer</span>
+        <h2>Save something worth finding later.</h2>
+        <p>Highlight text on any webpage and press Save. Nodecast keeps the original source locally, then makes it available when you ask in your own words.</p>
+    </section>` : hasSynthesis ? `<section class="memory-synthesis memory-synthesis-${escapeHtml(viewModel.view || 'list')}">
         <div class="memory-synthesis-label">AI synthesis</div>
         <h2>${escapeHtml(synthesis.title || currentQuery)}</h2>
         <p>${escapeHtml(synthesis.summary)}</p>
-        ${(synthesis.sections || []).map(section => `<div class="memory-synthesis-section"><h3>${escapeHtml(section.title)}</h3><p>${escapeHtml(section.content)}</p><span>${(section.evidence_ids || []).length} evidence</span></div>`).join('')}
-    </section>` : `<div class="memory-fallback-note">Local results · AI synthesis was not used</div>`;
+        ${(synthesis.sections || []).map(section => `<div class="memory-synthesis-section"><h3>${escapeHtml(section.title)}</h3><p>${escapeHtml(section.content)}</p><div class="memory-synthesis-citations">${(section.evidence_ids || []).map((id, index) => `<button type="button" data-evidence-id="${escapeHtml(id)}" aria-label="Open supporting evidence ${index + 1}">Evidence ${index + 1}</button>`).join('')}</div></div>`).join('')}
+    </section>` : `<div class="memory-fallback-note">Local evidence only · ${viewModel.synthesis_status === 'error' ? 'AI synthesis failed.' : 'Connect a Recall synthesis model in Settings → AI for an evidence-cited answer.'}</div>`;
     resultsContainer.innerHTML = synthesisHtml + allResults.map(createCard).join('');
-    emptyState.hidden = allResults.length !== 0;
+    emptyState.hidden = true;
     updatePaginationControls();
 }
 
@@ -294,6 +306,7 @@ async function loadLibrary() {
     loading = true;
     webMode = false;
     currentQuery = '';
+    showLoading(false, 1);
     try {
         const resp = await fetch('/api/memory?limit=8');
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -307,6 +320,7 @@ async function loadLibrary() {
         if (typeof showNotification === 'function') showNotification({ title: 'Library unavailable', message: err.message || 'Could not load saved content.', type: 'error', key: 'library-load' });
     }
     loading = false;
+    showLoading(false, 1);
 }
 
 function renderDashboard(data) {

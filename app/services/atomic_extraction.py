@@ -8,7 +8,6 @@ import logging
 import re
 from datetime import datetime, timezone
 
-from app.services.ai_crypto import decrypt_api_key
 from app.services.database import (
     get_ai_assignment_for_feature,
     get_ai_provider,
@@ -20,7 +19,7 @@ from app.services.database import (
     insert_atomic,
 )
 from app.services.html_cleaner import extract_main_content
-from app.services.ai_client import call_ai_model
+from app.services.ai_client import call_provider_model
 from app.services.atomic_relations import discover_relations_for_capture
 from app.services.aggregate_creator import create_aggregates_for_user
 
@@ -87,8 +86,8 @@ def extract_atomics_from_text(user_id: str, capture_id: str, cleaned_text: str) 
     provider = get_ai_provider(user_id, assignment["provider_id"]) if assignment else None
     if provider and evidence:
         numbered = "\n".join(f'{i}: {item["content"][:700]}' for i, item in enumerate(evidence))
-        result = call_ai_model(provider["base_url"], decrypt_api_key(provider.get("api_key_encrypted", "")),
-                               assignment["model"], [{"role":"system","content":ATOMIC_SYSTEM_PROMPT},{"role":"user","content":numbered[:8000]}], timeout=60)
+        result = call_provider_model(user_id, provider, assignment["model"],
+                                     [{"role":"system","content":ATOMIC_SYSTEM_PROMPT},{"role":"user","content":numbered[:8000]}], timeout=60)
         parsed = _parse_atomics_json(result or "") or []
         concept_mentions = []
         conn = get_db(user_id)

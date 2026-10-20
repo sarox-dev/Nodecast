@@ -1,7 +1,7 @@
 // Workspace shell controller. Existing feature modules remain responsible for data fetching/rendering.
 (function createWorkspaceController() {
     const VIEW_COPY = {
-        library: ['Personal memory', 'Library', 'Recent evidence and concepts from your saved sources.'],
+        library: ['Personal recall', 'Ask your library', 'Ask naturally. Every answer stays linked to your saved evidence.'],
         web: ['Search the web', 'Web Search', 'Send a query to your configured search engine.'],
         sources: ['Provenance', 'Sources', 'Audit saved pages and the evidence extracted from them.'],
         entities: ['Concept index', 'Concepts', 'Browse recurring people, tools and concepts.'],
@@ -220,7 +220,7 @@
             saveViewButton.hidden = false;
             eyebrow.textContent = 'Memory retrieval';
             title.textContent = value.replace(/^\/\w+\s*/, '') || 'Results';
-            description.textContent = 'Ranked saved knowledge with traceable sources.';
+            description.textContent = 'Answering from your saved evidence with traceable sources.';
             store.set({ query: value, section: 'library', projection: 'list' });
             navButtons.forEach(button => button.classList.toggle('active', button.dataset.workspaceView === 'library'));
             applyProjection('list');

@@ -20,15 +20,19 @@ def _update_progress(user_id: str, **values):
 
 def get_batch_status(user_id: str) -> dict:
     with _lock:
-        return dict(_status.get(user_id, {"running": False, "total": 0, "processed": 0, "errors": 0, "skipped": 0, "current": "", "operation": ""}))
+        status = dict(_status.get(user_id, {"running": False, "total": 0, "processed": 0, "errors": 0, "skipped": 0, "current": "", "operation": ""}))
+    status["pending"] = count_pending_ai_jobs(user_id)
+    return status
 
 
-def process_batch(user_id: str) -> dict:
+def process_batch(user_id: str, operation: str = "atomic_extraction") -> dict:
     jobs = get_pending_ai_jobs_grouped(user_id)
     result = {"total": len(jobs), "processed": 0, "errors": 0, "skipped": 0}
-    _update_progress(user_id, running=True, operation="atomic extraction", **result)
+    _update_progress(user_id, running=True, operation=operation, current="", **result)
     while jobs:
         for job in jobs:
+            current = job.get("source_title") or job["capture_id"]
+            _update_progress(user_id, **result, current=current)
             try:
                 response = extract_atomics_for_capture(user_id, job["capture_id"])
                 if response.get("status") == "success":
@@ -40,27 +44,38 @@ def process_batch(user_id: str) -> dict:
             except Exception as exc:
                 mark_ai_job_error(user_id, job["id"], str(exc)); result["errors"] += 1
                 logger.exception("Atomic job failed for %s", job["capture_id"])
-            _update_progress(user_id, **result, current=job["capture_id"])
+            _update_progress(user_id, **result, current=current)
 
         # Saves can arrive while this batch is running. Drain those jobs before
         # clearing the running flag so they do not wait for the auto interval.
         jobs = get_pending_ai_jobs_grouped(user_id)
         result["total"] = result["processed"] + result["errors"] + result["skipped"] + len(jobs)
         _update_progress(user_id, **result)
-    _update_progress(user_id, running=False, operation="", **result)
+    _update_progress(user_id, running=False, current="", **result)
     return result
 
 
-def _run(user_id: str):
-    try: process_batch(user_id)
+def _run(user_id: str, operation: str):
+    try: process_batch(user_id, operation)
     finally: _update_progress(user_id, running=False)
 
 
-def start_background_batch(user_id: str) -> dict:
-    if get_batch_status(user_id).get("running"):
-        return {"status": "already_running"}
-    threading.Thread(target=_run, args=(user_id,), daemon=True).start()
-    return {"status": "started"}
+def start_background_batch(user_id: str, operation: str = "atomic_extraction") -> dict:
+    total = count_pending_ai_jobs(user_id)
+    with _lock:
+        if _status.get(user_id, {}).get("running"):
+            return {"status": "already_running"}
+        _status[user_id] = {
+            "running": True,
+            "total": total,
+            "processed": 0,
+            "errors": 0,
+            "skipped": 0,
+            "current": "",
+            "operation": operation,
+        }
+    threading.Thread(target=_run, args=(user_id, operation), daemon=True).start()
+    return {"status": "started", "total": total}
 
 
 def process_single(user_id: str, capture_id: str, feature: str = FEATURE_ATOMIC_EXTRACTION) -> dict:

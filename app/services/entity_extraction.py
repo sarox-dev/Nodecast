@@ -6,8 +6,7 @@ Stores results as atomic(type=entity) with relations to source atomics.
 import json
 import logging
 
-from app.services.ai_crypto import decrypt_api_key
-from app.services.ai_client import call_ai_model
+from app.services.ai_client import call_provider_model
 from app.services.database import (
     get_ai_assignment_for_feature,
     get_ai_provider,
@@ -155,15 +154,13 @@ def extract_entities(user_id: str, capture_id: str) -> dict:
         return {"status": "skipped", "message": "No content to analyze"}
 
     system_prompt = _build_entity_system_prompt(user_id)
-    api_key = decrypt_api_key(provider.get("api_key_encrypted", ""))
-
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": context[:6000]},
     ]
-    result = call_ai_model(
-        base_url=provider["base_url"],
-        api_key=api_key,
+    result = call_provider_model(
+        user_id=user_id,
+        provider=provider,
         model=assignment["model"],
         messages=messages,
     )

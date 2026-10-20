@@ -593,9 +593,9 @@ body::before {
 /* ─── AI Batch Progress Bar ────────────────────────────────────── */
 
 .ai-progress-bar {
-  display: flex;
-  align-items: center;
-  padding: 0.3rem 0.75rem;
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.7rem 0.75rem;
   background: var(--surface, #161b22);
   border: 1px solid var(--border, #30363d);
   border-radius: 6px;
@@ -603,11 +603,11 @@ body::before {
   font-size: 0.78rem;
 }
 .ai-progress-bar[hidden] { display: none; }
-.ai-progress-inner {
+.ai-progress-copy {
   display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  width: 100%;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
 }
 .ai-progress-track {
   flex: 1;
@@ -618,14 +618,26 @@ body::before {
 }
 .ai-progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #1f6feb, #58a6ff);
+  background: var(--accent, #4f7cff);
   border-radius: 3px;
   transition: width 0.5s ease;
 }
 #ai-progress-text {
+  color: var(--text, #e6edf3);
+  font-weight: 500;
+}
+#ai-progress-detail {
   color: var(--text-secondary, #8b949e);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
-  min-width: 130px;
+  max-width: 55%;
+}
+.ai-progress-bar[data-state="complete"] .ai-progress-fill {
+  background: var(--success, #3b9b68);
+}
+.ai-progress-bar[data-state="error"] .ai-progress-fill {
+  background: var(--danger, #d15353);
 }
 
 .status-left {
