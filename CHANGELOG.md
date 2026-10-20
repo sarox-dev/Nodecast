@@ -1,3 +1,8 @@
+## v1.4.1 (2026-10-20)
+
+- fix: harden authentication storage and update boundaries (d9164a7)
+
+
 ## v1.4.0 (2026-10-20)
 
 - feat: add ChatGPT recall workflow and atomic memory UI (0637811)
