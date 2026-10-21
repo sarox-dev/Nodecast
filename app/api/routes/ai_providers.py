@@ -151,7 +151,7 @@ def models(provider_id:str,user=Depends(get_current_user)):
     if row.get("provider_type") == "chatgpt_oauth":
         try:
             token = get_access_token(user["user_id"], provider_id)
-            r=httpx.get("https://api.openai.com/v1/models",headers={"Authorization":f"Bearer {token}"},timeout=15); r.raise_for_status()
+            r=httpx.get("https://api.openai.com/v1/models",headers={"Authorization":f"Bearer {token}"},timeout=5); r.raise_for_status()
             return {"models":_normalize_model_catalog(r.json(), chatgpt_plan=True)}
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
@@ -169,7 +169,7 @@ def models(provider_id:str,user=Depends(get_current_user)):
         return {"models":[],"error":"unsafe_provider_url"}
     headers={"Authorization":f"Bearer {decrypt_api_key(row['api_key_encrypted'])}"} if row["api_key_encrypted"] else {}
     try:
-        r=httpx.get(f"{base_url}/models",headers=headers,timeout=10,follow_redirects=False); r.raise_for_status()
+        r=httpx.get(f"{base_url}/models",headers=headers,timeout=5,follow_redirects=False); r.raise_for_status()
         return {"models":_normalize_model_catalog(r.json())}
     except (httpx.HTTPError,KeyError,ValueError): return {"models":[],"error":"offline"}
 

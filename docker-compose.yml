@@ -5,7 +5,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "127.0.0.1:${APP_PORT}:${APP_PORT}"
+      - "${NODECAST_BIND_HOST:-127.0.0.1}:${APP_PORT}:${APP_PORT}"
     volumes:
       # :Z grants this container write access on SELinux hosts (Fedora/RHEL)
       # while keeping the rest of the container filesystem read-only.

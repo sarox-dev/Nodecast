@@ -34,7 +34,11 @@ docker compose logs -f app
 
 The default URL is `http://localhost:5000`; change `APP_PORT` and
 `NODECAST_PUBLIC_ORIGIN` together in `.env` if needed. Compose binds only to
-`127.0.0.1`, drops Linux capabilities, uses a read-only application filesystem and
+`127.0.0.1` by default. To intentionally allow a trusted LAN, set
+`NODECAST_BIND_HOST=0.0.0.0` and set `NODECAST_PUBLIC_ORIGIN` to the exact LAN
+origin (for example `http://192.168.8.116:5000`). Do not expose that port to the
+public internet; use TLS and an access-controlled reverse proxy or VPN for remote
+access. Compose drops Linux capabilities, uses a read-only application filesystem and
 does not mount source code. The container runs as the host user configured by
 `NODECAST_UID` and `NODECAST_GID`. The interactive Docker installer detects those
 values and performs a one-time ownership adjustment for `contents/`, allowing

@@ -133,6 +133,31 @@ async function loadCurrentSettingsUser() {
     return currentSettingsUser;
 }
 
+// Settings must remain usable when an optional provider, extension, or network
+// request is unavailable.  In particular, never leave a skeleton indefinitely.
+async function fetchSettingsJson(url, fallback = null, timeout = 5000, options = {}) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    try {
+        const response = await fetch(url, { ...options, signal: controller.signal });
+        return response.ok ? await response.json() : fallback;
+    } catch {
+        return fallback;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+async function getExtensionStatus(timeout = 3000) {
+    const fallback = { detected: false, connected: false };
+    const ready = window.nodecastExtension?.whenReady?.();
+    if (!ready) return fallback;
+    return Promise.race([
+        Promise.resolve(ready).catch(() => fallback),
+        new Promise(resolve => setTimeout(() => resolve(fallback), timeout)),
+    ]);
+}
+
 function getValue(item) {
     const stored = localStorage.getItem(item.key);
     if (stored === null) return item.default;
@@ -207,10 +232,10 @@ function _snapshotTab() {
 async function renderSettingsOverview() {
     settingsList.innerHTML = '<div class="settings-overview-loading">Loading workspace status…</div>';
     const [extension, account, providerData, serverSettings] = await Promise.all([
-        window.nodecastExtension?.whenReady() || Promise.resolve({ detected: false, connected: false }),
-        fetch('/auth/me').then(response => response.ok ? response.json() : null).catch(() => null),
-        fetch('/api/ai/providers').then(response => response.ok ? response.json() : null).catch(() => null),
-        fetch('/api/server/settings').then(response => response.ok ? response.json() : null).catch(() => null),
+        getExtensionStatus(),
+        fetchSettingsJson('/auth/me'),
+        fetchSettingsJson('/api/ai/providers'),
+        fetchSettingsJson('/api/server/settings'),
     ]);
     currentSettingsUser = account;
     if (activeSettingsCategory !== 'Overview') return;
@@ -254,12 +279,10 @@ async function renderSettingsOverview() {
 
 async function renderExtensionSettings() {
     settingsList.innerHTML = '<div class="extension-settings-loading">Checking extension connection…</div>';
-    const status = await window.nodecastExtension?.whenReady() || { detected: false, connected: false };
-    let remote = null;
-    try {
-        const response = await fetch('/api/extension/settings');
-        if (response.ok) remote = await response.json();
-    } catch {}
+    const [status, remote] = await Promise.all([
+        getExtensionStatus(),
+        fetchSettingsJson('/api/extension/settings'),
+    ]);
 
     const settings = remote?.settings || {
         floating_button_enabled: true,
@@ -549,23 +572,23 @@ async function renderAISettings() {
     settingsCategoryDescription.textContent = desc;
     settingsList.innerHTML = skeletonLoader(6);
 
-    // Fetch providers and assignments
-    try {
-        const rp = await fetch('/api/ai/providers');
-        aiProviders = rp.ok ? (await rp.json()).providers : [];
-    } catch { aiProviders = []; }
-    try {
-        const ra = await fetch('/api/ai/assignments');
-        aiAssignments = ra.ok ? (await ra.json()).assignments : [];
-    } catch { aiAssignments = []; }
+    // Provider configuration is local. Do not let an unreachable external
+    // model catalog block this view from rendering.
+    const [providerData, assignmentData] = await Promise.all([
+        fetchSettingsJson('/api/ai/providers', { providers: [] }),
+        fetchSettingsJson('/api/ai/assignments', { assignments: [] }),
+    ]);
+    aiProviders = providerData?.providers || [];
+    aiAssignments = assignmentData?.assignments || [];
 
     // Fetch models for ALL providers in parallel (shows online status + pre-populates dropdowns)
     const providerModels = new Map();
     await Promise.all(aiProviders.map(async (p) => {
         try {
-            const r = await fetch(`/api/ai/providers/${p.id}/models`);
-            if (r.ok) {
-                const data = await r.json();
+            // A model catalog is optional metadata. Keep the Settings surface
+            // responsive even while a provider is timing out or refreshing OAuth.
+            const data = await fetchSettingsJson(`/api/ai/providers/${p.id}/models`, null, 1200);
+            if (data) {
                 providerModels.set(p.id, { models: data.models || [], online: true });
             } else {
                 providerModels.set(p.id, { models: [], online: false });
@@ -578,13 +601,8 @@ async function renderAISettings() {
     let html = '<div class="settings-field-group">';
 
     // Fetch saved interval from server
-    try {
-        const r = await fetch('/api/ai/auto-process-settings');
-        if (r.ok) {
-            const data = await r.json();
-            _savedInterval = data.interval_minutes || 60;
-        }
-    } catch {}
+    const autoProcessSettings = await fetchSettingsJson('/api/ai/auto-process-settings');
+    if (autoProcessSettings) _savedInterval = autoProcessSettings.interval_minutes || 60;
 
     // ─── Providers section ────────────────────────────────────
     html += '<div class="settings-section-header"><h3>AI Providers</h3></div>';
@@ -635,11 +653,8 @@ async function renderAISettings() {
     html += '<div class="settings-list" style="gap:0.6rem">';
 
     // Fetch available features
-    let features = [];
-    try {
-        const rf = await fetch('/api/ai/features');
-        features = rf.ok ? (await rf.json()).features : [];
-    } catch {}
+    const featureData = await fetchSettingsJson('/api/ai/features', { features: [] });
+    const features = featureData?.features || [];
 
     for (const feat of features) {
         const assignment = aiAssignments.find(a => a.feature === feat.id);
@@ -755,8 +770,7 @@ function attachAIHandlers() {
             modelSel.innerHTML = '<option value="">Loading models...</option>';
             modelSel.disabled = false;
             try {
-                const r = await fetch(`/api/ai/providers/${providerId}/models`);
-                const data = r.ok ? await r.json() : { models: [] };
+                const data = await fetchSettingsJson(`/api/ai/providers/${providerId}/models`, { models: [] }, 4000);
                 if (data.models && data.models.length > 0) {
                     modelSel.innerHTML = data.models.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name || m.id)}</option>`).join('');
                 } else {
