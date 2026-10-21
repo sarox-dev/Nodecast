@@ -92,17 +92,20 @@ def chatgpt_oauth_callback(
     transaction = consume_ai_oauth_transaction(state)
     if not transaction:
         return HTMLResponse("<h1>Authorization expired</h1><p>Close this window and try again from Nodecast.</p>", status_code=400)
-    if error or not code or client_id != DYNAMIC_CLIENT_ID:
+    # Dynamic registration replaces the provisional client ID with the
+    # OpenAI-issued oaiapp_ ID in the callback. That issued ID must be used for
+    # the token exchange and retained for later refreshes.
+    if error or not code or not client_id:
         detail = html.escape(error_description or error or "Authorization was not completed")
         return HTMLResponse(f"<h1>ChatGPT was not connected</h1><p>{detail}</p>", status_code=400)
     try:
-        tokens, identity = exchange_code(transaction, code, DYNAMIC_CLIENT_ID)
+        tokens, identity = exchange_code(transaction, code, client_id)
         existing = next((p for p in list_ai_providers(transaction["user_id"]) if p.get("provider_type") == "chatgpt_oauth"), None)
         provider = existing or create_ai_provider(
             transaction["user_id"], "ChatGPT subscription", "https://api.openai.com/v1", "",
             "chatgpt_oauth", "chatgpt", "responses_oauth",
         )
-        store_tokens(transaction["user_id"], provider["id"], DYNAMIC_CLIENT_ID, tokens, identity)
+        store_tokens(transaction["user_id"], provider["id"], client_id, tokens, identity)
     except (httpx.HTTPError, ValueError) as exc:
         return HTMLResponse(f"<h1>ChatGPT connection failed</h1><p>{html.escape(str(exc))}</p>", status_code=400)
     return HTMLResponse("""<!doctype html><meta charset="utf-8"><title>ChatGPT connected</title>

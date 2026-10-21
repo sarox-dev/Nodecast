@@ -5,6 +5,7 @@ import httpx
 import pytest
 
 from app.services import ai_client, chatgpt_oauth
+from app.api.routes import ai_providers
 from app.api.routes.ai_providers import _normalize_model_catalog
 
 
@@ -19,6 +20,28 @@ def test_authorization_uses_pkce_and_plan_scopes(monkeypatch):
     assert query["resource"] == ["https://api.openai.com/v1"]
     assert "chatgpt.tokens.use.direct" in query["scope"][0]
     assert saved["args"][0] == query["state"][0]
+
+
+def test_callback_uses_openai_issued_dynamic_client_id(monkeypatch):
+    stored = {}
+    monkeypatch.setattr(ai_providers, "consume_ai_oauth_transaction", lambda state: {
+        "user_id": "user-a", "code_verifier": "verifier", "nonce": "nonce", "redirect_uri": "http://127.0.0.1:5000/api/ai/chatgpt/callback",
+    })
+    monkeypatch.setattr(ai_providers, "exchange_code", lambda transaction, code, client_id: (
+        {"access_token": "token"}, {"sub": "account-a", "email": "person@example.test"},
+    ))
+    monkeypatch.setattr(ai_providers, "list_ai_providers", lambda user_id: [])
+    monkeypatch.setattr(ai_providers, "create_ai_provider", lambda *args: {"id": "provider-a"})
+    monkeypatch.setattr(ai_providers, "store_tokens", lambda user_id, provider_id, client_id, tokens, identity: stored.update({
+        "user_id": user_id, "provider_id": provider_id, "client_id": client_id,
+    }))
+
+    response = ai_providers.chatgpt_oauth_callback(
+        state="state", code="authorization-code", client_id="oaiapp_issued_by_openai", error=None, error_description=None,
+    )
+
+    assert response.status_code == 200
+    assert stored == {"user_id": "user-a", "provider_id": "provider-a", "client_id": "oaiapp_issued_by_openai"}
 
 
 def test_chatgpt_plan_request_is_isolated_and_not_stored(monkeypatch):
