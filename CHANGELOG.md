@@ -1,3 +1,8 @@
+## v1.4.2 (2026-10-21)
+
+- Fix Docker runtime and static asset requests (16b5904)
+
+
 ## v1.4.1 (2026-10-20)
 
 - fix: harden authentication storage and update boundaries (d9164a7)
