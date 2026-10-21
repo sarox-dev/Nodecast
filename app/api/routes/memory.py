@@ -5,7 +5,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.services.auth import get_current_user
-from app.services.memory_retrieval import focused_graph, memory_detail, memory_feedback, memory_sources, query_memory, recent_memory, relation_feedback, stream_memory_query
+from app.services.memory_retrieval import focused_graph, memory_constellation, memory_detail, memory_feedback, memory_sources, query_memory, recent_memory, relation_feedback, stream_memory_query
 
 router = APIRouter(prefix="/api", tags=["memory"])
 
@@ -40,6 +40,10 @@ def search_stream(body:MemoryQuery,user=Depends(get_current_user)):
 @router.get("/memory")
 def recent(limit:int=Query(8,ge=1,le=8),user=Depends(get_current_user)):
     return recent_memory(user["user_id"],limit)
+
+@router.get("/memory/constellation/overview")
+def constellation(limit:int=Query(48,ge=12,le=60),user=Depends(get_current_user)):
+    return memory_constellation(user["user_id"],limit)
 
 @router.get("/memory/{memory_id}")
 def detail(memory_id:str,user=Depends(get_current_user)):

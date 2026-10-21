@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from app.services.auth import (
     hash_password, verify_password, create_token,
-    get_current_user, password_is_supported, set_session_cookie, COOKIE_NAME
+    get_current_user, password_is_supported, set_session_cookie, start_web_session, COOKIE_NAME
 )
 from app.services.database import (
     init_user_db, user_exists,
@@ -14,6 +14,8 @@ from app.services.database import (
     get_all_users, update_password, update_username,
     delete_user, clear_user_data,
     user_count, get_registration_setting, set_registration_setting,
+    list_web_session_accounts, switch_web_session_account, remove_web_session_account,
+    get_web_session_user, web_session_binding,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -73,6 +75,9 @@ class AdminDeleteUserRequest(BaseModel):
     admin_password: str
     action: str  # "delete" or "clear_data"
 
+class SwitchAccountRequest(BaseModel):
+    user_id: str
+
 
 # ─── API Token ────────────────────────────────────────────────────
 
@@ -89,7 +94,11 @@ def get_api_token(req: LoginRequest, request: Request):
         _record_failure(ip_key)
         raise HTTPException(401, "Invalid username or password")
     _clear_failures(key)
-    token = create_token(user["id"], user["username"], scope="extension")
+    session_secret = request.cookies.get(COOKIE_NAME, "")
+    active = get_web_session_user(session_secret)
+    if not active or active["id"] != user["id"]:
+        raise HTTPException(409, "Connect the extension from Nodecast Settings")
+    token = create_token(user["id"], user["username"], scope="extension", session_binding=web_session_binding(session_secret))
     return {"token": token, "user_id": user["id"], "username": user["username"]}
 
 
@@ -124,8 +133,7 @@ def register(req: RegisterRequest, response: Response, request: Request):
     user_id = create_user_in_db(username, hash_password(req.password), is_admin=is_admin)
     init_user_db(user_id)
 
-    token = create_token(user_id, username)
-    set_session_cookie(response, token)
+    start_web_session(response, user_id, request.cookies.get(COOKIE_NAME, ""))
     return {
         "success": True,
         "user": {"user_id": user_id, "username": username, "is_admin": is_admin},
@@ -151,8 +159,7 @@ def login(req: LoginRequest, response: Response, request: Request):
         raise HTTPException(401, "Invalid username or password")
 
     _clear_failures(key)
-    token = create_token(user["id"], username)
-    set_session_cookie(response, token)
+    start_web_session(response, user["id"], request.cookies.get(COOKIE_NAME, ""))
     return {
         "success": True,
         "user": {"user_id": user["id"], "username": username, "is_admin": bool(user["is_admin"])},
@@ -161,9 +168,29 @@ def login(req: LoginRequest, response: Response, request: Request):
 
 # ─── Logout ──────────────────────────────────────────────────────
 @router.post("/logout")
-def logout(response: Response):
-    response.delete_cookie(key=COOKIE_NAME, path="/", samesite="strict")
-    return {"success": True, "message": "Logged out"}
+def logout(response: Response, request: Request, current_user: dict = Depends(get_current_user)):
+    secret = request.cookies.get(COOKIE_NAME, "")
+    next_user = remove_web_session_account(secret, current_user["user_id"]) if secret else None
+    if not next_user:
+        response.delete_cookie(key=COOKIE_NAME, path="/", samesite="strict")
+    return {"success": True, "message": "Logged out", "has_active_account": bool(next_user)}
+
+@router.get("/accounts")
+def session_accounts(request: Request, current_user: dict = Depends(get_current_user)):
+    secret = request.cookies.get(COOKIE_NAME, "")
+    accounts = list_web_session_accounts(secret) if secret else []
+    if not accounts:
+        user = get_user_by_id(current_user["user_id"])
+        accounts = [{"id": user["id"], "username": user["username"], "role": user.get("role", "member"), "active": True}]
+    return {"accounts": accounts}
+
+@router.post("/switch-account")
+def switch_account(req: SwitchAccountRequest, request: Request, current_user: dict = Depends(get_current_user)):
+    secret = request.cookies.get(COOKIE_NAME, "")
+    if not secret or not switch_web_session_account(secret, req.user_id):
+        raise HTTPException(403, "Account is not authenticated in this browser session")
+    target = get_user_by_id(req.user_id)
+    return {"success": True, "user": {"user_id": target["id"], "username": target["username"], "role": target.get("role", "member")}}
 
 
 # ─── Me ───────────────────────────────────────────────────────────
@@ -176,6 +203,7 @@ def me(current_user: dict = Depends(get_current_user)):
         "user_id": user["id"],
         "username": user["username"],
         "is_admin": bool(user["is_admin"]),
+        "role": user.get("role", "owner" if user["is_admin"] else "member"),
         "created_at": user["created_at"],
     }
 
@@ -190,7 +218,7 @@ def change_password(req: ChangePasswordRequest, response: Response, current_user
         raise HTTPException(400, "New password must be between 12 and 72 UTF-8 bytes")
     update_password(user["id"], hash_password(req.new_password))
     refreshed = get_user_by_id(user["id"])
-    set_session_cookie(response, create_token(refreshed["id"], refreshed["username"]))
+    start_web_session(response, refreshed["id"], current_user.get("session_secret", ""))
     return {"success": True, "message": "Password updated"}
 
 
@@ -206,8 +234,7 @@ def change_username(req: ChangeUsernameRequest, response: Response, current_user
     if new_username != user["username"] and user_exists(new_username):
         raise HTTPException(409, "Username already taken")
     update_username(user["id"], new_username)
-    token = create_token(user["id"], new_username)
-    set_session_cookie(response, token)
+    start_web_session(response, user["id"], current_user.get("session_secret", ""))
     return {"success": True, "message": "Username updated"}
 
 
@@ -224,6 +251,7 @@ def list_users(current_user: dict = Depends(get_current_user)):
                 "user_id": u["id"],
                 "username": u["username"],
                 "is_admin": bool(u["is_admin"]),
+                "role": u.get("role", "owner" if u["is_admin"] else "member"),
                 "created_at": u["created_at"],
             }
             for u in users

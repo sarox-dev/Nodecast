@@ -2,7 +2,7 @@ from app.services import database
 from app.services import memory_retrieval
 from app.services.ai_client import AIClientError
 from app.services.atomic_extraction import split_evidence
-from app.services.memory_retrieval import detect_intent, focused_graph, query_memory, recent_memory, relation_feedback, stream_memory_query
+from app.services.memory_retrieval import detect_intent, focused_graph, memory_constellation, query_memory, recent_memory, relation_feedback, stream_memory_query
 
 
 def _user_db(tmp_path, monkeypatch):
@@ -90,6 +90,26 @@ def test_focused_graph_hides_precedes_and_candidates_by_default(tmp_path, monkey
     assert focused_graph(user_id, first)["edges"] == []
     expanded = focused_graph(user_id, first, include_candidates=True)
     assert [edge["relation_type"] for edge in expanded["edges"]] == ["supports"]
+
+
+def test_constellation_groups_evidence_by_source_and_only_uses_accepted_semantic_edges(tmp_path, monkeypatch):
+    user_id = _user_db(tmp_path, monkeypatch)
+    database.insert_capture_ref(user_id, "cap-a", "snippet", "https://example.com/docker", "Docker guide", "example.com", "", "2026-10-21", [], "", "")
+    first = database.insert_atomic(user_id, "definition", "Docker packages applications into containers.", source_id="cap-a")
+    second = database.insert_atomic(user_id, "claim", "Containers share the host kernel.", source_id="cap-a")
+    concept = database.insert_atomic(user_id, "technology", "Docker", role="concept", canonical_key="docker", relevance=.9)
+    database.insert_atomic_relation(user_id, first, second, "precedes", 1, method="structural", status="accepted")
+    database.insert_atomic_relation(user_id, first, concept, "defines", .9, method="ai", confidence=.9, status="accepted")
+    database.insert_atomic_relation(user_id, second, concept, "mentions", .6, method="ai", confidence=.6, status="candidate")
+
+    result = memory_constellation(user_id, limit=12)
+
+    assert {node["id"] for node in result["nodes"]} == {"source:cap-a", concept}
+    assert result["edges"] == [{
+        "source_id": "source:cap-a", "target_id": concept,
+        "relation_type": "defines", "confidence": .9,
+    }]
+    assert next(node for node in result["nodes"] if node["id"] == "source:cap-a")["weight"] == 2
 
 
 def test_ai_auth_error_is_returned_as_actionable_synthesis_status(tmp_path, monkeypatch):

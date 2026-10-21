@@ -4,6 +4,8 @@ import os
 import shutil
 import sqlite3
 import uuid
+import hashlib
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -17,15 +19,25 @@ def _now(): return datetime.now(timezone.utc).isoformat()
 def get_users_db():
     os.makedirs(str(CONTENTS_DIR), exist_ok=True)
     conn = sqlite3.connect(str(USERS_DB_PATH)); conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript("""
       CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,username TEXT UNIQUE NOT NULL,password_hash TEXT NOT NULL,is_admin INTEGER DEFAULT 0,created_at TEXT DEFAULT '',token_version INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS global_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL DEFAULT '');
       CREATE TABLE IF NOT EXISTS ai_oauth_transactions(state TEXT PRIMARY KEY,user_id TEXT NOT NULL,code_verifier TEXT NOT NULL,nonce TEXT NOT NULL,redirect_uri TEXT NOT NULL,created_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS web_sessions(id_hash TEXT PRIMARY KEY,active_user_id TEXT NOT NULL,created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,FOREIGN KEY(active_user_id) REFERENCES users(id) ON DELETE CASCADE);
+      CREATE TABLE IF NOT EXISTS web_session_accounts(session_id_hash TEXT NOT NULL,user_id TEXT NOT NULL,authenticated_at INTEGER NOT NULL,PRIMARY KEY(session_id_hash,user_id),FOREIGN KEY(session_id_hash) REFERENCES web_sessions(id_hash) ON DELETE CASCADE,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE);
+      CREATE INDEX IF NOT EXISTS idx_web_sessions_expiry ON web_sessions(expires_at);
     """)
     user_columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
     if "token_version" not in user_columns:
         conn.execute("ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0")
+    if "role" not in user_columns:
+        conn.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'member'")
+        conn.execute("UPDATE users SET role=CASE WHEN is_admin=1 THEN 'owner' ELSE 'member' END")
+        # Pre-session extension JWTs were not bound to an active browser account.
+        # Revoke them once when the role/session schema is introduced.
+        conn.execute("UPDATE users SET token_version=token_version+1")
     conn.commit(); return conn
 
 
@@ -49,11 +61,11 @@ def get_user_by_username(name):
 def get_user_by_id(uid):
     c=get_users_db()
     try:
-        r=c.execute("SELECT id,username,password_hash,is_admin,created_at,token_version FROM users WHERE id=?",(uid,)).fetchone(); return dict(r) if r else None
+        r=c.execute("SELECT id,username,password_hash,is_admin,role,created_at,token_version FROM users WHERE id=?",(uid,)).fetchone(); return dict(r) if r else None
     finally: c.close()
 def get_all_users():
     c=get_users_db()
-    try: return [dict(r) for r in c.execute("SELECT id,username,is_admin,created_at FROM users ORDER BY created_at")]
+    try: return [dict(r) for r in c.execute("SELECT id,username,is_admin,role,created_at FROM users ORDER BY created_at")]
     finally: c.close()
 def update_password(uid,value):
     c=get_users_db()
@@ -73,6 +85,61 @@ def clear_user_data(uid):
     p=USERS_DATA_DIR/uid
     if p.exists(): shutil.rmtree(p)
     init_user_db(uid)
+
+
+def _session_hash(secret): return hashlib.sha256(secret.encode("utf-8")).hexdigest()
+def web_session_binding(secret): return _session_hash(secret) if secret else ""
+def create_web_session(secret, uid, ttl_seconds):
+    now=int(time.time()); sid=_session_hash(secret); c=get_users_db()
+    try:
+        c.execute("DELETE FROM web_sessions WHERE expires_at<=?",(now,))
+        c.execute("INSERT INTO web_sessions VALUES (?,?,?,?)",(sid,uid,now,now+ttl_seconds))
+        c.execute("INSERT INTO web_session_accounts VALUES (?,?,?)",(sid,uid,now)); c.commit()
+    finally: c.close()
+def add_web_session_account(secret, uid, ttl_seconds):
+    now=int(time.time()); sid=_session_hash(secret); c=get_users_db()
+    try:
+        row=c.execute("SELECT 1 FROM web_sessions WHERE id_hash=? AND expires_at>?",(sid,now)).fetchone()
+        if not row: return False
+        c.execute("INSERT INTO web_session_accounts VALUES (?,?,?) ON CONFLICT(session_id_hash,user_id) DO UPDATE SET authenticated_at=excluded.authenticated_at",(sid,uid,now))
+        c.execute("UPDATE web_sessions SET active_user_id=?,expires_at=? WHERE id_hash=?",(uid,now+ttl_seconds,sid)); c.commit(); return True
+    finally: c.close()
+def get_web_session_user(secret):
+    if not secret: return None
+    now=int(time.time()); sid=_session_hash(secret); c=get_users_db()
+    try:
+        r=c.execute("SELECT u.* FROM web_sessions s JOIN users u ON u.id=s.active_user_id WHERE s.id_hash=? AND s.expires_at>?",(sid,now)).fetchone(); return dict(r) if r else None
+    finally: c.close()
+def list_web_session_accounts(secret):
+    now=int(time.time()); sid=_session_hash(secret); c=get_users_db()
+    try:
+        active=c.execute("SELECT active_user_id FROM web_sessions WHERE id_hash=? AND expires_at>?",(sid,now)).fetchone()
+        if not active: return []
+        return [dict(r) | {"active": r["id"]==active["active_user_id"]} for r in c.execute("SELECT u.id,u.username,u.role FROM web_session_accounts a JOIN users u ON u.id=a.user_id WHERE a.session_id_hash=? ORDER BY a.authenticated_at DESC",(sid,))]
+    finally: c.close()
+def switch_web_session_account(secret, uid):
+    now=int(time.time()); sid=_session_hash(secret); c=get_users_db()
+    try:
+        allowed=c.execute("SELECT 1 FROM web_session_accounts a JOIN web_sessions s ON s.id_hash=a.session_id_hash WHERE a.session_id_hash=? AND a.user_id=? AND s.expires_at>?",(sid,uid,now)).fetchone()
+        if not allowed: return False
+        c.execute("UPDATE web_sessions SET active_user_id=? WHERE id_hash=?",(uid,sid)); c.commit(); return True
+    finally: c.close()
+def remove_web_session_account(secret, uid):
+    sid=_session_hash(secret); c=get_users_db()
+    try:
+        c.execute("DELETE FROM web_session_accounts WHERE session_id_hash=? AND user_id=?",(sid,uid))
+        next_user=c.execute("SELECT user_id FROM web_session_accounts WHERE session_id_hash=? ORDER BY authenticated_at DESC LIMIT 1",(sid,)).fetchone()
+        if next_user: c.execute("UPDATE web_sessions SET active_user_id=? WHERE id_hash=?",(next_user["user_id"],sid))
+        else: c.execute("DELETE FROM web_sessions WHERE id_hash=?",(sid,))
+        c.commit(); return next_user["user_id"] if next_user else None
+    finally: c.close()
+def web_session_matches(secret, uid):
+    user=get_web_session_user(secret); return bool(user and user["id"]==uid)
+def web_session_binding_matches(binding, uid):
+    if not binding: return False
+    now=int(time.time()); c=get_users_db()
+    try: return c.execute("SELECT 1 FROM web_sessions WHERE id_hash=? AND active_user_id=? AND expires_at>?",(binding,uid,now)).fetchone() is not None
+    finally: c.close()
 
 
 REGISTER_SETTINGS_PATH=CONTENTS_DIR/"registration.json"

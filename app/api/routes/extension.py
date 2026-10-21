@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.services.auth import create_token, get_capture_user, get_current_user
-from app.services.database import get_user_setting, set_user_setting
+from app.services.database import get_user_setting, set_user_setting, web_session_binding
 
 
 router = APIRouter(prefix="/api/extension", tags=["extension"])
@@ -53,6 +53,7 @@ def create_pairing_code(current_user: dict = Depends(get_current_user)):
         _pairing_codes[code] = {
             "user_id": current_user["user_id"],
             "username": current_user["username"],
+            "session_binding": web_session_binding(current_user.get("session_secret", "")),
             "expires_at": now + PAIRING_TTL_SECONDS,
         }
     return {"code": code, "expires_in": PAIRING_TTL_SECONDS}
@@ -66,7 +67,7 @@ def exchange_pairing_code(request: PairingExchange):
         pairing = _pairing_codes.pop(request.code, None)
     if not pairing:
         raise HTTPException(401, "Pairing code is invalid or expired")
-    token = create_token(pairing["user_id"], pairing["username"], scope="extension")
+    token = create_token(pairing["user_id"], pairing["username"], scope="extension", session_binding=pairing.get("session_binding", ""))
     return {
         "token": token,
         "user_id": pairing["user_id"],

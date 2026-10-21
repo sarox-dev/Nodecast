@@ -1,11 +1,40 @@
 :root {
   color-scheme: dark;
 
+  /* Semantic palette. Components consume the aliases below, never raw theme colors. */
+  --primary: #818cf8;
+  --primary-50: color-mix(in srgb, var(--primary) 10%, white);
+  --primary-100: color-mix(in srgb, var(--primary) 22%, white);
+  --primary-300: color-mix(in srgb, var(--primary) 65%, white);
+  --primary-500: var(--primary);
+  --primary-700: color-mix(in srgb, var(--primary) 76%, black);
+  --secondary: #60a5fa;
+  --secondary-50: color-mix(in srgb, var(--secondary) 10%, white);
+  --secondary-100: color-mix(in srgb, var(--secondary) 22%, white);
+  --secondary-300: color-mix(in srgb, var(--secondary) 65%, white);
+  --secondary-500: var(--secondary);
+  --secondary-700: color-mix(in srgb, var(--secondary) 76%, black);
+  --background: #0b0f14;
+  --background-50: color-mix(in srgb, var(--background) 92%, white);
+  --background-100: color-mix(in srgb, var(--background) 86%, white);
+  --background-300: color-mix(in srgb, var(--background) 75%, white);
+  --background-500: var(--background);
+  --background-700: color-mix(in srgb, var(--background) 82%, black);
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --motion-duration: 160ms;
+
   /* ─── Background ───────────────────────────────────────────── */
-  --bg: #0b0f14;
-  --bg-elevated: #0f1319;
-  --bg-card: #131820;
-  --bg-card-hover: #171d27;
+  --bg: var(--background);
+  --bg-elevated: color-mix(in srgb, var(--background) 94%, white);
+  --bg-card: color-mix(in srgb, var(--background) 90%, white);
+  --bg-card-hover: color-mix(in srgb, var(--background) 86%, white);
   --bg-header: rgba(11, 15, 20, 0.82);
   --bg-overlay: rgba(8, 11, 16, 0.88);
 
@@ -28,18 +57,18 @@
   --text-tertiary: rgba(232, 234, 237, 0.3);
 
   /* ─── Accent (indigo) ──────────────────────────────────────── */
-  --accent: #818cf8;
-  --accent-hover: #a5b4fc;
-  --accent-subtle: rgba(129, 140, 248, 0.15);
-  --accent-glow: rgba(129, 140, 248, 0.25);
-  --accent-text: #c7d2fe;
+  --accent: var(--primary);
+  --accent-hover: var(--primary-300);
+  --accent-subtle: color-mix(in srgb, var(--primary) 15%, transparent);
+  --accent-glow: color-mix(in srgb, var(--primary) 25%, transparent);
+  --accent-text: var(--primary-100);
 
   /* ─── Saved accent (blue) ──────────────────────────────────── */
-  --saved-accent: #60a5fa;
-  --saved-subtle: rgba(96, 165, 250, 0.12);
-  --saved-border: rgba(96, 165, 250, 0.35);
-  --saved-glow: rgba(96, 165, 250, 0.18);
-  --saved-text: #93c5fd;
+  --saved-accent: var(--secondary);
+  --saved-subtle: color-mix(in srgb, var(--secondary) 12%, transparent);
+  --saved-border: color-mix(in srgb, var(--secondary) 35%, transparent);
+  --saved-glow: color-mix(in srgb, var(--secondary) 18%, transparent);
+  --saved-text: var(--secondary-300);
 
   /* ─── Status colors ────────────────────────────────────────── */
   --success: #22c55e;
@@ -68,4 +97,28 @@
   --transition-fast: 0.12s ease;
   --transition-base: 0.2s ease;
   --transition-slow: 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+:root[data-theme="custom"][data-custom-tone="dark"] {
+  color-scheme: dark;
+}
+
+:root[data-theme="custom"][data-foreground-tone="light"] {
+  --text: #f3f4f6;
+  --text-secondary: rgba(243, 244, 246, 0.62);
+  --text-tertiary: rgba(243, 244, 246, 0.38);
+}
+
+:root[data-theme="custom"][data-foreground-tone="dark"] {
+  --text: #17191e;
+  --text-secondary: rgba(23, 25, 30, 0.62);
+  --text-tertiary: rgba(23, 25, 30, 0.38);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-respect-system-motion="false"]) {
+    --transition-fast: 0ms;
+    --transition-base: 0ms;
+    --transition-slow: 0ms;
+  }
 }

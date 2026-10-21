@@ -63,11 +63,23 @@ const settingsSchema = [
     },
     {
         category: 'Appearance',
-        description: 'Appearance and animation settings.',
+        description: 'Choose a complete color system and tune motion independently.',
+        layout: 'sections',
         items: [
-            { key: 'theme', label: 'Theme', type: 'select', options: [{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }], default: 'dark' },
-            { key: 'animationSpeed', label: 'Reveal animation speed', type: 'select', options: [{ value: 'fast', label: 'Fast' }, { value: 'normal', label: 'Normal' }, { value: 'slow', label: 'Slow' }, { value: 'instant', label: 'Instant (no animation)' }], default: 'fast' }
+            { key: 'theme', label: 'Color mode', description: 'Dark and Light use curated accessible palettes. Custom starts from the same semantic color roles.', type: 'segmented', options: [{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }, { value: 'custom', label: 'Custom' }], default: 'dark', span: 2 },
+            { key: 'customPrimary', label: 'Primary', description: 'Focus, selected controls and primary actions.', type: 'color', default: '#818cf8', visibleWhen: { key: 'theme', value: 'custom' } },
+            { key: 'customSecondary', label: 'Secondary', description: 'Supporting emphasis and saved-content accents.', type: 'color', default: '#60a5fa', visibleWhen: { key: 'theme', value: 'custom' } },
+            { key: 'customBackground', label: 'Background', description: 'Base canvas; surfaces and borders are derived from it.', type: 'color', default: '#0b0f14', visibleWhen: { key: 'theme', value: 'custom' }, span: 2 },
+            { key: 'customIconTone', label: 'Icon and text color', description: 'Choose a light or dark foreground for all text and icons in the custom palette.', type: 'segmented', options: [{ value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }], default: 'light', visibleWhen: { key: 'theme', value: 'custom' }, span: 2 },
+            { key: 'animationDuration', label: 'Interface animation', description: 'Duration used by panels, focus states and view transitions.', type: 'range', min: 0, max: 600, step: 20, unit: 'ms', default: 160, span: 2 },
+            { key: 'graphMotion', label: 'Constellation motion', description: 'Strength of pointer repulsion and ambient graph movement.', type: 'range', min: 0, max: 200, step: 10, unit: '%', default: 100, span: 2 },
+            { key: 'respectSystemMotion', label: 'Respect system motion preference', description: 'When enabled, Nodecast disables non-essential movement if the operating system requests reduced motion.', type: 'toggle', default: true, span: 2 }
         ]
+    },
+    {
+        category: 'Shortcuts',
+        description: 'Keyboard shortcuts available across the Nodecast workspace.',
+        items: []
     },
     {
         category: 'Search',
@@ -109,14 +121,106 @@ const settingsSchema = [
 
 const settingsState = {};
 const SETTINGS_CATEGORY_META = {
-    Overview: { hint: 'Workspace status' },
-    Account: { hint: 'Identity and access' },
-    AI: { hint: 'Models and extraction' },
-    Updates: { hint: 'Version and releases' },
-    Extension: { hint: 'Capture from the web' },
-    Appearance: { hint: 'Theme and motion' },
-    Search: { hint: 'Web search behavior' },
+    Overview: { icon: '<path d="M4 13h6V4H4v9Zm0 7h6v-4H4v4Zm10 0h6v-9h-6v9Zm0-13h6V4h-6v3Z"/>' },
+    Account: { icon: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>' },
+    AI: { icon: '<rect x="5" y="7" width="14" height="12" rx="3"/><path d="M12 3v4M8.5 12h.01m6.99 0h.01M9 16h6M3 11v4m18-4v4"/>' },
+    Updates: { icon: '<path d="M20 12a8 8 0 1 1-2.3-5.7L20 8"/><path d="M20 3v5h-5"/>' },
+    Extension: { icon: '<path d="M8.5 3H4a1 1 0 0 0-1 1v4.5a2.5 2.5 0 1 1 0 5V20a1 1 0 0 0 1 1h6.5a2.5 2.5 0 1 1 5 0H20a1 1 0 0 0 1-1v-4.5a2.5 2.5 0 1 0 0-5V4a1 1 0 0 0-1-1h-6.5a2.5 2.5 0 1 0-5 0Z"/>' },
+    Appearance: { icon: '<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18c2 0 3-1.5 1.8-3.2-.8-1.1 0-2.8 1.4-2.8H18a3 3 0 0 0 3-3c0-5-4-9-9-9Z"/>' },
+    Shortcuts: { icon: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h2m2 0h2m2 0h2M7 13h6m2 0h2"/>' },
+    Search: { icon: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>' },
 };
+
+function settingsIcon(category) {
+    return `<svg class="settings-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SETTINGS_CATEGORY_META[category]?.icon || ''}</svg>`;
+}
+
+const NODECAST_SHORTCUTS = [
+    { id: 'toggle_mode', label: 'Toggle Web / Ask mode', default: 'Mod+K' },
+    { id: 'submit_query', label: 'Run current search or question', default: 'Enter' },
+    { id: 'suggestion_next', label: 'Next search suggestion', default: 'ArrowDown' },
+    { id: 'suggestion_previous', label: 'Previous search suggestion', default: 'ArrowUp' },
+    { id: 'close_view', label: 'Close current result view', default: 'Escape' },
+];
+let shortcutDraft = null;
+
+function shortcutValue(id) {
+    const definition = NODECAST_SHORTCUTS.find(item => item.id === id);
+    return localStorage.getItem(`shortcut.${id}`) ?? definition?.default ?? '';
+}
+
+function shortcutFromEvent(event) {
+    const modifiers = [];
+    if (event.ctrlKey || event.metaKey) modifiers.push('Mod');
+    if (event.altKey) modifiers.push('Alt');
+    if (event.shiftKey) modifiers.push('Shift');
+    const ignored = ['Control', 'Meta', 'Alt', 'Shift'];
+    if (ignored.includes(event.key)) return '';
+    const key = event.key.length === 1 ? event.key.toUpperCase() : event.key;
+    return [...modifiers, key].join('+');
+}
+
+function shortcutMatches(event, id) {
+    const parts = shortcutValue(id).split('+').filter(Boolean);
+    if (!parts.length) return false;
+    const expectedKey = parts.at(-1);
+    const actualKey = event.key.length === 1 ? event.key.toUpperCase() : event.key;
+    return actualKey === expectedKey
+        && (parts.includes('Mod') === (event.ctrlKey || event.metaKey))
+        && (parts.includes('Alt') === event.altKey)
+        && (parts.includes('Shift') === event.shiftKey);
+}
+window.nodecastShortcutMatches = shortcutMatches;
+
+function infoTip(text, label = 'More information') {
+    if (!text) return '';
+    return `<span class="settings-info"><button type="button" class="settings-info-button" aria-label="${escapeHtml(label)}">i</button><span class="settings-info-popover" role="tooltip">${escapeHtml(text)}</span></span>`;
+}
+
+function positionInfoPopover(info) {
+    const popover = info?.querySelector('.settings-info-popover');
+    const button = info?.querySelector('.settings-info-button');
+    if (!popover || !button) return;
+    const edge = 10;
+    const gap = 8;
+    const anchor = button.getBoundingClientRect();
+    const box = popover.getBoundingClientRect();
+    let left = anchor.left + (anchor.width - box.width) / 2;
+    left = Math.max(edge, Math.min(left, window.innerWidth - box.width - edge));
+    let top = anchor.top - box.height - gap;
+    let placement = 'top';
+    if (top < edge) {
+        top = anchor.bottom + gap;
+        placement = 'bottom';
+    }
+    if (top + box.height > window.innerHeight - edge) {
+        top = Math.max(edge, window.innerHeight - box.height - edge);
+    }
+    popover.style.left = `${Math.round(left)}px`;
+    popover.style.top = `${Math.round(top)}px`;
+    popover.dataset.placement = placement;
+}
+
+document.addEventListener('pointerover', event => {
+    const info = event.target.closest?.('.settings-info');
+    if (info) positionInfoPopover(info);
+});
+document.addEventListener('focusin', event => {
+    const info = event.target.closest?.('.settings-info');
+    if (info) positionInfoPopover(info);
+});
+window.addEventListener('resize', () => {
+    document.querySelectorAll('.settings-info:hover, .settings-info:focus-within').forEach(positionInfoPopover);
+});
+document.querySelector('.settings-main')?.addEventListener('scroll', () => {
+    document.querySelectorAll('.settings-info:hover, .settings-info:focus-within').forEach(positionInfoPopover);
+}, { passive: true });
+
+function resetButton(item, value) {
+    if (!Object.prototype.hasOwnProperty.call(item, 'default')) return '';
+    const isDefault = JSON.stringify(value) === JSON.stringify(item.default);
+    return `<button type="button" class="settings-reset" data-reset-key="${escapeHtml(item.key)}" aria-label="Reset ${escapeHtml(item.label)} to default" title="Reset to default" ${isDefault ? 'disabled' : ''}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4v6h6M5.5 15a7 7 0 1 0 .8-7.8L4 10"/></svg></button>`;
+}
 
 function visibleSettingsSchema() {
     return settingsSchema.filter(category => category.category !== 'Updates' || currentSettingsUser?.is_admin);
@@ -161,8 +265,11 @@ async function getExtensionStatus(timeout = 3000) {
 function getValue(item) {
     const stored = localStorage.getItem(item.key);
     if (stored === null) return item.default;
-    if (item.type === 'checkbox') return stored === 'true';
-    if (item.type === 'number') return Number(stored);
+    if (item.type === 'checkbox' || item.type === 'toggle') return stored === 'true';
+    if (item.type === 'number' || item.type === 'range') return Number(stored);
+    if (item.type === 'multiselect') {
+        try { return JSON.parse(stored); } catch { return item.default || []; }
+    }
     return stored;
 }
 
@@ -174,22 +281,127 @@ function setValue(key, value) {
 function createField(item) {
     const value = getValue(item);
     settingsState[item.key] = value;
-    const categoryAttr = item.category ? ` data-category="${item.category}"` : '';
+    const categoryAttr = item.category ? ` data-category="${escapeHtml(item.category)}"` : '';
+    const spanClass = item.span === 2 ? ' settings-span-2' : '';
+    const visibility = item.visibleWhen
+        ? ` data-visible-key="${escapeHtml(item.visibleWhen.key)}" data-visible-value="${escapeHtml(String(item.visibleWhen.value))}"`
+        : '';
+    const copy = `<span class="settings-field-copy"><strong>${escapeHtml(item.label)}${infoTip(item.description, `About ${item.label}`)}</strong></span>`;
+    const wrapper = (control, extraClass = '') => `<label class="settings-field settings-control settings-control-${item.type}${spanClass}${extraClass}" data-setting-label="${escapeHtml(item.label)}"${categoryAttr}${visibility}>${copy}<span class="settings-control-slot">${control}${resetButton(item, value)}</span></label>`;
     if (item.type === 'select') {
-        return `<label class="settings-field"${categoryAttr}><span>${item.label}</span><select data-key="${item.key}">${item.options.map(o => `<option value="${o.value}" ${o.value === value ? 'selected' : ''}>${o.label}</option>`).join('')}</select></label>`;
+        return wrapper(`<select data-key="${escapeHtml(item.key)}">${item.options.map(o => `<option value="${escapeHtml(o.value)}" ${o.value === value ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('')}</select>`);
     }
-    if (item.type === 'checkbox') {
-        return `<label class="settings-field toggle-field"${categoryAttr}><span>${item.label}</span><input type="checkbox" data-key="${item.key}" ${value ? 'checked' : ''} /></label>`;
+    if (item.type === 'checkbox' || item.type === 'toggle') {
+        return wrapper(`<input type="checkbox" role="switch" data-key="${escapeHtml(item.key)}" ${value ? 'checked' : ''} />`, ' toggle-field');
     }
-    return `<label class="settings-field"${categoryAttr}><span>${item.label}</span><input type="${item.type}" data-key="${item.key}" value="${value}" min="${item.min || ''}" max="${item.max || ''}" /></label>`;
+    if (item.type === 'segmented') {
+        const buttons = item.options.map(option => `<button type="button" class="settings-segment${option.value === value ? ' active' : ''}" data-segment-value="${escapeHtml(option.value)}" aria-pressed="${option.value === value}">${escapeHtml(option.label)}</button>`).join('');
+        return wrapper(`<input type="hidden" data-key="${escapeHtml(item.key)}" value="${escapeHtml(value)}"><span class="settings-segmented" role="group" aria-label="${escapeHtml(item.label)}">${buttons}</span>`);
+    }
+    if (item.type === 'range') {
+        return wrapper(`<span class="settings-range"><input type="range" data-key="${escapeHtml(item.key)}" value="${value}" min="${item.min}" max="${item.max}" step="${item.step || 1}"><output>${value}${escapeHtml(item.unit || '')}</output></span>`);
+    }
+    if (item.type === 'color') {
+        return wrapper(`<span class="settings-color"><input type="color" data-key="${escapeHtml(item.key)}" value="${escapeHtml(value)}"><output>${escapeHtml(value)}</output></span>`);
+    }
+    if (item.type === 'multiselect') {
+        const selected = Array.isArray(value) ? value : [];
+        return wrapper(`<select multiple data-key="${escapeHtml(item.key)}">${item.options.map(o => `<option value="${escapeHtml(o.value)}" ${selected.includes(o.value) ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('')}</select>`);
+    }
+    if (item.type === 'button') {
+        return wrapper(`<button type="button" class="modal-btn" data-setting-action="${escapeHtml(item.action || item.key)}">${escapeHtml(item.buttonLabel || item.label)}</button>`);
+    }
+    if (item.type === 'info') {
+        return `<div class="settings-field settings-control settings-control-info${spanClass}"${categoryAttr}>${copy}</div>`;
+    }
+    return wrapper(`<input type="${escapeHtml(item.type)}" data-key="${escapeHtml(item.key)}" value="${escapeHtml(value)}" min="${item.min ?? ''}" max="${item.max ?? ''}" />`);
+}
+
+function updateConditionalSettings() {
+    settingsList.querySelectorAll('[data-visible-key]').forEach(field => {
+        const controller = settingsList.querySelector(`[data-key="${field.dataset.visibleKey}"]`);
+        const current = controller?.type === 'checkbox' ? String(controller.checked) : String(controller?.value ?? '');
+        field.hidden = current !== field.dataset.visibleValue;
+    });
+}
+
+function bindGenericSettingsControls() {
+    settingsList.querySelectorAll('.settings-segmented').forEach(group => {
+        group.addEventListener('click', event => {
+            const button = event.target.closest('[data-segment-value]');
+            if (!button) return;
+            const input = group.parentElement.querySelector('input[type="hidden"]');
+            input.value = button.dataset.segmentValue;
+            group.querySelectorAll('.settings-segment').forEach(candidate => {
+                const active = candidate === button;
+                candidate.classList.toggle('active', active);
+                candidate.setAttribute('aria-pressed', String(active));
+            });
+            _markDirty();
+            updateConditionalSettings();
+            refreshResetButtons();
+        });
+    });
+    settingsList.querySelectorAll('.settings-range input').forEach(input => {
+        input.addEventListener('input', () => {
+            const item = settingsSchema.flatMap(category => category.items).find(candidate => candidate.key === input.dataset.key);
+            input.nextElementSibling.textContent = `${input.value}${item?.unit || ''}`;
+            _markDirty();
+            refreshResetButtons();
+        });
+    });
+    settingsList.querySelectorAll('.settings-color input').forEach(input => {
+        input.addEventListener('input', () => {
+            input.nextElementSibling.textContent = input.value.toUpperCase();
+            _markDirty();
+            refreshResetButtons();
+        });
+    });
+    settingsList.querySelectorAll('[data-reset-key]').forEach(button => {
+        button.addEventListener('click', event => {
+            event.preventDefault();
+            const item = settingsSchema.flatMap(category => category.items).find(candidate => candidate.key === button.dataset.resetKey);
+            const input = settingsList.querySelector(`[data-key="${button.dataset.resetKey}"]`);
+            if (!item || !input) return;
+            if (item.type === 'checkbox' || item.type === 'toggle') input.checked = Boolean(item.default);
+            else if (item.type === 'multiselect') [...input.options].forEach(option => { option.selected = (item.default || []).includes(option.value); });
+            else input.value = item.default ?? '';
+            if (item.type === 'segmented') {
+                input.parentElement.querySelectorAll('[data-segment-value]').forEach(segment => {
+                    const active = segment.dataset.segmentValue === String(item.default);
+                    segment.classList.toggle('active', active);
+                    segment.setAttribute('aria-pressed', String(active));
+                });
+            }
+            if (item.type === 'range') input.nextElementSibling.textContent = `${input.value}${item.unit || ''}`;
+            if (item.type === 'color') input.nextElementSibling.textContent = input.value.toUpperCase();
+            button.disabled = true;
+            _markDirty();
+            updateConditionalSettings();
+        });
+    });
+    updateConditionalSettings();
+}
+
+function refreshResetButtons() {
+    settingsList.querySelectorAll('[data-reset-key]').forEach(button => {
+        const item = settingsSchema.flatMap(category => category.items).find(candidate => candidate.key === button.dataset.resetKey);
+        const input = settingsList.querySelector(`[data-key="${button.dataset.resetKey}"]`);
+        if (!item || !input) return;
+        let current = input.value;
+        if (item.type === 'checkbox' || item.type === 'toggle') current = input.checked;
+        if (item.type === 'number' || item.type === 'range') current = Number(input.value);
+        if (item.type === 'multiselect') current = [...input.selectedOptions].map(option => option.value);
+        button.disabled = JSON.stringify(current) === JSON.stringify(item.default);
+    });
 }
 
 function renderCategoryNav() {
     settingsCategories.innerHTML = visibleSettingsSchema().map(cat => `
         <li class="settings-category-item">
           <button type="button" class="settings-category-button${cat.category === activeSettingsCategory ? ' active' : ''}" data-category="${cat.category}">
-            <span class="settings-category-copy"><strong>${cat.category}</strong><small>${SETTINGS_CATEGORY_META[cat.category]?.hint || ''}</small></span>
-            <span class="settings-category-arrow" aria-hidden="true">›</span>
+            ${settingsIcon(cat.category)}
+            <span class="settings-category-copy"><strong>${cat.category}</strong></span>
           </button>
         </li>
     `).join('');
@@ -199,7 +411,8 @@ function renderSettings() {
     if (activeSettingsCategory === 'Updates' && !currentSettingsUser?.is_admin) activeSettingsCategory = 'Overview';
     const category = settingsSchema.find(cat => cat.category === activeSettingsCategory) || settingsSchema[0];
     settingsCategoryTitle.textContent = category.category;
-    settingsCategoryDescription.textContent = category.description || '';
+    settingsCategoryDescription.textContent = '';
+    settingsList.className = 'settings-list';
     if (category.category === 'Overview') {
         renderSettingsOverview();
         return;
@@ -212,8 +425,13 @@ function renderSettings() {
     } else if (category.category === 'Extension') {
         renderExtensionSettings();
         return;
+    } else if (category.category === 'Shortcuts') {
+        renderShortcutSettings();
+        return;
     } else {
+        settingsList.className = `settings-list settings-layout-${category.layout || 'list'}`;
         settingsList.innerHTML = category.items.map(item => createField({ ...item, category: category.category })).join('');
+        bindGenericSettingsControls();
     }
     if (settingsSearchInput?.value.trim()) filterSettings(settingsSearchInput.value);
     _snapshotTab();
@@ -223,7 +441,7 @@ function renderSettings() {
 function _snapshotTab() {
     _tabSnapshot = {};
     const category = settingsSchema.find(cat => cat.category === activeSettingsCategory);
-    if (!category || ['Overview', 'Account', 'AI', 'Updates', 'Extension'].includes(category.category)) return;
+    if (!category || ['Overview', 'Account', 'AI', 'Updates', 'Extension', 'Shortcuts'].includes(category.category)) return;
     category.items.forEach(item => {
         _tabSnapshot[item.key] = getValue(item);
     });
@@ -238,7 +456,7 @@ async function renderSettingsOverview() {
         fetchSettingsJson('/api/server/settings'),
     ]);
     currentSettingsUser = account;
-    if (activeSettingsCategory !== 'Overview') return;
+    if (activeSettingsCategory !== 'Overview' || settingsSearchInput?.value.trim()) return;
 
     const storedTheme = localStorage.getItem('theme') || 'dark';
     const theme = storedTheme === 'light' ? 'light' : 'dark';
@@ -254,6 +472,7 @@ async function renderSettingsOverview() {
         Updates: updateNotifications ? 'Automatic updates on' : 'Automatic updates off',
         Extension: extensionState,
         Appearance: theme[0].toUpperCase() + theme.slice(1),
+        Shortcuts: '5 available',
         Search: engineName,
     };
     const overviewRows = visibleSettingsSchema()
@@ -283,6 +502,7 @@ async function renderExtensionSettings() {
         getExtensionStatus(),
         fetchSettingsJson('/api/extension/settings'),
     ]);
+    if (activeSettingsCategory !== 'Extension' || settingsSearchInput?.value.trim()) return;
 
     const settings = remote?.settings || {
         floating_button_enabled: true,
@@ -291,36 +511,32 @@ async function renderExtensionSettings() {
         default_project: '',
     };
     const stateClass = status.connected ? 'connected' : (status.detected ? 'available' : 'missing');
-    const stateTitle = status.connected ? 'Connected' : (status.detected ? 'Installed, not connected' : 'Not detected');
-    const stateCopy = status.connected
-        ? `Saving as ${escapeHtml(status.username || remote?.username || 'this account')}.`
-        : (status.detected
-            ? 'Connect once; Nodecast will securely create the extension token.'
-            : 'Install or reload the Chromium extension, then check again.');
+    const username = status.username || remote?.username || 'this account';
+    const isFirefox = /Firefox/i.test(navigator.userAgent);
+    const browserName = isFirefox ? 'Firefox-based' : 'Chromium-based';
 
     settingsList.innerHTML = `
       <div class="extension-settings" data-category="Extension">
         <section class="extension-connection-card ${stateClass}">
           <div class="extension-connection-main">
-            <span class="extension-state-dot" aria-hidden="true"></span>
-            <div><strong>${stateTitle}</strong><p>${stateCopy}</p></div>
+            <div><strong>${status.connected ? `Connected as <span class="extension-account-name">${escapeHtml(username)}</span>` : (status.detected ? 'Extension ready to connect' : 'Extension not installed')}</strong>
+            ${!status.detected ? `<p>Install the ${browserName} build from <a href="https://github.com/sarox-dev/Nodecast-Extension/releases" target="_blank" rel="noopener">Nodecast Extension releases</a>, then return here.</p>` : (!status.connected ? '<p>Connect once to save captures into this account.</p>' : '')}</div>
           </div>
           <div class="extension-connection-meta">${status.version ? `v${escapeHtml(status.version)}` : ''}</div>
           <div class="extension-connection-actions">
-            ${!status.detected ? '<button type="button" data-extension-action="install">Install instructions</button>' : ''}
+            ${!status.detected ? '<a class="modal-btn modal-btn-primary" href="https://github.com/sarox-dev/Nodecast-Extension/releases" target="_blank" rel="noopener">Open releases</a>' : ''}
             ${status.detected && !status.connected ? '<button type="button" class="primary" data-extension-action="connect">Connect to this account</button>' : ''}
-            ${status.connected ? '<button type="button" data-extension-action="test">Test connection</button><button type="button" data-extension-action="disconnect">Disconnect</button>' : ''}
-            <button type="button" data-extension-action="check">Check again</button>
+            <button type="button" data-extension-action="check">Check connection</button>
+            ${status.connected ? '<button type="button" data-extension-action="disconnect">Disconnect</button>' : ''}
           </div>
           <div class="extension-action-status" aria-live="polite"></div>
         </section>
         <section class="extension-preferences" ${status.connected ? '' : 'aria-disabled="true"'}>
-          <h4>Capture behavior</h4>
-          <label class="settings-field toggle-field"><span>Show floating Save button after selecting text</span><input type="checkbox" data-key="floating_button_enabled" ${settings.floating_button_enabled ? 'checked' : ''} ${status.connected ? '' : 'disabled'} /></label>
-          <label class="settings-field"><span>Minimum selection length</span><input type="number" data-key="min_selection_length" min="1" max="500" value="${Number(settings.min_selection_length) || 10}" ${status.connected ? '' : 'disabled'} /></label>
-          <label class="settings-field"><span>Save notification position</span><select data-key="notification_position" ${status.connected ? '' : 'disabled'}>${['top-left','top-center','top-right','bottom-left','bottom-center','bottom-right'].map(value => `<option value="${value}" ${settings.notification_position === value ? 'selected' : ''}>${value.replace('-', ' ')}</option>`).join('')}</select></label>
-          <label class="settings-field"><span>Default project</span><input type="text" data-key="default_project" maxlength="200" value="${escapeHtml(settings.default_project || '')}" placeholder="No project" ${status.connected ? '' : 'disabled'} /></label>
-          <p class="extension-preference-hint">The floating button saves immediately. Keyboard shortcut and right-click remain available as backup methods.</p>
+          <div class="settings-module-heading"><h4>Capture behavior${infoTip('The floating button saves immediately. Keyboard shortcut and right-click remain available as fallback methods.')}</h4></div>
+          <label class="settings-field toggle-field"><span>Show floating Save button</span><span class="settings-control-slot"><input type="checkbox" data-key="floating_button_enabled" ${settings.floating_button_enabled ? 'checked' : ''} ${status.connected ? '' : 'disabled'} /><button type="button" class="settings-reset" data-extension-reset="floating_button_enabled" ${settings.floating_button_enabled === true ? 'disabled' : ''} aria-label="Reset floating Save button"><svg viewBox="0 0 24 24"><path d="M4 4v6h6M5.5 15a7 7 0 1 0 .8-7.8L4 10"/></svg></button></span></label>
+          <label class="settings-field"><span>Minimum selection length${infoTip('The floating Save control appears only after at least this many characters are selected.')}</span><span class="settings-control-slot"><input type="number" data-key="min_selection_length" min="1" max="500" value="${Number(settings.min_selection_length) || 10}" ${status.connected ? '' : 'disabled'} /><button type="button" class="settings-reset" data-extension-reset="min_selection_length" ${Number(settings.min_selection_length) === 10 ? 'disabled' : ''} aria-label="Reset minimum selection length"><svg viewBox="0 0 24 24"><path d="M4 4v6h6M5.5 15a7 7 0 1 0 .8-7.8L4 10"/></svg></button></span></label>
+          <label class="settings-field"><span>Save notification position</span><span class="settings-control-slot"><select data-key="notification_position" ${status.connected ? '' : 'disabled'}>${['top-left','top-center','top-right','bottom-left','bottom-center','bottom-right'].map(value => `<option value="${value}" ${settings.notification_position === value ? 'selected' : ''}>${value.replace('-', ' ')}</option>`).join('')}</select><button type="button" class="settings-reset" data-extension-reset="notification_position" ${settings.notification_position === 'top-center' ? 'disabled' : ''} aria-label="Reset notification position"><svg viewBox="0 0 24 24"><path d="M4 4v6h6M5.5 15a7 7 0 1 0 .8-7.8L4 10"/></svg></button></span></label>
+          <label class="settings-field"><span>Default project</span><span class="settings-control-slot"><input type="text" data-key="default_project" maxlength="200" value="${escapeHtml(settings.default_project || '')}" placeholder="No project" ${status.connected ? '' : 'disabled'} /><button type="button" class="settings-reset" data-extension-reset="default_project" ${!settings.default_project ? 'disabled' : ''} aria-label="Reset default project"><svg viewBox="0 0 24 24"><path d="M4 4v6h6M5.5 15a7 7 0 1 0 .8-7.8L4 10"/></svg></button></span></label>
         </section>
       </div>`;
 
@@ -333,24 +549,19 @@ async function renderExtensionSettings() {
             button.disabled = true;
             output.textContent = '';
             try {
-                if (button.dataset.extensionAction === 'install') {
-                    const modal = document.getElementById('install-modal');
-                    modal.hidden = false; modal.inert = false;
-                } else if (button.dataset.extensionAction === 'connect') {
+                if (button.dataset.extensionAction === 'connect') {
                     output.textContent = 'Connecting…';
                     await window.nodecastExtension.pair();
                     output.textContent = 'Connected.';
                 } else if (button.dataset.extensionAction === 'disconnect') {
                     await window.nodecastExtension.disconnect();
-                } else if (button.dataset.extensionAction === 'test') {
-                    output.textContent = 'Syncing settings…';
-                    const result = await window.nodecastExtension.syncSettings();
-                    if (!result?.success) throw new Error(result?.message || 'Connection test failed');
-                    output.textContent = 'Connection works.';
-                    button.disabled = false;
-                    return;
                 } else if (button.dataset.extensionAction === 'check') {
-                    await window.nodecastExtension.refresh();
+                    output.textContent = 'Checking…';
+                    const refreshed = await window.nodecastExtension.refresh();
+                    if (refreshed?.connected) {
+                        const result = await window.nodecastExtension.syncSettings();
+                        if (!result?.success) throw new Error(result?.message || 'Connection check failed');
+                    }
                 }
                 await renderExtensionSettings();
             } catch (error) {
@@ -360,6 +571,20 @@ async function renderExtensionSettings() {
             }
         });
     });
+    const extensionDefaults = { floating_button_enabled: true, min_selection_length: 10, notification_position: 'top-center', default_project: '' };
+    settingsList.querySelectorAll('[data-extension-reset]').forEach(button => button.addEventListener('click', event => {
+        event.preventDefault();
+        const key = button.dataset.extensionReset;
+        const input = settingsList.querySelector(`[data-key="${key}"]`);
+        if (input.type === 'checkbox') input.checked = extensionDefaults[key]; else input.value = extensionDefaults[key];
+        button.disabled = true;
+        _markDirty();
+    }));
+    settingsList.querySelectorAll('.extension-preferences [data-key]').forEach(input => input.addEventListener('input', () => {
+        const button = settingsList.querySelector(`[data-extension-reset="${input.dataset.key}"]`);
+        const current = input.type === 'checkbox' ? input.checked : (input.type === 'number' ? Number(input.value) : input.value);
+        if (button) button.disabled = current === extensionDefaults[input.dataset.key];
+    }));
 }
 
 function _markDirty() {
@@ -392,12 +617,14 @@ function _shakeActions() {
 
 async function renderAccountSettings() {
     // Fetch fresh account data
-    let user = null, users = null, settings = null;
+    let user = null, users = null, settings = null, sessionAccounts = [];
     try {
         const r1 = await fetch('/auth/me');
         user = r1.ok ? await r1.json() : null;
         const r2 = await fetch('/auth/settings');
         settings = r2.ok ? await r2.json() : null;
+        const r4 = await fetch('/auth/accounts');
+        sessionAccounts = r4.ok ? (await r4.json()).accounts || [] : [];
     } catch {}
     // Try to get users list
     try {
@@ -405,71 +632,63 @@ async function renderAccountSettings() {
         users = r3.ok ? (await r3.json()).users : null;
     } catch {}
 
-    const isAdmin = user?.is_admin;
-    let html = '<div class="settings-field-group">';
-
-    // Username
-    html += `<div class="settings-field"><span>Username</span><span style="color:var(--text-dim);font-size:0.85rem">${user?.username || ''}</span></div>`;
-
-    // Change username
-    html += `<div class="settings-field" style="flex-direction:column;align-items:stretch;gap:0.4rem">
-      <span>Change username</span>
-      <div style="display:flex;gap:0.4rem">
-        <input id="acc-new-username" type="text" placeholder="New username" style="flex:1;padding:0.35rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:0.82rem" />
-        <input id="acc-username-pw" type="password" placeholder="Password" style="flex:1;padding:0.35rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:0.82rem" />
-        <button id="acc-change-username" class="modal-btn modal-btn-primary" type="button" style="padding:0.35rem 0.6rem;font-size:0.78rem">Save</button>
-      </div>
-      <span id="acc-username-status" class="note-status" hidden></span>
+    settingsList.innerHTML = `<div class="account-settings" data-category="Account">
+      <section class="settings-module">
+        <div class="settings-module-heading"><h4>Profile</h4>${infoTip('Update the username used by this Nodecast account.')}</div>
+        <div class="account-identity"><span class="account-avatar">${escapeHtml((user?.username || '?')[0].toUpperCase())}</span><span><strong>${escapeHtml(user?.username || '')}</strong><small>${user?.is_admin ? 'Current administrator account' : 'Local Nodecast account'}</small></span></div>
+        <div class="settings-inline-form">
+          <input id="acc-new-username" type="text" placeholder="New username" />
+          <input id="acc-username-pw" type="password" placeholder="Current password" />
+          <button id="acc-change-username" class="modal-btn modal-btn-primary" type="button">Change username</button>
+        </div>
+        <span id="acc-username-status" class="note-status" hidden></span>
+      </section>
+      <section class="settings-module">
+        <div class="settings-module-heading"><h4>Password</h4>${infoTip('Changing a password requires the current password. Recovery requests will be added with the new account system.')}</div>
+        <div class="settings-inline-form">
+          <input id="acc-cur-pw" type="password" placeholder="Current password" />
+          <input id="acc-new-pw" type="password" placeholder="New password" />
+          <button id="acc-change-pw" class="modal-btn modal-btn-primary" type="button">Change password</button>
+        </div>
+        <span id="acc-pw-status" class="note-status" hidden></span>
+      </section>
+      <section class="settings-module account-session-row">
+        <div class="account-session-content">
+          <div class="settings-module-heading"><h4>Accounts</h4>${infoTip('Accounts authenticated in this browser can be switched without signing every account out. The extension identity is replaced at the same time.')}</div>
+          <div class="account-switch-list">${sessionAccounts.map(account => `<button type="button" class="account-switch-item${account.active ? ' active' : ''}" data-switch-account="${escapeHtml(account.id)}" ${account.active ? 'disabled' : ''}><span class="account-avatar">${escapeHtml(account.username[0].toUpperCase())}</span><span><strong>${escapeHtml(account.username)}</strong><small>${escapeHtml(account.role || 'member')}</small></span>${account.active ? '<span>Current</span>' : '<span>Switch</span>'}</button>`).join('')}</div>
+          <div class="settings-inline-form account-add-form"><input id="account-add-username" type="text" autocomplete="username" placeholder="Another username"><input id="account-add-password" type="password" autocomplete="current-password" placeholder="Password"><button id="account-add-button" class="modal-btn modal-btn-secondary" type="button">Add account</button></div>
+          <span id="account-switch-status" class="note-status" hidden></span>
+        </div>
+        <button id="account-logout-button" class="modal-btn modal-btn-secondary" type="button">Log out this account</button>
+      </section>
     </div>`;
 
-    // Change password
-    html += `<div class="settings-field" style="flex-direction:column;align-items:stretch;gap:0.4rem">
-      <span>Change password</span>
-      <div style="display:flex;gap:0.4rem">
-        <input id="acc-cur-pw" type="password" placeholder="Current password" style="flex:1;padding:0.35rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:0.82rem" />
-        <input id="acc-new-pw" type="password" placeholder="New password" style="flex:1;padding:0.35rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:0.82rem" />
-        <button id="acc-change-pw" class="modal-btn modal-btn-primary" type="button" style="padding:0.35rem 0.6rem;font-size:0.78rem">Save</button>
-      </div>
-      <span id="acc-pw-status" class="note-status" hidden></span>
-    </div>`;
+    document.getElementById('account-logout-button')?.addEventListener('click', async () => {
+        const response = await fetch('/auth/logout', { method: 'POST' });
+        const result = response.ok ? await response.json() : {};
+        window.location.href = result.has_active_account ? '/' : '/login';
+    });
 
-    // Admin-only: registration toggle
-    if (isAdmin) {
-        const openReg = settings?.open_registration !== false;
-        html += `<div class="settings-field toggle-field">
-          <span>Open registration (anyone can sign up)</span>
-          <input type="checkbox" id="acc-open-reg" ${openReg ? 'checked' : ''} />
-        </div>`;
+    async function syncExtensionAccount() {
+        const extension = await window.nodecastExtension?.refresh?.();
+        if (extension?.detected && extension?.connected) await window.nodecastExtension.pair();
     }
-
-    html += '</div>';
-
-    // Admin-only: users list
-    if (isAdmin && users) {
-        html += `<div class="settings-section-header" style="margin-top:1rem"><h3>Users</h3></div>`;
-        html += `<div class="settings-list" style="gap:0.3rem">`;
-        for (const u of users) {
-            const isYou = u.user_id === user?.user_id;
-            html += `<div class="settings-field" style="justify-content:space-between">
-              <span>${u.username}${u.is_admin ? ' <span style="color:var(--accent);font-size:0.75rem">(admin)</span>' : ''}${isYou ? ' <span style="color:var(--text-dim);font-size:0.75rem">(you)</span>' : ''}</span>
-              ${!isYou ? `<div style="display:flex;gap:0.3rem">
-                <button class="acc-admin-action modal-btn modal-btn-secondary" style="padding:0.25rem 0.5rem;font-size:0.75rem" data-uid="${u.user_id}" data-uname="${u.username}" data-action="clear_data">Clear data</button>
-                <button class="acc-admin-action modal-btn" style="padding:0.25rem 0.5rem;font-size:0.75rem;background:var(--danger,#f87171);color:#fff;border:none" data-uid="${u.user_id}" data-uname="${u.username}" data-action="delete">Delete</button>
-              </div>` : ''}
-            </div>`;
-        }
-        html += `</div>`;
-        // Admin password confirmation
-        html += `<div class="settings-field" style="flex-direction:column;align-items:stretch;gap:0.4rem;margin-top:0.5rem">
-          <span>Enter your admin password to confirm actions:</span>
-          <div style="display:flex;gap:0.4rem">
-            <input id="acc-admin-pw" type="password" placeholder="Admin password" style="flex:1;padding:0.35rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:0.82rem" />
-            <span id="acc-admin-status" class="note-status" style="font-size:0.78rem;color:var(--text-dim)" hidden></span>
-          </div>
-        </div>`;
-    }
-
-    settingsList.innerHTML = html;
+    document.querySelectorAll('[data-switch-account]').forEach(button => button.addEventListener('click', async () => {
+        const status = document.getElementById('account-switch-status');
+        status.hidden = false; status.textContent = 'Switching account…';
+        const response = await fetch('/auth/switch-account', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({user_id: button.dataset.switchAccount}) });
+        if (!response.ok) { status.textContent = (await response.json()).detail || 'Could not switch account'; return; }
+        try { await syncExtensionAccount(); } catch { /* old bound token is invalid after the Core switch */ }
+        window.location.reload();
+    }));
+    document.getElementById('account-add-button')?.addEventListener('click', async () => {
+        const status = document.getElementById('account-switch-status');
+        status.hidden = false; status.textContent = 'Authenticating account…';
+        const response = await fetch('/auth/login', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({username: document.getElementById('account-add-username').value.trim(), password: document.getElementById('account-add-password').value}) });
+        if (!response.ok) { status.textContent = (await response.json()).detail || 'Could not add account'; return; }
+        try { await syncExtensionAccount(); } catch { /* extension can be reconnected from its settings */ }
+        window.location.reload();
+    });
 
     // Bind event handlers
     document.getElementById('acc-change-username')?.addEventListener('click', async () => {
@@ -561,10 +780,68 @@ async function renderAccountSettings() {
     });
 }
 
+function renderShortcutSettings() {
+    shortcutDraft = Object.fromEntries(NODECAST_SHORTCUTS.map(item => [item.id, shortcutValue(item.id)]));
+    const display = value => value.replace('Mod', /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl').replace('ArrowDown', '↓').replace('ArrowUp', '↑');
+    settingsList.innerHTML = `<div class="shortcut-list" data-category="Shortcuts">${NODECAST_SHORTCUTS.map(item => `
+      <div class="settings-field shortcut-row" data-shortcut-row="${item.id}">
+        <span>${escapeHtml(item.label)}${infoTip('Click the key field, then press a new shortcut. Backspace or Delete restores the default.')}</span>
+        <span class="shortcut-control">
+          <button type="button" class="shortcut-capture" data-shortcut-id="${item.id}" aria-label="Change ${escapeHtml(item.label)}">${escapeHtml(display(shortcutDraft[item.id]) || 'Not set')}</button>
+          <button type="button" class="settings-reset shortcut-reset" data-shortcut-reset="${item.id}" aria-label="Reset ${escapeHtml(item.label)}" ${shortcutDraft[item.id] === item.default ? 'disabled' : ''}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4v6h6M5.5 15a7 7 0 1 0 .8-7.8L4 10"/></svg></button>
+        </span>
+      </div>`).join('')}</div>`;
+    settingsList.querySelectorAll('[data-shortcut-id]').forEach(button => {
+        button.addEventListener('click', () => {
+            settingsList.querySelectorAll('.shortcut-capture.recording').forEach(item => { item.classList.remove('recording'); item.textContent = display(shortcutDraft[item.dataset.shortcutId]) || 'Not set'; });
+            button.classList.add('recording');
+            button.textContent = 'Press shortcut…';
+            button.focus();
+        });
+        button.addEventListener('keydown', event => {
+            if (!button.classList.contains('recording')) return;
+            event.preventDefault();
+            const definition = NODECAST_SHORTCUTS.find(item => item.id === button.dataset.shortcutId);
+            if (event.key === 'Backspace' || event.key === 'Delete') {
+                shortcutDraft[definition.id] = definition.default;
+            } else if (event.key === 'Escape') {
+                button.classList.remove('recording');
+                button.textContent = display(shortcutDraft[definition.id]) || 'Not set';
+                return;
+            } else {
+                const value = shortcutFromEvent(event);
+                if (!value) return;
+                const conflict = Object.entries(shortcutDraft).find(([id, current]) => id !== definition.id && current === value);
+                if (conflict) {
+                    showToast('That shortcut is already used by Nodecast', 'error');
+                    return;
+                }
+                shortcutDraft[definition.id] = value;
+            }
+            button.classList.remove('recording');
+            button.textContent = display(shortcutDraft[definition.id]) || 'Not set';
+            const reset = settingsList.querySelector(`[data-shortcut-reset="${definition.id}"]`);
+            if (reset) reset.disabled = shortcutDraft[definition.id] === definition.default;
+            _markDirty();
+        });
+    });
+    settingsList.querySelectorAll('[data-shortcut-reset]').forEach(button => button.addEventListener('click', () => {
+        const definition = NODECAST_SHORTCUTS.find(item => item.id === button.dataset.shortcutReset);
+        shortcutDraft[definition.id] = definition.default;
+        const capture = settingsList.querySelector(`[data-shortcut-id="${definition.id}"]`);
+        capture.textContent = display(definition.default) || 'Not set';
+        button.disabled = true;
+        _markDirty();
+    }));
+    _snapshotTab();
+    _clearDirty();
+}
+
 // ─── AI Settings ─────────────────────────────────────────────────
 
 let aiProviders = [];
 let aiAssignments = [];
+let autoAssignProviderId = '';
 const providerModelCache = new Map();
 const providerModelLoads = new Set();
 
@@ -581,8 +858,39 @@ function queueProviderModelCatalog(provider) {
         .catch(() => providerModelCache.set(provider.id, { models: [], state: 'error', error: 'timeout' }))
         .finally(() => {
             providerModelLoads.delete(provider.id);
-            if (activeSettingsCategory === 'AI') renderAISettings();
+            if (activeSettingsCategory === 'AI') updateProviderCatalogUI(provider.id);
         });
+}
+
+function providerStatusMarkup(info) {
+    if (info.state === 'ready') {
+        return `<span class="ai-connectivity-track"><span>Connected</span><span>${info.models.length} models</span></span>`;
+    }
+    return info.state === 'loading' ? 'Checking connection' : 'Catalog unavailable';
+}
+
+function updateProviderCatalogUI(providerId) {
+    const info = providerModelCache.get(providerId) || { models: [], state: 'loading' };
+    const status = settingsList.querySelector(`[data-provider-status="${CSS.escape(providerId)}"]`);
+    if (status) {
+        status.className = `ai-connectivity${info.state === 'ready' ? ' ai-connectivity-ready' : ''}${info.state === 'error' ? ' ai-connectivity-error' : ''}`;
+        status.innerHTML = providerStatusMarkup(info);
+    }
+    settingsList.querySelectorAll('[data-feature]').forEach(row => {
+        const provider = row.querySelector('.ai-assign-provider');
+        const model = row.querySelector('.ai-assign-model');
+        if (provider?.value !== providerId || !model || info.state !== 'ready') return;
+        const selected = model.value;
+        model.innerHTML = '<option value="">— Select model —</option>' + info.models.map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name || item.id)}</option>`).join('');
+        if ([...model.options].some(option => option.value === selected)) model.value = selected;
+    });
+    const providerForAll = document.getElementById('ai-provider-for-all');
+    const modelForAll = document.getElementById('ai-model-for-all');
+    if (providerForAll?.value === providerId && modelForAll && info.state === 'ready') {
+        const selected = modelForAll.value;
+        modelForAll.innerHTML = '<option value="">Choose model</option>' + info.models.map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name || item.id)}</option>`).join('');
+        if ([...modelForAll.options].some(option => option.value === selected)) modelForAll.value = selected;
+    }
 }
 
 async function renderAISettings() {
@@ -599,6 +907,7 @@ async function renderAISettings() {
     ]);
     aiProviders = providerData?.providers || [];
     aiAssignments = assignmentData?.assignments || [];
+    if (activeSettingsCategory !== 'AI' || settingsSearchInput?.value.trim()) return;
 
     // Model catalogs are optional remote metadata. They load after the Settings
     // surface renders, so an unavailable provider never leaves this view blocked.
@@ -611,7 +920,7 @@ async function renderAISettings() {
     if (autoProcessSettings) _savedInterval = autoProcessSettings.interval_minutes || 60;
 
     // ─── Providers section ────────────────────────────────────
-    html += '<div class="settings-section-header"><h3>AI Providers</h3></div>';
+    html += `<div class="settings-module-heading ai-section-heading"><h4>AI providers${infoTip('Providers supply models for extraction, recall synthesis and other AI features.')}</h4><button id="ai-add-provider-btn" class="modal-btn modal-btn-primary settings-action-button" type="button"><span aria-hidden="true">＋</span> Add provider</button></div>`;
 
     // Configured providers list
     html += '<div class="settings-list" style="gap:0.3rem">';
@@ -622,50 +931,43 @@ async function renderAISettings() {
             const info = providerModelCache.get(p.id) || { models: [], state: 'loading' };
             const hasAssignment = aiAssignments.some(a => a.provider_id === p.id);
             const providerKey = p.provider_key || '';
-            const iconPath = `/static/assets/AI_providers/${providerKey === 'chatgpt' ? 'openai' : providerKey}.svg`;
-            const iconStyle = providerKey === 'lmstudio' ? ' style="filter:invert(1)"' : '';
+            const iconPath = `/static/assets/AI_providers/${providerKey === 'chatgpt' ? 'openai' : providerKey}.svg?v=20261021-2`;
             const iconHtml = providerKey
-                ? `<img src="${iconPath}" width="18" height="18"${iconStyle} alt="" style="vertical-align:middle;margin-right:0.3rem" />`
-                : '';
-            const statusBadge = info.state === 'ready'
-                ? '<span class="ai-badge" style="background:#22c55e;color:#fff;font-size:0.7rem;padding:0.1rem 0.4rem;border-radius:4px;margin-left:0.4rem">connected</span>'
-                : info.state === 'loading'
-                    ? '<span class="ai-badge" style="background:var(--border);color:var(--text-dim);font-size:0.7rem;padding:0.1rem 0.4rem;border-radius:4px;margin-left:0.4rem">checking models</span>'
-                    : '<span class="ai-badge" style="background:#f87171;color:#fff;font-size:0.7rem;padding:0.1rem 0.4rem;border-radius:4px;margin-left:0.4rem">catalog unavailable</span>';
-            const modelCount = info.state === 'ready' ? `· ${info.models.length} models` : '';
-            html += `<div class="settings-field" style="justify-content:space-between">
-              <div>
-                ${iconHtml}<span style="font-weight:600">${escapeHtml(p.name)}</span>
-                ${statusBadge}
-                <span style="color:var(--text-dim);font-size:0.78rem;margin-left:0.3rem">${escapeHtml(p.base_url)}</span>
-                ${modelCount ? `<span style="color:var(--text-dim);font-size:0.75rem;margin-left:0.3rem">${modelCount}</span>` : ''}
-                ${hasAssignment ? '<span class="ai-badge" style="background:var(--accent);color:#fff;font-size:0.7rem;padding:0.1rem 0.4rem;border-radius:4px;margin-left:0.3rem">assigned</span>' : ''}
-              </div>
-              <div style="display:flex;gap:0.3rem">
-                ${p.provider_type === 'chatgpt_oauth' ? '' : `<button class="ai-edit-provider modal-btn modal-btn-secondary" style="padding:0.25rem 0.5rem;font-size:0.75rem" data-id="${p.id}" data-name="${escapeHtml(p.name)}" data-url="${escapeHtml(p.base_url)}" data-key="${escapeHtml(providerKey)}">Edit</button>`}
-                <button class="ai-delete-provider modal-btn" style="padding:0.25rem 0.5rem;font-size:0.75rem;background:var(--danger,#f87171);color:#fff;border:none" data-id="${p.id}" data-name="${escapeHtml(p.name)}">Delete</button>
+                ? `<img src="${iconPath}" class="ai-provider-logo" alt="" />`
+                : '<span class="ai-provider-logo ai-provider-logo-fallback" aria-hidden="true">AI</span>';
+            const statusBadge = `<span class="ai-connectivity${info.state === 'ready' ? ' ai-connectivity-ready' : ''}${info.state === 'error' ? ' ai-connectivity-error' : ''}" data-provider-status="${escapeHtml(p.id)}">${providerStatusMarkup(info)}</span>`;
+            html += `<div class="ai-provider-card ${hasAssignment ? 'in-use' : 'unused'}" data-provider-id="${escapeHtml(p.id)}">
+              ${iconHtml}
+              <div class="ai-provider-copy"><strong title="${escapeHtml(p.name)}">${escapeHtml(p.name.slice(0, 40))}</strong>${statusBadge}</div>
+              <div class="ai-provider-actions">
+                ${p.provider_type === 'chatgpt_oauth' ? '' : `<button class="ai-edit-provider settings-icon-button" data-id="${p.id}" data-name="${escapeHtml(p.name)}" data-url="${escapeHtml(p.base_url)}" data-key="${escapeHtml(providerKey)}" aria-label="Edit ${escapeHtml(p.name)}" title="Edit"><svg viewBox="0 0 24 24"><path d="m4 20 4.5-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20Z"/><path d="m14 7 3 3"/></svg></button>`}
+                <button class="ai-delete-provider settings-icon-button danger" data-id="${p.id}" data-name="${escapeHtml(p.name)}" aria-label="Delete ${escapeHtml(p.name)}" title="Delete"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v5m4-5v5"/></svg></button>
               </div>
             </div>`;
         }
     }
     html += '</div>';
 
-    // Add provider button
-    html += `<button id="ai-add-provider-btn" class="modal-btn modal-btn-primary" type="button" style="margin-top:0.4rem">+ Add Provider</button>`;
-    // Also show edit for the first provider inline hint
-    html += '<div style="font-size:0.75rem;color:var(--text-dim);margin-top:0.2rem">Edits open a dialog to change URL, API key, or test connection.</div>';
-
     // ─── Feature assignments section ──────────────────────────
-    html += '<div class="settings-section-header" style="margin-top:1.2rem"><h3>Feature Assignments</h3></div>';
+    html += `<div class="settings-module-heading"><h4>Feature assignments${infoTip('Assign a provider and model to each AI function. Bulk controls update all rows but changes are saved only with Save changes.')}</h4></div>`;
     html += '<div class="settings-list" style="gap:0.6rem">';
 
     // Fetch available features
     const featureData = await fetchSettingsJson('/api/ai/features', { features: [] });
     const features = featureData?.features || [];
+    const assignedProviderIds = features.map(feat => aiAssignments.find(item => item.feature === feat.id)?.provider_id || autoAssignProviderId || '');
+    const commonProvider = assignedProviderIds.length && assignedProviderIds.every(id => id === assignedProviderIds[0]) ? assignedProviderIds[0] : '';
+    const assignedModels = features.map(feat => aiAssignments.find(item => item.feature === feat.id)?.model || '');
+    const commonModel = commonProvider && assignedModels.length && assignedModels.every(model => model === assignedModels[0]) ? assignedModels[0] : '';
+    const commonCatalog = providerModelCache.get(commonProvider)?.models || [];
+    html += `<div class="ai-bulk-assignment">
+      <label><span>Provider for all</span><select id="ai-provider-for-all"><option value="">Mixed / not set</option>${aiProviders.map(provider => `<option value="${provider.id}" ${commonProvider === provider.id ? 'selected' : ''}>${escapeHtml(provider.name)}</option>`).join('')}</select></label>
+      <label id="ai-model-for-all-wrap" ${commonProvider ? '' : 'hidden'}><span>Model for all</span><select id="ai-model-for-all"><option value="">Choose model</option>${commonCatalog.map(model => `<option value="${escapeHtml(model.id)}" ${commonModel === model.id ? 'selected' : ''}>${escapeHtml(model.name || model.id)}</option>`).join('')}</select></label>
+    </div>`;
 
     for (const feat of features) {
         const assignment = aiAssignments.find(a => a.feature === feat.id);
-        const assignedProvider = assignment ? aiProviders.find(p => p.id === assignment.provider_id) : null;
+        const selectedProviderId = assignment?.provider_id || autoAssignProviderId || '';
 
         // Build model options — pre-populate from fetched models for the assigned provider
         let modelOptions = '<option value="">— Select model —</option>';
@@ -680,21 +982,22 @@ async function renderAISettings() {
             }
         }
 
-        html += `<div class="settings-field" style="flex-direction:column;align-items:stretch;gap:0.3rem">
+        html += `<div class="settings-field ai-assignment-row">
           <div style="display:flex;justify-content:space-between;align-items:center">
             <div>
               <span style="font-weight:600">${escapeHtml(feat.name)}</span>
-              <span style="color:var(--text-dim);font-size:0.78rem;margin-left:0.4rem">${escapeHtml(feat.description)}</span>
+              ${infoTip(feat.description, `About ${feat.name}`)}
             </div>
           </div>
           <div style="display:flex;gap:0.4rem;align-items:center" data-feature="${feat.id}">
             <select class="ai-assign-provider" style="flex:1;padding:0.35rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:0.82rem">
               <option value="">— Select provider —</option>
-              ${aiProviders.map(p => `<option value="${p.id}" ${assignment && assignment.provider_id === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
+              ${aiProviders.map(p => `<option value="${p.id}" ${selectedProviderId === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
             </select>
             <select class="ai-assign-model" style="flex:1;padding:0.35rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:0.82rem" ${assignment ? '' : 'disabled'}>
               ${modelOptions}
             </select>
+            <button type="button" class="settings-reset ai-assignment-reset" aria-label="Reset ${escapeHtml(feat.name)} assignment" ${selectedProviderId ? '' : 'disabled'}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4v6h6M5.5 15a7 7 0 1 0 .8-7.8L4 10"/></svg></button>
           </div>
           <span id="ai-assign-status-${feat.id}" class="note-status" hidden></span>
         </div>`;
@@ -702,10 +1005,10 @@ async function renderAISettings() {
     html += '</div>';
 
     // ─── AI Processing section ───────────────────────────────
-    html += '<div class="settings-section-header" style="margin-top:1.2rem"><h3>AI Processing</h3></div>';
+    html += `<div class="settings-module-heading"><h4>AI processing${infoTip('Process new captures or rebuild all derived AI data. Raw captures remain the immutable source.')}</h4></div>`;
     html += '<div class="settings-list" style="gap:0.4rem">';
-    html += `<button id="ai-process-unprocessed" class="modal-btn modal-btn-primary" type="button" style="padding:0.4rem 0.75rem;font-size:0.82rem">Process unprocessed captures</button>`;
-    html += `<button id="ai-regenerate-all" class="modal-btn" type="button" style="padding:0.4rem 0.75rem;font-size:0.82rem;background:var(--danger,#f87171);color:#fff;border:none">Regenerate all data (⚠ destructive)</button>`;
+    html += `<div class="ai-processing-actions"><button id="ai-process-unprocessed" class="modal-btn modal-btn-primary settings-action-button" type="button"><span aria-hidden="true">▶</span> Process unprocessed</button>`;
+    html += `<button id="ai-regenerate-all" class="modal-btn settings-action-button danger" type="button"><span aria-hidden="true">↻</span> Regenerate all data</button></div>`;
     html += `<div id="ai-progress-bar" class="ai-progress-bar" role="progressbar" aria-label="AI processing progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden>
       <div class="ai-progress-copy">
         <span id="ai-progress-text">Preparing AI processing…</span>
@@ -719,8 +1022,8 @@ async function renderAISettings() {
     const batchInterval = getSavedInterval();
     html += `<label class="settings-field" style="flex-direction:column;align-items:stretch;gap:0.3rem;margin-top:0.5rem">
       <div style="display:flex;justify-content:space-between;font-size:0.8rem">
-        <span>Auto-process on server every</span>
-        <span id="ai-batch-interval-label">${_formatInterval(batchInterval)}</span>
+        <span>Auto-process on server every${infoTip('Controls how often the server checks for pending AI enrichment work.')}</span>
+        <span><span id="ai-batch-interval-label">${_formatInterval(batchInterval)}</span><button type="button" class="settings-reset" id="ai-batch-interval-reset" aria-label="Reset processing interval" ${batchInterval === 60 ? 'disabled' : ''}><svg viewBox="0 0 24 24"><path d="M4 4v6h6M5.5 15a7 7 0 1 0 .8-7.8L4 10"/></svg></button></span>
       </div>
       <input type="range" id="ai-batch-interval" min="5" max="120" step="5" value="${batchInterval}" style="width:100%;accent-color:var(--accent);" />
       <div style="display:flex;justify-content:space-between;font-size:0.7rem;color:var(--text-dim)">
@@ -740,6 +1043,46 @@ function attachAIHandlers() {
     document.getElementById('ai-add-provider-btn')?.addEventListener('click', () => {
         openProviderSelector();
     });
+    document.getElementById('ai-batch-interval-reset')?.addEventListener('click', () => {
+        const input = document.getElementById('ai-batch-interval');
+        input.value = 60;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        document.getElementById('ai-batch-interval-reset').disabled = true;
+    });
+
+    document.getElementById('ai-provider-for-all')?.addEventListener('change', async event => {
+        const providerId = event.target.value;
+        const rows = [...document.querySelectorAll('[data-feature]')];
+        rows.forEach(row => {
+            const provider = row.querySelector('.ai-assign-provider');
+            provider.value = providerId;
+            provider.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+        const modelWrap = document.getElementById('ai-model-for-all-wrap');
+        const modelSelect = document.getElementById('ai-model-for-all');
+        modelWrap.hidden = !providerId;
+        modelSelect.innerHTML = '<option value="">Choose model</option>';
+        if (providerId) {
+            const data = await fetchSettingsJson(`/api/ai/providers/${providerId}/models`, { models: [] }, 4000);
+            modelSelect.innerHTML += (data.models || []).map(model => `<option value="${escapeHtml(model.id)}">${escapeHtml(model.name || model.id)}</option>`).join('');
+        }
+        _markAIDirty();
+    });
+    document.getElementById('ai-model-for-all')?.addEventListener('change', event => {
+        document.querySelectorAll('.ai-assign-model').forEach(select => {
+            if ([...select.options].some(option => option.value === event.target.value)) select.value = event.target.value;
+        });
+        _markAIDirty();
+    });
+    document.querySelectorAll('.ai-assignment-reset').forEach(button => button.addEventListener('click', () => {
+        const row = button.closest('[data-feature]');
+        row.querySelector('.ai-assign-provider').value = '';
+        const model = row.querySelector('.ai-assign-model');
+        model.innerHTML = '<option value="">— Select model —</option>';
+        model.disabled = true;
+        button.disabled = true;
+        _markAIDirty();
+    }));
 
     // Edit provider
     document.querySelectorAll('.ai-edit-provider').forEach(btn => {
@@ -771,15 +1114,17 @@ function attachAIHandlers() {
             if (!providerId) {
                 modelSel.innerHTML = '<option value="">— Select model —</option>';
                 modelSel.disabled = true;
+                container.querySelector('.ai-assignment-reset').disabled = true;
                 _markAIDirty();
                 return;
             }
             modelSel.innerHTML = '<option value="">Loading models...</option>';
             modelSel.disabled = false;
+            container.querySelector('.ai-assignment-reset').disabled = false;
             try {
                 const data = await fetchSettingsJson(`/api/ai/providers/${providerId}/models`, { models: [] }, 4000);
                 if (data.models && data.models.length > 0) {
-                    modelSel.innerHTML = data.models.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name || m.id)}</option>`).join('');
+                    modelSel.innerHTML = '<option value="">— Select model —</option>' + data.models.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name || m.id)}</option>`).join('');
                 } else {
                     const message = data.error === 'reconnect_required' ? 'Reconnect ChatGPT' : 'No models found';
                     modelSel.innerHTML = `<option value="">${message}</option>`;
@@ -1232,13 +1577,24 @@ function pollBatchProgress(callback) {
                 return r.json();
             })
             .then(status => {
-                renderBatchProgress(status);
+                // Keep UI errors separate from an unavailable status endpoint.
+                // A rendering regression must not claim that AI processing itself
+                // cannot be read, nor restart the polling failure loop.
+                try {
+                    renderBatchProgress(status);
+                } catch (error) {
+                    console.error('Could not render AI processing progress:', error);
+                }
                 if (status.running) {
                     batchPollId = setTimeout(poll, 2000);
                 } else {
                     batchPollId = null;
                     if (batchPollCallback) {
-                        batchPollCallback(status);
+                        try {
+                            batchPollCallback(status);
+                        } catch (error) {
+                            console.error('AI processing completion callback failed:', error);
+                        }
                         batchPollCallback = null;
                     }
                     if ((status.errors || 0) > 0 && typeof showNotification === 'function') {
@@ -1249,7 +1605,6 @@ function pollBatchProgress(callback) {
                             key: 'ai-batch-errors',
                         });
                     }
-                    updatePendingCount();
                 }
             })
             .catch(() => {
@@ -1358,12 +1713,11 @@ function openProviderSelector() {
 }
 
 function _providerPresetBtn(p) {
-    const iconPath = `/static/assets/AI_providers/${p.key === 'chatgpt' ? 'openai' : p.key}.svg`;
-    const iconStyle = p.key === 'lmstudio' ? ' style="filter:invert(1)"' : '';
+    const iconPath = `/static/assets/AI_providers/${p.key === 'chatgpt' ? 'openai' : p.key}.svg?v=20261021-2`;
     const desc = p.oauth ? 'Use your eligible Plus or Pro plan — no API key' : (p.default_base_url || 'Custom base URL');
     return `<button class="ai-preset-select" type="button" style="display:flex;align-items:center;gap:0.6rem;padding:0.5rem 0.6rem;border:1px solid var(--border);border-radius:8px;background:var(--bg,#0d1117);color:var(--text);cursor:pointer;transition:background 0.15s;text-align:left;width:100%" data-key="${p.key}" data-url="${p.default_base_url}" data-apikey="${p.requires_api_key}" data-name="${p.name}" data-oauth="${Boolean(p.oauth)}" data-api-style="${p.api_style || 'openai'}"
       onmouseover="this.style.background='var(--surface,#161b22)'" onmouseout="this.style.background='var(--bg,#0d1117)'">
-      <img src="${iconPath}" width="28" height="28"${iconStyle} alt="" style="flex-shrink:0" />
+      <img src="${iconPath}" width="28" height="28" alt="" style="flex-shrink:0" />
       <div style="flex:1">
         <div style="font-weight:600;font-size:0.85rem">${p.name}</div>
         <div style="font-size:0.72rem;color:var(--text-dim)">${desc}</div>
@@ -1377,9 +1731,8 @@ function openAIProviderModal(existing, preset) {
     const displayName = isEdit ? existing.name : (preset ? preset.name : '');
     const baseUrl = isEdit ? existing.base_url : (preset ? preset.url : '');
     const requiresApiKey = isEdit ? true : (preset ? preset.requiresApiKey : true);
-    const iconPath = providerKey ? `/static/assets/AI_providers/${providerKey}.svg` : '';
-    const iconStyle = providerKey === 'lmstudio' ? ' style="filter:invert(1)"' : '';
-    const iconHtml = iconPath ? `<img src="${iconPath}" width="22" height="22"${iconStyle} alt="" style="vertical-align:middle;margin-right:0.4rem" />` : '';
+    const iconPath = providerKey ? `/static/assets/AI_providers/${providerKey}.svg?v=20261021-2` : '';
+    const iconHtml = iconPath ? `<img src="${iconPath}" width="22" height="22" alt="" style="vertical-align:middle;margin-right:0.4rem" />` : '';
 
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
@@ -1473,12 +1826,17 @@ function openAIProviderModal(existing, preset) {
                 if (r.ok) { close(); renderAISettings(); }
                 else { const d = await r.json(); status.textContent = d.detail || 'Failed'; status.style.color = '#f87171'; status.hidden = false; }
             } else {
+                const wasFirstProvider = aiProviders.length === 0;
                 const r = await fetch('/api/ai/providers', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body),
                 });
-                if (r.ok) { close(); renderAISettings(); }
+                if (r.ok) {
+                    const created = await r.json();
+                    if (wasFirstProvider) autoAssignProviderId = created.id;
+                    close(); renderAISettings();
+                }
                 else { const d = await r.json(); status.textContent = d.detail || 'Failed'; status.style.color = '#f87171'; status.hidden = false; }
             }
         } catch {
@@ -1496,11 +1854,38 @@ function escapeHtml(str) {
 
 function filterSettings(query) {
     const q = query.toLowerCase().trim();
-    const fields = settingsList.querySelectorAll('.settings-field');
-    fields.forEach(field => {
-        const label = field.querySelector('span')?.textContent?.toLowerCase() || '';
-        const catName = field.closest('[data-category]')?.dataset.category?.toLowerCase() || '';
-        field.style.display = (!q || label.includes(q) || catName.includes(q)) ? '' : 'none';
+    if (!q) {
+        renderSettings();
+        return;
+    }
+    const customEntries = [
+        ['Account', 'Username and password', 'Change username password session logout account'],
+        ['AI', 'AI providers', 'Provider connection models OpenAI OpenRouter ChatGPT'],
+        ['AI', 'Feature assignments', 'Models extraction synthesis aggregates'],
+        ['AI', 'AI processing', 'Process captures regenerate interval'],
+        ['Extension', 'Extension connection', 'Install Chromium Firefox connect account releases'],
+        ['Extension', 'Capture behavior', 'Floating save selection notification project'],
+        ['Shortcuts', 'Keyboard shortcuts', 'Keys Web Ask close results suggestions'],
+        ['Updates', 'Application updates', 'Version releases automatic install'],
+    ];
+    const schemaEntries = visibleSettingsSchema().flatMap(category => category.items.map(item => [category.category, item.label, item.description || '']));
+    const categoryEntries = visibleSettingsSchema().map(category => [category.category, category.category, category.description || '']);
+    const matches = [...categoryEntries, ...schemaEntries, ...customEntries]
+        .filter(entry => entry.join(' ').toLowerCase().includes(q))
+        .filter((entry, index, list) => list.findIndex(candidate => candidate[0] === entry[0] && candidate[1] === entry[1]) === index)
+        .slice(0, 24);
+    settingsList.className = 'settings-list settings-search-results';
+    settingsList.innerHTML = matches.length ? matches.map(([category, label, context]) => `
+      <button type="button" class="settings-search-result" data-search-category="${escapeHtml(category)}">
+        <span class="settings-search-result-icon">${settingsIcon(category)}</span>
+        <span><strong>${escapeHtml(label)}</strong><small>${escapeHtml(category)}${context ? ` · ${escapeHtml(context)}` : ''}</small></span>
+        <span aria-hidden="true">›</span>
+      </button>`).join('') : '<div class="settings-search-empty">No settings found.</div>';
+    settingsList.querySelectorAll('[data-search-category]').forEach(button => {
+        button.addEventListener('click', () => {
+            settingsSearchInput.value = '';
+            openSettings(button.dataset.searchCategory);
+        });
     });
 }
 
@@ -1508,7 +1893,7 @@ settingsSearchInput?.addEventListener('input', (e) => filterSettings(e.target.va
 // Track input changes in settings (dirty state)
 settingsList?.addEventListener('change', (e) => {
     if (e.target.closest('[data-feature]')) return; // AI has its own dirty tracking
-    if (e.target.matches('select, input')) _markDirty();
+    if (e.target.matches('select, input')) { _markDirty(); refreshResetButtons(); }
 });
 settingsList?.addEventListener('input', (e) => {
     if (e.target.matches('input[type="text"], input[type="number"]')) _markDirty();
@@ -1533,8 +1918,9 @@ function readSettings() {
             const input = settingsList.querySelector(`[data-key="${item.key}"]`);
             if (!input) return;
             let value;
-            if (item.type === 'checkbox') value = input.checked;
-            else if (item.type === 'number') value = Number(input.value) || item.default;
+            if (item.type === 'checkbox' || item.type === 'toggle') value = input.checked;
+            else if (item.type === 'number' || item.type === 'range') value = Number(input.value);
+            else if (item.type === 'multiselect') value = [...input.selectedOptions].map(option => option.value);
             else value = input.value;
             setValue(item.key, value);
         });
@@ -1547,12 +1933,17 @@ async function openSettings(category) {
     if (category) activeSettingsCategory = category;
     renderCategoryNav(); renderSettings();
     if (settingsSearchInput?.value.trim()) filterSettings(settingsSearchInput.value);
-    settingsOverlay.hidden = false; settingsOverlay.inert = false;
+    settingsOverlay.hidden = false;
+    settingsOverlay.inert = false;
+    settingsOverlay.removeAttribute('aria-hidden');
 }
 function openAccountSettings() { openSettings('Account'); }
 function closeSettings() {
     if (_dirty) { _shakeActions(); return; }
-    document.activeElement?.blur(); settingsOverlay.inert = true; settingsOverlay.hidden = true;
+    document.activeElement?.blur();
+    settingsOverlay.inert = true;
+    settingsOverlay.hidden = true;
+    settingsOverlay.setAttribute('aria-hidden', 'true');
 }
 
 async function _saveSettings() {
@@ -1583,8 +1974,16 @@ async function _saveSettings() {
                 }
             } catch {}
         }
+        autoAssignProviderId = '';
         _clearDirty();
         setTimeout(() => renderAISettings(), 800);
+        return;
+    }
+
+    if (category.category === 'Shortcuts') {
+        NODECAST_SHORTCUTS.forEach(item => localStorage.setItem(`shortcut.${item.id}`, shortcutDraft?.[item.id] ?? item.default));
+        _clearDirty();
+        showToast('Shortcuts saved', 'success');
         return;
     }
 
@@ -1635,8 +2034,9 @@ async function _saveSettings() {
         const input = settingsList.querySelector(`[data-key="${item.key}"]`);
         if (!input) return;
         let value;
-        if (item.type === 'checkbox') value = input.checked;
-        else if (item.type === 'number') value = Number(input.value) || item.default;
+        if (item.type === 'checkbox' || item.type === 'toggle') value = input.checked;
+        else if (item.type === 'number' || item.type === 'range') value = Number(input.value);
+        else if (item.type === 'multiselect') value = [...input.selectedOptions].map(option => option.value);
         else value = input.value;
         setValue(item.key, value);
     });
@@ -1651,8 +2051,39 @@ initSettings();
 setTimeout(() => checkRunningBatch(), 500);
 
 function applyTheme() {
-    const theme = settingsState.theme || 'dark';
-    document.documentElement.dataset.theme = theme === 'light' ? 'light' : '';
+    const root = document.documentElement;
+    const theme = settingsState.theme || localStorage.getItem('theme') || 'dark';
+    root.dataset.theme = theme;
+    const validHex = value => /^#[0-9a-f]{6}$/i.test(value || '');
+    if (theme === 'custom') {
+        const primary = settingsState.customPrimary || localStorage.getItem('customPrimary') || '#818cf8';
+        const secondary = settingsState.customSecondary || localStorage.getItem('customSecondary') || '#60a5fa';
+        const background = settingsState.customBackground || localStorage.getItem('customBackground') || '#0b0f14';
+        if (validHex(primary)) root.style.setProperty('--primary', primary);
+        if (validHex(secondary)) root.style.setProperty('--secondary', secondary);
+        if (validHex(background)) root.style.setProperty('--background', background);
+        const rgb = background.slice(1).match(/../g).map(part => parseInt(part, 16) / 255)
+            .map(channel => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4);
+        const luminance = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+        root.dataset.customTone = luminance > 0.38 ? 'light' : 'dark';
+        const foregroundTone = settingsState.customIconTone || localStorage.getItem('customIconTone') || 'light';
+        root.dataset.iconTone = foregroundTone;
+        root.dataset.foregroundTone = foregroundTone;
+    } else {
+        root.style.removeProperty('--primary');
+        root.style.removeProperty('--secondary');
+        root.style.removeProperty('--background');
+        delete root.dataset.customTone;
+        delete root.dataset.foregroundTone;
+        root.dataset.iconTone = theme === 'light' ? 'dark' : 'light';
+    }
+    const duration = Math.max(0, Math.min(600, Number(settingsState.animationDuration ?? localStorage.getItem('animationDuration') ?? 160)));
+    const respectMotion = settingsState.respectSystemMotion ?? (localStorage.getItem('respectSystemMotion') !== 'false');
+    root.dataset.respectSystemMotion = String(respectMotion);
+    root.style.setProperty('--motion-duration', `${duration}ms`);
+    root.style.setProperty('--transition-fast', `${Math.round(duration * 0.75)}ms ease`);
+    root.style.setProperty('--transition-base', `${Math.round(duration * 1.25)}ms ease`);
+    root.style.setProperty('--transition-slow', `${Math.round(duration * 2.2)}ms cubic-bezier(0.4, 0, 0.2, 1)`);
 }
 applyTheme();
 
@@ -1710,7 +2141,7 @@ if (updateBanner) {
     setTimeout(() => { _checkUpdate(); _scheduleUpdateCheck(); }, 1000);
 }
 
-function getAnimationSpeedStr() { return settingsState.animationSpeed || 'fast'; }
+function getAnimationSpeedStr() { return `${settingsState.animationDuration ?? 160}ms`; }
 
 // ─── Tag Management ────────────────────────────────────────────────
 

@@ -86,22 +86,9 @@ window.addEventListener('DOMContentLoaded', async () => {
     let activeSettingsCategory = localStorage.getItem('activeSettingsCategory') || 'Appearance';
     let accountData = null;
 
-    settingsSearchInput?.addEventListener('input', (e) => filterSettings(e.target.value));
-    settingsList?.addEventListener('change', (e) => { if (e.target.closest('[data-feature]')) return; if (e.target.matches('select, input')) _markDirty(); });
-    settingsList?.addEventListener('input', (e) => { if (e.target.matches('input[type="text"], input[type="number"]')) _markDirty(); });
-    settingsCategories?.addEventListener('click', (e) => {
-        const button = e.target.closest('.settings-category-button');
-        if (!button) return;
-        if (_dirty) { _shakeActions(); return; }
-        activeSettingsCategory = button.dataset.category;
-        localStorage.setItem('activeSettingsCategory', activeSettingsCategory);
-        renderCategoryNav(); renderSettings();
-        if (settingsSearchInput?.value.trim()) filterSettings(settingsSearchInput.value);
-    });
-
     settingsClose.addEventListener('click', closeSettings);
     settingsOverlay.addEventListener('click', (e) => { if (e.target === settingsOverlay) { if (_dirty) { _shakeActions(); } else { closeSettings(); } } });
-    settingsSave.addEventListener('click', () => { _saveSettings(); applyTheme(); });
+    settingsSave.addEventListener('click', async () => { await _saveSettings(); applyTheme(); });
     settingsRevert.addEventListener('click', () => { renderSettings(); });
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !settingsOverlay.hidden) { if (_dirty) { _shakeActions(); } else { closeSettings(); } } });
     if (new URLSearchParams(window.location.search).get('settings') === 'extension') {
@@ -278,7 +265,11 @@ window.addEventListener('DOMContentLoaded', async () => {
     const workspaceSidebar = document.getElementById('workspace-sidebar');
 
     let sidebarWidth = Number(localStorage.getItem('nodecast.sidebarWidth') || 280);
-    function applySidebarWidth() { document.documentElement.style.setProperty('--sidebar-width', `${sidebarWidth}px`); workspaceSidebar.style.width = `${sidebarWidth}px`; }
+    function applySidebarWidth() {
+        if (!sidebarResizer || !workspaceSidebar) return;
+        document.documentElement.style.setProperty('--sidebar-width', `${sidebarWidth}px`);
+        workspaceSidebar.style.width = `${sidebarWidth}px`;
+    }
     applySidebarWidth();
 
     function startResize(startEvent) {
@@ -291,12 +282,10 @@ window.addEventListener('DOMContentLoaded', async () => {
         document.addEventListener('mouseup', onUp);
     }
 
-    sidebarResizer.addEventListener('mousedown', (e) => { e.preventDefault(); startResize(e); });
+    sidebarResizer?.addEventListener('mousedown', (e) => { e.preventDefault(); startResize(e); });
 
     renderSettings();
-    loadLibrary();
     loadProjects();
-    renderResults(false);
     updatePaginationControls();
 
     document.querySelectorAll('.sidebar-section-label').forEach(label => {

@@ -105,11 +105,21 @@ window.addEventListener('DOMContentLoaded', () => {
     });
 
     queryInput?.addEventListener('keydown', event => {
+        const submitMatch = window.nodecastShortcutMatches?.(event, 'submit_query');
+        if (submitMatch && event.key !== 'Enter') {
+            event.preventDefault();
+            form?.requestSubmit();
+            return;
+        }
+        if (event.key === 'Enter' && !submitMatch) {
+            event.preventDefault();
+            return;
+        }
         if (!webMode || suggestions.hidden) return;
-        if (event.key === 'ArrowDown') {
+        if (window.nodecastShortcutMatches?.(event, 'suggestion_next')) {
             event.preventDefault();
             moveSuggestion(1);
-        } else if (event.key === 'ArrowUp') {
+        } else if (window.nodecastShortcutMatches?.(event, 'suggestion_previous')) {
             event.preventDefault();
             moveSuggestion(-1);
         } else if (event.key === 'Escape') {
@@ -128,30 +138,28 @@ window.addEventListener('DOMContentLoaded', () => {
     window.setWebMode = function(web) {
         window.graphMode = false;
         webMode = Boolean(web);
+        window.webMode = webMode;
         document.getElementById('page-shell')?.classList.toggle('web-search-mode', webMode);
         const graphArea = document.getElementById('graph-area');
         if (graphArea) graphArea.hidden = true;
         const contentView = document.getElementById('content-view');
-        if (contentView) contentView.hidden = false;
+        if (webMode && contentView) window.nodecastWorkspace?.closeResults();
         if (queryInput) {
-            queryInput.placeholder = webMode ? `Search ${configuredEngineLabel()}…` : 'Search your library...';
-            queryInput.value = '';
+            queryInput.placeholder = webMode ? `Search ${configuredEngineLabel()}…` : 'Ask what you remember…';
         }
         hideSuggestions();
-        document.getElementById('sidebar-library-nav')?.classList.toggle('active', !webMode);
-        document.getElementById('sidebar-web-nav')?.classList.toggle('active', webMode);
-        document.getElementById('sidebar-graph-nav')?.classList.toggle('active', false);
-        if (!webMode && typeof loadLibrary === 'function') {
-            loadLibrary();
-            return;
+        const toggle = document.getElementById('search-mode-toggle');
+        const tooltip = document.getElementById('search-mode-tooltip');
+        if (toggle) {
+            toggle.dataset.searchMode = webMode ? 'web' : 'library';
+            toggle.firstElementChild.textContent = webMode ? 'Web' : 'Ask';
+            toggle.setAttribute('aria-label', webMode ? 'Switch to Ask mode' : 'Switch to Web mode');
         }
-        currentQuery = '';
-        allResults = [];
-        const resultsContainer = document.getElementById('results-container');
-        if (resultsContainer) {
-            resultsContainer.innerHTML = `<div class="web-search-launcher"><span class="web-search-launcher-icon">⌕</span><h2>Search the web</h2><p>Suggestions appear while you type. Enter opens ${escapeHtml(configuredEngineLabel())} with your query.</p><button type="button" id="web-search-settings">Search settings</button></div>`;
-            document.getElementById('web-search-settings')?.addEventListener('click', () => openSettings('Search'));
-        }
+        if (tooltip) tooltip.textContent = webMode
+            ? `Search the web with ${configuredEngineLabel()}.`
+            : 'Ask only from your saved evidence.';
         window.setTimeout(() => queryInput?.focus(), 0);
     };
+
+    document.getElementById('search-mode-toggle')?.addEventListener('click', () => window.setWebMode(!webMode));
 });

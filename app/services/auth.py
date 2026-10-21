@@ -1,12 +1,16 @@
 import bcrypt
 import os
+import secrets
 from datetime import datetime, timezone, timedelta
 import jwt
 from fastapi import Request, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from app.core.security import JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRY_HOURS
-from app.services.database import get_user_by_id
+from app.services.database import (
+    add_web_session_account, create_web_session, get_user_by_id,
+    get_web_session_user, web_session_binding_matches,
+)
 
 # ─── Password ─────────────────────────────────────────────────────
 def hash_password(password: str) -> str:
@@ -23,7 +27,7 @@ def password_is_supported(password: str) -> bool:
     return 12 <= len(password.encode("utf-8")) <= 72
 
 # ─── JWT ──────────────────────────────────────────────────────────
-def create_token(user_id: str, username: str, scope: str = "user") -> str:
+def create_token(user_id: str, username: str, scope: str = "user", session_binding: str = "") -> str:
     now = datetime.now(timezone.utc)
     user = get_user_by_id(user_id)
     if not user:
@@ -36,6 +40,8 @@ def create_token(user_id: str, username: str, scope: str = "user") -> str:
         "iat": now,
         "exp": now + timedelta(hours=JWT_EXPIRY_HOURS),
     }
+    if session_binding:
+        payload["sid"] = session_binding
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 def decode_token(token: str) -> dict | None:
@@ -62,6 +68,16 @@ def set_session_cookie(response, token: str) -> None:
         path="/",
     )
 
+def start_web_session(response, user_id: str, existing_secret: str = "") -> str:
+    ttl = JWT_EXPIRY_HOURS * 3600
+    if existing_secret and add_web_session_account(existing_secret, user_id, ttl):
+        secret = existing_secret
+    else:
+        secret = secrets.token_urlsafe(48)
+        create_web_session(secret, user_id, ttl)
+    set_session_cookie(response, secret)
+    return secret
+
 
 def _principal(payload: dict | None, allowed_scopes: set[str]) -> dict | None:
     if not payload or payload.get("scope", "user") not in allowed_scopes:
@@ -69,12 +85,17 @@ def _principal(payload: dict | None, allowed_scopes: set[str]) -> dict | None:
     user = get_user_by_id(str(payload.get("sub", "")))
     if not user or int(payload.get("ver", -1)) != int(user.get("token_version", 0)):
         return None
+    if payload.get("scope") == "extension" and payload.get("sid") and not web_session_binding_matches(payload["sid"], user["id"]):
+        return None
     return {"user_id": user["id"], "username": user["username"], "scope": payload.get("scope", "user")}
 
 async def get_user_from_cookie(request: Request) -> dict | None:
     token = request.cookies.get(COOKIE_NAME)
     if not token:
         return None
+    user = get_web_session_user(token)
+    if user:
+        return {"user_id": user["id"], "username": user["username"], "scope": "user", "session_secret": token}
     return _principal(decode_token(token), {"user"})
 
 async def get_user_from_bearer(credentials: HTTPAuthorizationCredentials | None, allowed_scopes: set[str] | None = None) -> dict | None:
@@ -86,11 +107,15 @@ async def get_current_user(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> dict:
-    # Try cookie first (Web UI), then Bearer (Extension/API)
+    # An explicit Authorization header must never silently fall back to a
+    # browser cookie.  This keeps token-authenticated API clients separate
+    # from the ambient web session.
+    if credentials is not None:
+        user = await get_user_from_bearer(credentials)
+        if user:
+            return user
+        raise HTTPException(status_code=401, detail="Not authenticated")
     user = await get_user_from_cookie(request)
-    if user:
-        return user
-    user = await get_user_from_bearer(credentials)
     if user:
         return user
     raise HTTPException(status_code=401, detail="Not authenticated")
@@ -100,10 +125,12 @@ async def get_capture_user(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> dict:
+    if credentials is not None:
+        user = await get_user_from_bearer(credentials, {"user", "extension"})
+        if user:
+            return user
+        raise HTTPException(status_code=401, detail="Not authenticated")
     user = await get_user_from_cookie(request)
-    if user:
-        return user
-    user = await get_user_from_bearer(credentials, {"user", "extension"})
     if user:
         return user
     raise HTTPException(status_code=401, detail="Not authenticated")
@@ -112,7 +139,9 @@ async def get_optional_user(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> dict | None:
+    if credentials is not None:
+        return await get_user_from_bearer(credentials)
     user = await get_user_from_cookie(request)
     if user:
         return user
-    return await get_user_from_bearer(credentials)
+    return None

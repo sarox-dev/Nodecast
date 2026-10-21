@@ -173,6 +173,104 @@ def query_memory(user_id: str, query: str, limit: int = 8, token_budget: int = 7
     return _with_synthesis(result, _ai_synthesis(user_id, query, intent, packet), requested_view)
 
 
+def memory_constellation(user_id: str, limit: int = 48) -> dict:
+    """Return a bounded, calm overview of accepted knowledge and source groups.
+
+    This is a visual projection, not a retrieval index. Evidence remains attached
+    to its capture and is represented by one virtual source node rather than by
+    hundreds of individual fragments.
+    """
+    limit = max(12, min(limit, 60))
+    conn = get_db(user_id)
+    try:
+        source_limit = max(8, min(20, limit // 2))
+        knowledge_limit = max(4, limit - source_limit)
+        source_rows = list(conn.execute(
+            """SELECT c.id,c.source_title,c.source_site_name,c.source_url,c.saved_at,
+                      COUNT(a.id) AS evidence_count
+               FROM captures c
+               JOIN atomics a ON a.source_id=c.id AND a.role='evidence' AND a.status!='rejected'
+               GROUP BY c.id
+               ORDER BY c.saved_at DESC, evidence_count DESC
+               LIMIT ?""",
+            (source_limit,),
+        ))
+        knowledge_rows = list(conn.execute(
+            """SELECT a.id,a.role,a.type,a.content,a.context_header,a.canonical_key,a.relevance,
+                      a.confidence,a.created_at,
+                      (SELECT COUNT(DISTINCT evidence.source_id)
+                       FROM atomic_relations relation
+                       JOIN atomics evidence ON evidence.id = CASE
+                           WHEN relation.source_atomic_id=a.id THEN relation.target_atomic_id
+                           ELSE relation.source_atomic_id END
+                       WHERE (relation.source_atomic_id=a.id OR relation.target_atomic_id=a.id)
+                         AND relation.status='accepted' AND relation.method!='structural'
+                         AND evidence.source_id IS NOT NULL) AS source_count
+               FROM atomics a
+               WHERE a.role IN ('concept','aggregate') AND a.status!='rejected'
+               ORDER BY source_count DESC, a.relevance DESC, a.created_at DESC
+               LIMIT ?""",
+            (knowledge_limit,),
+        ))
+
+        nodes = []
+        source_node_ids = {}
+        for row in source_rows:
+            node_id = f"source:{row['id']}"
+            source_node_ids[row["id"]] = node_id
+            label = row["source_title"] or row["source_site_name"] or row["source_url"] or "Saved source"
+            nodes.append({
+                "id": node_id, "kind": "source", "label": label[:90],
+                "subtitle": row["source_site_name"] or "Source",
+                "weight": max(1, int(row["evidence_count"] or 1)),
+                "source_id": row["id"], "source_url": row["source_url"] or "",
+            })
+
+        knowledge_ids = set()
+        for row in knowledge_rows:
+            knowledge_ids.add(row["id"])
+            label = row["canonical_key"] or row["context_header"] or row["content"] or "Untitled"
+            nodes.append({
+                "id": row["id"], "kind": row["role"], "label": label[:90],
+                "subtitle": "Concept" if row["role"] == "concept" else "Memory group",
+                "weight": max(1, int(row["source_count"] or 0)),
+                "source_count": int(row["source_count"] or 0),
+            })
+
+        atomic_rows = list(conn.execute(
+            "SELECT id,source_id FROM atomics WHERE status!='rejected'"
+        ))
+        atomic_to_node = {
+            row["id"]: (row["id"] if row["id"] in knowledge_ids else source_node_ids.get(row["source_id"]))
+            for row in atomic_rows
+        }
+        relation_rows = list(conn.execute(
+            """SELECT source_atomic_id,target_atomic_id,relation_type,confidence,strength
+               FROM atomic_relations
+               WHERE status='accepted' AND method!='structural'
+                 AND relation_type NOT IN ('precedes','duplicates_within_source')
+               ORDER BY confidence DESC, strength DESC
+               LIMIT 600"""
+        ))
+        edge_map = {}
+        for row in relation_rows:
+            source = atomic_to_node.get(row["source_atomic_id"])
+            target = atomic_to_node.get(row["target_atomic_id"])
+            if not source or not target or source == target:
+                continue
+            key = (source, target, row["relation_type"])
+            confidence = float(row["confidence"] if row["confidence"] is not None else row["strength"] or 0.5)
+            current = edge_map.get(key)
+            if current is None or confidence > current["confidence"]:
+                edge_map[key] = {
+                    "source_id": source, "target_id": target,
+                    "relation_type": row["relation_type"], "confidence": confidence,
+                }
+        return {"nodes": nodes[:limit], "edges": list(edge_map.values()), "limit": limit}
+    finally:
+        conn.close()
+
+
 class _StreamingDisplayParser:
     """Expose only human-readable summary/content fields while retaining raw output for validation."""
     def __init__(self):

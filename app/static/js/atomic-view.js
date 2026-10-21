@@ -655,7 +655,7 @@ function routeQuery(query) {
     if (query.startsWith('/timeline')) return hasArgs ? doSearch(query.slice('/timeline '.length).trim(), 1) : loadLibrary();
     if (query.startsWith('/compare')) return hasArgs ? doSearch(`compare ${query.slice('/compare '.length).trim()}`, 1) : (resultsContainer.innerHTML='<div class="message">Usage: /compare X and Y</div>', hasMore=false, endOfResults.hidden=true);
     if (query.startsWith('/markdown')) return hasArgs ? doSearch(query.slice('/markdown '.length).trim(), 1) : loadLibrary();
-    return detectIntent(query);
+    return doSearch(query, 1);
 }
 
 async function loadAll(mode) {

@@ -1,10 +1,16 @@
 """Small ASGI security boundaries shared by every API route."""
 import os
+from urllib.parse import urlsplit
 
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
 
 from app.core.security import MAX_REQUEST_BYTES
+
+
+def _is_extension_origin(origin: str) -> bool:
+    parsed = urlsplit(origin)
+    return parsed.scheme in {"chrome-extension", "moz-extension"} and bool(parsed.netloc)
 
 
 class RequestSecurityMiddleware:
@@ -34,8 +40,31 @@ class RequestSecurityMiddleware:
                 configured = os.getenv("NODECAST_PUBLIC_ORIGIN", "").rstrip("/")
                 host = headers.get("host", "")
                 scheme = scope.get("scheme", "http")
-                expected = configured or f"{scheme}://{host}"
-                if origin.rstrip("/") != expected:
+                # A local installation may intentionally be reached through
+                # localhost and its LAN address.  The configured public origin
+                # remains trusted, but the request's own Host is also a valid
+                # same-origin browser surface.  Do not turn a LAN preference
+                # into a CSRF block for the local address.
+                allowed_origins = {f"{scheme}://{host}".rstrip("/")}
+                if configured:
+                    allowed_origins.add(configured)
+                is_pairing_exchange = scope.get("path") == "/api/extension/exchange"
+                is_extension_capture = (
+                    scope.get("path") == "/api/capture"
+                    and headers.get("authorization", "").lower().startswith("bearer ")
+                )
+                # Browser extensions exchange a short-lived, one-time pairing
+                # code from their own origin.  Chrome may attach the local
+                # Nodecast cookie to that request, but the response identity is
+                # still bound solely to the pairing code.  Permit only this
+                # narrow, explicitly recognised extension-origin flow.
+                if (
+                    origin.rstrip("/") not in allowed_origins
+                    and not (
+                        _is_extension_origin(origin)
+                        and (is_pairing_exchange or is_extension_capture)
+                    )
+                ):
                     await JSONResponse({"detail": "Cross-origin request rejected"}, status_code=403)(scope, receive, send)
                     return
 

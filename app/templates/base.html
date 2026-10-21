@@ -6,11 +6,11 @@
     <title>Nodecast Workspace</title>
     <meta name="nodecast-core" content="workspace" />
     <link rel="stylesheet" href="/static/css/base.css?v=20261020-1" />
-    <link rel="stylesheet" href="/static/css/theme-default.css" />
-    <link rel="stylesheet" href="/static/css/theme-light.css" />
-    <link rel="stylesheet" href="/static/css/settings.css?v=20260926-3" />
+    <link rel="stylesheet" href="/static/css/theme-default.css?v=20261021-3" />
+    <link rel="stylesheet" href="/static/css/theme-light.css?v=20261021-2" />
+    <link rel="stylesheet" href="/static/css/settings.css?v=20261021-7" />
     <link rel="stylesheet" href="/static/css/modal.css?v=20260926-1" />
-    <link rel="stylesheet" href="/static/css/workspace.css?v=20261021-1" />
+    <link rel="stylesheet" href="/static/css/workspace.css?v=20261021-3" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -21,87 +21,37 @@
   </head>
   <body>
     <div class="page-shell" id="page-shell">
-      <div class="workspace-shell">
-        <aside class="workspace-sidebar" id="workspace-sidebar">
-          <div class="sidebar-scroll">
-            <div class="sidebar-brand">
-              <button id="sidebar-brand-settings" class="sidebar-brand-main" type="button" aria-label="Open Nodecast settings overview">
-                <img class="brand-mark" src="/static/logo.png" alt="" />
-                <span class="sidebar-brand-copy">
-                  <span class="brand-name">Nodecast</span>
-                  <span class="brand-subtitle" id="sidebar-brand-subtitle">Workspace</span>
-                </span>
-              </button>
-              <button id="logout-button" class="brand-logout-btn" type="button" title="Log out" aria-label="Log out"><span aria-hidden="true">↪</span></button>
-            </div>
-
-            <div class="sidebar-section">
-              <div class="sidebar-section-label">Workspace</div>
-              <div class="sidebar-collapse">
-              <button id="sidebar-library-nav" class="sidebar-nav-btn active" type="button" data-workspace-view="library">
-                <span class="sidebar-nav-icon">⌂</span><span class="sidebar-nav-label">Ask your library</span>
-              </button>
-              <button id="sidebar-web-nav" class="sidebar-nav-btn" type="button" data-workspace-view="web">
-                <span class="sidebar-nav-icon">⌕</span><span class="sidebar-nav-label">Web Search</span>
-              </button>
-              <button id="sidebar-sources-nav" class="sidebar-nav-btn" type="button" data-workspace-view="sources">
-                <span class="sidebar-nav-icon">▤</span><span class="sidebar-nav-label">Sources</span>
-              </button>
-              <button id="sidebar-entities-nav" class="sidebar-nav-btn" type="button" data-workspace-view="entities">
-                <span class="sidebar-nav-icon">◇</span><span class="sidebar-nav-label">Concepts</span>
-              </button>
-              <button id="sidebar-graph-nav" class="sidebar-nav-btn" type="button" data-workspace-view="graph">
-                <span class="sidebar-nav-icon">⌘</span><span class="sidebar-nav-label">Graph</span>
-              </button>
-              </div>
-            </div>
-
-            <div class="sidebar-section">
-              <div class="sidebar-section-label">Saved views</div>
-              <div class="sidebar-collapse">
-                <button id="sidebar-recent-view" class="sidebar-nav-btn sidebar-saved-view" type="button">
-                  <span class="sidebar-nav-icon">↺</span><span class="sidebar-nav-label">Recent memory</span>
-                </button>
-                <div id="workspace-saved-views" class="workspace-saved-views"></div>
-              </div>
-            </div>
+      <div class="workspace-shell inspector-collapsed">
+        <main class="workspace-center">
+          <button id="sidebar-brand-settings" class="workspace-settings-button" type="button" aria-label="Open settings" title="Settings">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H9.6v-.09A1.7 1.7 0 0 0 8.5 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3V9.6h.09A1.7 1.7 0 0 0 4.6 8.5a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.09A1.7 1.7 0 0 0 15.5 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.12.38.33.72.6 1 .3.28.68.42 1.1.4h.09v4h-.09A1.7 1.7 0 0 0 19.4 15Z"></path></svg>
+          </button>
+          <div id="constellation-stage" class="constellation-stage" aria-label="Your knowledge constellation">
+            <div id="constellation-container" class="constellation-container" aria-hidden="true"></div>
+            <div id="constellation-empty" class="constellation-empty" hidden>Your saved knowledge will appear here.</div>
           </div>
 
-        </aside>
-
-        <div class="workspace-resizer" id="sidebar-resizer"></div>
-
-        <main class="workspace-center">
-          <header class="workspace-commandbar">
+          <header class="workspace-commandbar" id="workspace-commandbar">
             <form id="search-form" class="search-form" autocomplete="off">
             <div class="search-bar-wrapper" id="search-bar-wrapper">
+              <button id="search-mode-toggle" class="search-mode-toggle" type="button" data-search-mode="web" aria-label="Switch to Ask mode" aria-describedby="search-mode-tooltip"><span>Web</span></button>
+              <span id="search-mode-tooltip" class="search-mode-tooltip" role="tooltip">Search the web with your configured provider.</span>
               <span class="workspace-search-icon" aria-hidden="true">⌕</span>
-              <input id="query" name="q" type="search" placeholder="Ask what you remember..." autocomplete="off" spellcheck="false" />
-              <kbd class="workspace-search-shortcut">Ctrl K</kbd>
+              <input id="query" name="q" type="search" placeholder="Search DuckDuckGo…" autocomplete="off" spellcheck="false" />
               <button type="submit" class="search-submit" aria-label="Search">
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   <circle cx="11" cy="11" r="8" />
                   <path d="m21 21-4.35-4.35" />
                 </svg>
               </button>
-              <div id="slash-hints" class="slash-hints" hidden>
-                <div class="slash-hint-item" data-cmd="/entities">🧩 /entities &lt;name&gt; — Entity overview</div>
-                <div class="slash-hint-item" data-cmd="/sources">📄 /sources &lt;topic&gt; — Source list</div>
-                <div class="slash-hint-item" data-cmd="/table">🗂️ /table &lt;query&gt; — Table view</div>
-                <div class="slash-hint-item" data-cmd="/sources">📄 /sources &lt;topic&gt; — Source list</div>
-                <div class="slash-hint-item" data-cmd="/table">🗂️ /table &lt;query&gt; — Table view</div>
-                <div class="slash-hint-item" data-cmd="/timeline">📅 /timeline &lt;query&gt; — Timeline view</div>
-                <div class="slash-hint-item" data-cmd="/compare">⚖️ /compare X and Y — Comparison</div>
-                <div class="slash-hint-item" data-cmd="/cards">📇 /cards &lt;query&gt; — Card view</div>
-                <div class="slash-hint-item" data-cmd="/markdown">📝 /markdown &lt;query&gt; — Markdown view</div>
-              </div>
+              <div id="slash-hints" class="slash-hints" hidden></div>
               <div id="web-suggestions" class="web-suggestions" role="listbox" aria-label="Search suggestions" hidden></div>
             </div>
           </form>
-            <button id="workspace-inspector-toggle" class="workspace-icon-button" type="button" aria-pressed="true" title="Toggle inspector" aria-label="Toggle inspector">◫</button>
           </header>
 
-          <div id="content-view" class="content-view">
+          <section id="content-view" class="content-view" hidden aria-label="Library results">
+          <button id="workspace-results-close" class="workspace-results-close" type="button" aria-label="Close results">×</button>
           <div class="workspace-view-header" id="workspace-view-header">
             <div class="workspace-view-copy">
               <span class="workspace-view-eyebrow" id="workspace-view-eyebrow">Personal recall</span>
@@ -145,7 +95,7 @@
             </div>
             <div id="empty-state" class="empty-state" hidden></div>
           </div>
-          </div>
+          </section>
 
           <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
 
@@ -207,7 +157,7 @@
           </div>
         </main>
 
-        <aside id="workspace-inspector" class="workspace-inspector" aria-label="Context inspector">
+        <aside id="workspace-inspector" class="workspace-inspector" aria-label="Context inspector" hidden>
           <div class="workspace-inspector-header">
             <div>
               <span class="workspace-view-eyebrow">Context</span>
@@ -370,13 +320,14 @@
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <script src="/static/js/ui-utils.js?v=20260926-2"></script>
     <script src="/static/js/extension-bridge.js?v=20261021-1"></script>
-    <script src="/static/js/settings.js?v=20261021-3"></script>
-    <script src="/static/js/atomic-view.js?v=20261021-4"></script>
+    <script src="/static/js/settings.js?v=20261021-11"></script>
+    <script src="/static/js/atomic-view.js?v=20261021-5"></script>
     <script src="/static/js/entity-view.js?v=20260926-2"></script>
-    <script src="/static/js/graph-view.js?v=20260926-2"></script>
-    <script src="/static/js/web-search.js?v=20260925-1"></script>
-    <script src="/static/js/app.js?v=20261020-1"></script>
-    <script src="/static/js/workspace-store.js?v=20260926-2"></script>
-    <script src="/static/js/workspace-controller.js?v=20260926-2"></script>
+    <script src="/static/js/graph-view.js?v=20261021-1"></script>
+    <script src="/static/js/constellation-view.js?v=20261021-6"></script>
+    <script src="/static/js/web-search.js?v=20261021-3"></script>
+    <script src="/static/js/app.js?v=20261021-2"></script>
+    <script src="/static/js/workspace-store.js?v=20261021-1"></script>
+    <script src="/static/js/workspace-controller.js?v=20261021-3"></script>
   </body>
 </html>

@@ -13,19 +13,12 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 
     function _transitionDuration() {
-        const spd = localStorage.getItem('animationSpeed') || 'fast';
-        if (spd === 'instant') return 0;
-        if (spd === 'fast') return 0.2;
-        if (spd === 'slow') return 1;
-        return 0.5;
+        return Math.max(0, Math.min(600, Number(localStorage.getItem('animationDuration') || 160))) / 1000;
     }
 
     function flowAnimationSpeed() {
-        const spd = localStorage.getItem('animationSpeed') || 'fast';
-        if (spd === 'instant') return 0;
-        if (spd === 'fast') return 2;
-        if (spd === 'slow') return 5;
-        return 3;
+        const duration = Math.max(0, Math.min(600, Number(localStorage.getItem('animationDuration') || 160)));
+        return duration === 0 ? 0 : Math.max(1, duration / 80);
     }
 
     window.setGraphMode = function() {

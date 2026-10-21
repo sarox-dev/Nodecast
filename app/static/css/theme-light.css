@@ -5,8 +5,12 @@
 :root[data-theme="light"] {
   color-scheme: light;
 
+  --primary: #4f46e5;
+  --secondary: #1d4ed8;
+  --background: #f5f6f8;
+
   /* ─── Background ───────────────────────────────────────────── */
-  --bg: #f5f6f8;
+  --bg: var(--background);
   --bg-elevated: #ffffff;
   --bg-card: #ffffff;
   --bg-card-hover: #f8f9fb;
@@ -32,14 +36,14 @@
   --text-tertiary: rgba(26, 29, 35, 0.32);
 
   /* ─── Accent (indigo) ──────────────────────────────────────── */
-  --accent: #4f46e5;
+  --accent: var(--primary);
   --accent-hover: #4338ca;
   --accent-subtle: rgba(79, 70, 229, 0.08);
   --accent-glow: rgba(79, 70, 229, 0.15);
   --accent-text: #3730a3;
 
   /* ─── Saved accent (blue) ──────────────────────────────────── */
-  --saved-accent: #1d4ed8;
+  --saved-accent: var(--secondary);
   --saved-subtle: rgba(29, 78, 216, 0.08);
   --saved-border: rgba(29, 78, 216, 0.25);
   --saved-glow: rgba(29, 78, 216, 0.12);
@@ -49,6 +53,48 @@
   --success: #16a34a;
   --error: #dc2626;
   --error-bg: rgba(220, 38, 38, 0.06);
+}
+
+:root[data-theme="custom"][data-custom-tone="light"] {
+  color-scheme: light;
+  --bg: var(--background);
+  --bg-elevated: color-mix(in srgb, var(--background) 94%, black);
+  --bg-card: color-mix(in srgb, var(--background) 97%, black);
+  --bg-card-hover: color-mix(in srgb, var(--background) 92%, black);
+  --bg-header: color-mix(in srgb, var(--background) 85%, transparent);
+  --surface-search: rgba(0, 0, 0, 0.03);
+  --surface-hover: rgba(0, 0, 0, 0.04);
+  --surface-active: rgba(0, 0, 0, 0.06);
+  --surface-settings-sidebar: rgba(0, 0, 0, 0.02);
+  --surface-settings-card: rgba(255, 255, 255, 0.8);
+  --border: rgba(0, 0, 0, 0.08);
+  --border-hover: rgba(0, 0, 0, 0.14);
+  --border-active: rgba(0, 0, 0, 0.20);
+  --border-card: rgba(0, 0, 0, 0.06);
+  --text: #1a1d23;
+  --text-secondary: rgba(26, 29, 35, 0.58);
+  --text-tertiary: rgba(26, 29, 35, 0.36);
+  --accent: var(--primary);
+  --accent-hover: var(--primary-700);
+  --accent-subtle: color-mix(in srgb, var(--primary) 8%, transparent);
+  --accent-text: var(--primary-700);
+  --saved-accent: var(--secondary);
+  --saved-subtle: color-mix(in srgb, var(--secondary) 8%, transparent);
+  --saved-border: color-mix(in srgb, var(--secondary) 25%, transparent);
+  --saved-text: var(--secondary-700);
+}
+
+/* Custom foreground is an explicit user choice and overrides background inference. */
+:root[data-theme="custom"][data-foreground-tone="light"] {
+  --text: #f3f4f6;
+  --text-secondary: rgba(243, 244, 246, 0.62);
+  --text-tertiary: rgba(243, 244, 246, 0.38);
+}
+
+:root[data-theme="custom"][data-foreground-tone="dark"] {
+  --text: #17191e;
+  --text-secondary: rgba(23, 25, 30, 0.62);
+  --text-tertiary: rgba(23, 25, 30, 0.38);
 }
 
 /* ─── Light mode scrollbar ─────────────────────────────────────── */

@@ -9,7 +9,7 @@ from app.api.routes import capture
 from app.api.routes import auth as auth_routes
 from app.middleware.security import RequestSecurityMiddleware
 from app.models.capture_package import CapturePackage
-from app.services import auth, outbound_security, raw_storage
+from app.services import auth, database, outbound_security, raw_storage
 
 
 def test_capture_id_rejects_path_traversal_but_keeps_legacy_ids():
@@ -82,6 +82,21 @@ def test_password_boundary_handles_bcrypt_limit_without_server_error():
     assert not auth.password_is_supported("x" * 73)
 
 
+def test_web_session_switches_only_between_authenticated_accounts(tmp_path, monkeypatch):
+    monkeypatch.setattr(database, "USERS_DB_PATH", tmp_path / "users.db")
+    monkeypatch.setattr(database, "USERS_DATA_DIR", tmp_path / "users")
+    first = database.create_user_in_db("owner", "hash", is_admin=True)
+    second = database.create_user_in_db("member", "hash")
+    database.create_web_session("secret", first, 3600)
+    assert database.get_web_session_user("secret")["id"] == first
+    assert not database.switch_web_session_account("secret", second)
+    assert database.add_web_session_account("secret", second, 3600)
+    assert database.get_web_session_user("secret")["id"] == second
+    assert database.switch_web_session_account("secret", first)
+    assert database.web_session_binding_matches(database.web_session_binding("secret"), first)
+    assert not database.web_session_binding_matches(database.web_session_binding("secret"), second)
+
+
 def test_request_middleware_rejects_cross_origin_cookie_and_large_body(monkeypatch):
     monkeypatch.setattr("app.middleware.security.MAX_REQUEST_BYTES", 4)
     called = []
@@ -117,6 +132,84 @@ def test_request_middleware_rejects_cross_origin_cookie_and_large_body(monkeypat
     allowed = asyncio.run(run([(b"host", b"localhost:5000")], b"1234"))
     assert (cross_origin, too_large, allowed) == (403, 413, 204)
     assert called[-1]["body"] == b"1234"
+
+
+def test_request_middleware_allows_the_current_local_origin_with_a_lan_public_origin(monkeypatch):
+    monkeypatch.setenv("NODECAST_PUBLIC_ORIGIN", "http://192.168.8.116:5000")
+
+    async def app(_scope, _receive, send):
+        await send({"type": "http.response.start", "status": 204, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    async def run(origin):
+        sent = []
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message):
+            sent.append(message)
+
+        await RequestSecurityMiddleware(app)(
+            {
+                "type": "http",
+                "method": "POST",
+                "scheme": "http",
+                "headers": [
+                    (b"host", b"localhost:5000"),
+                    (b"origin", origin.encode()),
+                    (b"cookie", b"nodecast_token=secret"),
+                ],
+            },
+            receive,
+            send,
+        )
+        return sent[0]["status"]
+
+    assert asyncio.run(run("http://localhost:5000")) == 204
+    assert asyncio.run(run("https://evil.example")) == 403
+
+
+def test_request_middleware_allows_extension_pairing_exchange_only(monkeypatch):
+    monkeypatch.delenv("NODECAST_PUBLIC_ORIGIN", raising=False)
+
+    async def app(_scope, _receive, send):
+        await send({"type": "http.response.start", "status": 204, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    async def run(path, *, bearer=False):
+        sent = []
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message):
+            sent.append(message)
+
+        headers = [
+            (b"host", b"localhost:5000"),
+            (b"origin", b"moz-extension://nodecast-test"),
+            (b"cookie", b"nodecast_token=secret"),
+        ]
+        if bearer:
+            headers.append((b"authorization", b"Bearer extension-token"))
+
+        await RequestSecurityMiddleware(app)(
+            {
+                "type": "http",
+                "method": "POST",
+                "scheme": "http",
+                "path": path,
+                "headers": headers,
+            },
+            receive,
+            send,
+        )
+        return sent[0]["status"]
+
+    assert asyncio.run(run("/api/extension/exchange")) == 204
+    assert asyncio.run(run("/api/capture")) == 403
+    assert asyncio.run(run("/api/capture", bearer=True)) == 204
 
 
 def test_request_middleware_does_not_read_get_body(monkeypatch):
