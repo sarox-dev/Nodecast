@@ -721,6 +721,8 @@ body::before {
 
 .memory-synthesis h2 { margin: 0.45rem 0 0.4rem; font-size: 1.15rem; }
 .memory-synthesis > p { margin: 0; color: var(--text-secondary); line-height: 1.55; }
+.memory-synthesis-draft { min-height: 1.55em; white-space: pre-wrap; }
+.memory-synthesis-streaming .memory-synthesis-label { color: var(--text-tertiary); }
 .memory-synthesis-section { margin-top: 0.85rem; padding-top: 0.8rem; border-top: 1px solid var(--border); }
 .memory-synthesis-section h3 { margin: 0 0 0.25rem; font-size: 0.86rem; }
 .memory-synthesis-section p { margin: 0; color: var(--text-secondary); line-height: 1.5; }

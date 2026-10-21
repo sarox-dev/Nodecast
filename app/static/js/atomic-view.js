@@ -194,6 +194,15 @@ async function doSearch(query, page) {
     loading = true;
     showLoading(true, page);
     try {
+        if (page === 1) {
+            try {
+                if (await doStreamingSearch(query)) return;
+            } catch (streamError) {
+                // A proxy or provider can interrupt a streamed response. Preserve
+                // the normal local-result path rather than leaving the Library empty.
+                console.warn('Streaming recall unavailable; using standard query.', streamError);
+            }
+        }
         const resp = await fetch('/api/memory/query', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ query, limit: 8, token_budget: 700 }),
@@ -224,6 +233,110 @@ async function doSearch(query, page) {
         loading = false;
         updatePaginationControls();
     }
+}
+
+async function doStreamingSearch(query) {
+    // Local recall never waits for an AI provider. It is the reliable baseline
+    // and stays visible even if the stream or provider fails later.
+    const localResponse = await fetch('/api/memory/query', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ query, limit: 8, token_budget: 700, synthesize: false }),
+    });
+    if (!localResponse.ok) throw new Error(`HTTP ${localResponse.status}`);
+    const local = await localResponse.json();
+    allResults = local.items || [];
+    window.currentMemoryViewModel = local;
+    hasMore = Boolean(local.page?.has_more);
+    currentPage = 1;
+    showLoading(false, 1);
+    renderMemoryView(local);
+    if (!allResults.length) return true;
+
+    let resp;
+    try {
+        resp = await fetch('/api/memory/query/stream', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/x-ndjson' },
+            body: JSON.stringify({ query, limit: 8, token_budget: 700 }),
+        });
+    } catch (error) {
+        renderStreamFallback(local, error);
+        return true;
+    }
+    // Allows an older Core instance to keep working with a newer cached frontend.
+    if (resp.status === 404 || !resp.body) return false;
+    if (!resp.ok) {
+        renderStreamFallback(local, new Error(`HTTP ${resp.status}`));
+        return true;
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+        const { value, done } = await reader.read();
+        buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+        let newline;
+        while ((newline = buffer.indexOf('\n')) >= 0) {
+            const line = buffer.slice(0, newline).trim();
+            buffer = buffer.slice(newline + 1);
+            if (!line) continue;
+            handleMemoryStreamEvent(JSON.parse(line));
+        }
+        if (done) break;
+    }
+    return true;
+}
+
+function renderStreamFallback(local, error) {
+    const fallback = {
+        ...local,
+        synthesis_status: 'error',
+        synthesis: { status: 'error', code: 'stream_unavailable', message: 'AI streaming is unavailable. Local results are still available.' },
+    };
+    window.currentMemoryViewModel = fallback;
+    renderMemoryView(fallback);
+    if (typeof showNotification === 'function') showNotification({
+        title: 'AI streaming unavailable', message: fallback.synthesis.message, type: 'error', duration: 0, key: 'memory-stream',
+        actionLabel: 'Open AI settings', onAction: () => typeof openSettings === 'function' && openSettings('AI'),
+    });
+    console.warn('Streaming recall unavailable; local results remain available.', error);
+}
+
+function handleMemoryStreamEvent(event) {
+    if (event.event === 'meta') {
+        const data = event.data;
+        allResults = data.items || [];
+        window.currentMemoryViewModel = data;
+        hasMore = Boolean(data.page?.has_more);
+        currentPage = 1;
+        showLoading(false, 1);
+        renderStreamingMemoryView(data);
+        return;
+    }
+    if (event.event === 'delta') {
+        const draft = resultsContainer.querySelector('[data-streaming-draft]');
+        if (draft) draft.textContent += event.text || '';
+        return;
+    }
+    if (event.event === 'done') {
+        const data = event.data;
+        allResults = data.items || [];
+        window.currentMemoryViewModel = data;
+        hasMore = Boolean(data.page?.has_more);
+        currentPage = 1;
+        showLoading(false, 1);
+        renderMemoryView(data);
+    }
+}
+
+function renderStreamingMemoryView(viewModel) {
+    resultsContainer.innerHTML = `<section class="memory-synthesis memory-synthesis-streaming" aria-live="polite">
+        <div class="memory-synthesis-label">AI synthesis · writing</div>
+        <h2>${escapeHtml(currentQuery)}</h2>
+        <p class="memory-synthesis-draft" data-streaming-draft></p>
+    </section>` + allResults.map(createCard).join('');
+    emptyState.hidden = true;
+    updatePaginationControls();
 }
 
 function renderMemoryView(viewModel) {

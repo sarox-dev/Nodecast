@@ -2,7 +2,7 @@ from app.services import database
 from app.services import memory_retrieval
 from app.services.ai_client import AIClientError
 from app.services.atomic_extraction import split_evidence
-from app.services.memory_retrieval import detect_intent, focused_graph, query_memory, recent_memory, relation_feedback
+from app.services.memory_retrieval import detect_intent, focused_graph, query_memory, recent_memory, relation_feedback, stream_memory_query
 
 
 def _user_db(tmp_path, monkeypatch):
@@ -111,6 +111,16 @@ def test_ai_auth_error_is_returned_as_actionable_synthesis_status(tmp_path, monk
     assert result["sources"][0]["url"] == "https://example.com"
 
 
+def test_local_query_never_calls_ai_when_synthesis_is_disabled(tmp_path, monkeypatch):
+    user_id = _user_db(tmp_path, monkeypatch)
+    database.insert_capture_ref(user_id, "cap-a", "snippet", "https://example.com", "Local source", "example.com", "", "", [], "", "")
+    database.insert_atomic(user_id, "text", "Local retrieval remains available.", source_id="cap-a")
+    monkeypatch.setattr(memory_retrieval, "_ai_synthesis", lambda *_: (_ for _ in ()).throw(AssertionError("AI must not run")))
+    result = query_memory(user_id, "local retrieval", synthesize=False)
+    assert result["synthesis_status"] == "local_only"
+    assert result["items"]
+
+
 def test_recall_synthesis_uses_only_its_own_assignment_and_cites_evidence(tmp_path, monkeypatch):
     user_id = _user_db(tmp_path, monkeypatch)
     database.insert_capture_ref(user_id, "cap-a", "snippet", "https://example.com", "Docker guide", "example.com", "", "", [], "", "")
@@ -123,3 +133,21 @@ def test_recall_synthesis_uses_only_its_own_assignment_and_cites_evidence(tmp_pa
     assert requested_features == ["recall_synthesis"]
     assert result["synthesis_status"] == "success"
     assert result["answer"]["sections"][0]["evidence_ids"] == [atomic_id]
+
+
+def test_streamed_recall_emits_early_evidence_and_validated_result(tmp_path, monkeypatch):
+    user_id = _user_db(tmp_path, monkeypatch)
+    database.insert_capture_ref(user_id, "cap-a", "snippet", "https://example.com", "Docker guide", "example.com", "", "", [], "", "")
+    atomic_id = database.insert_atomic(user_id, "definition", "Docker packages applications into containers.", source_id="cap-a")
+    monkeypatch.setattr(memory_retrieval, "get_ai_assignment_for_feature", lambda *_: {"provider_id":"provider-a", "model":"recall-model"})
+    monkeypatch.setattr(memory_retrieval, "get_ai_provider", lambda *_: {"id":"provider-a"})
+    monkeypatch.setattr(memory_retrieval, "stream_provider_model", lambda *_args, **_kwargs: iter([
+        "VIEW: focus\nTITLE: Docker\nSUMMARY: Docker is saved as container evidence.\nSECTION: Definition\nCONTENT: Docker packages applications into containers.\nEVIDENCE: ",
+        atomic_id + "\n",
+    ]))
+    events = list(stream_memory_query(user_id, "What did I save about Docker?", limit=5))
+    assert events[0]["event"] == "meta"
+    assert events[0]["data"]["items"][0]["id"] == atomic_id
+    assert any(event["event"] == "delta" and "Docker packages" in event["text"] for event in events)
+    assert events[-1]["data"]["synthesis_status"] == "success"
+    assert events[-1]["data"]["answer"]["sections"][0]["evidence_ids"] == [atomic_id]

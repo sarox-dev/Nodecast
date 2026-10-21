@@ -1,6 +1,9 @@
 import json
 from urllib.parse import parse_qs, urlparse
 
+import httpx
+import pytest
+
 from app.services import ai_client, chatgpt_oauth
 from app.api.routes.ai_providers import _normalize_model_catalog
 
@@ -58,3 +61,14 @@ def test_chatgpt_model_catalog_uses_visible_slugs_and_display_names():
         {"slug": "internal-model", "display_name": "Internal", "visibility": "hidden"},
     ]}, chatgpt_plan=True)
     assert models == [{"id": "gpt-6.1-sol", "name": "GPT-6.1-Sol", "object": "model"}]
+
+
+def test_chatgpt_stream_transport_failure_becomes_actionable_error(monkeypatch):
+    def broken_stream(*_args, **_kwargs):
+        raise httpx.ConnectError("offline")
+        yield ""  # pragma: no cover - marks this as a generator
+
+    monkeypatch.setattr(ai_client, "_stream_chatgpt_plan", broken_stream)
+    with pytest.raises(ai_client.AIClientError, match="ChatGPT plan request failed") as error:
+        list(ai_client.stream_provider_model("user-a", {"id":"provider-a", "provider_type":"chatgpt_oauth"}, "model-a", []))
+    assert error.value.code == "chatgpt_plan_error"

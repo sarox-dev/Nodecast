@@ -1,8 +1,11 @@
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.services.auth import get_current_user
-from app.services.memory_retrieval import focused_graph, memory_detail, memory_feedback, memory_sources, query_memory, recent_memory, relation_feedback
+from app.services.memory_retrieval import focused_graph, memory_detail, memory_feedback, memory_sources, query_memory, recent_memory, relation_feedback, stream_memory_query
 
 router = APIRouter(prefix="/api", tags=["memory"])
 
@@ -11,6 +14,7 @@ class MemoryQuery(BaseModel):
     view: str = "auto"
     limit: int = Field(default=8,ge=1,le=8)
     token_budget: int = Field(default=700,ge=100,le=4000)
+    synthesize: bool = True
 
 class RelationFeedback(BaseModel): action: str
 class MemoryFeedback(BaseModel): feedback: str; outcome: str = ""
@@ -19,7 +23,19 @@ class MemoryFeedback(BaseModel): feedback: str; outcome: str = ""
 def search(body:MemoryQuery,user=Depends(get_current_user)):
     if body.view not in {"auto","list","focus","compare","problem","sources","graph"}:
         raise HTTPException(422,"Invalid memory view")
-    return query_memory(user["user_id"],body.query,body.limit,body.token_budget,body.view)
+    return query_memory(user["user_id"],body.query,body.limit,body.token_budget,body.view,body.synthesize)
+
+
+@router.post("/memory/query/stream")
+def search_stream(body:MemoryQuery,user=Depends(get_current_user)):
+    if body.view not in {"auto","list","focus","compare","problem","sources","graph"}:
+        raise HTTPException(422,"Invalid memory view")
+
+    def events():
+        for event in stream_memory_query(user["user_id"], body.query, body.limit, body.token_budget, body.view):
+            yield json.dumps(event, ensure_ascii=False) + "\n"
+
+    return StreamingResponse(events(), media_type="application/x-ndjson", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
 @router.get("/memory")
 def recent(limit:int=Query(8,ge=1,le=8),user=Depends(get_current_user)):

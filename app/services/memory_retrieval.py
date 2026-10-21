@@ -6,7 +6,7 @@ import re
 import uuid
 from collections import defaultdict
 
-from app.services.ai_client import AIClientError, call_provider_model
+from app.services.ai_client import AIClientError, call_provider_model, stream_provider_model
 from app.services.database import (
     enrich_atomics_with_sources,
     get_ai_assignment_for_feature,
@@ -21,6 +21,7 @@ from app.services.database import (
 ERROR_RE = re.compile(r"(?:\b[A-Z][A-Za-z]+Error\b|\b(?:error|exception|traceback|failed)\b|\b[A-Z]{2,8}-?\d{3,}\b)", re.I)
 COMPARE_RE = re.compile(r"\b(?:compare|comparison|difference|differences|versus|vs\.?|atšķirīb)\b", re.I)
 FEATURE_RECALL_SYNTHESIS = "recall_synthesis"
+STREAM_FIELDS = ("VIEW", "TITLE", "SUMMARY", "SECTION", "CONTENT", "EVIDENCE")
 
 
 def detect_intent(query: str) -> str:
@@ -117,7 +118,7 @@ For compare, use shared dimensions as section titles and never invent missing va
     except (json.JSONDecodeError, AttributeError, TypeError): return None
 
 
-def query_memory(user_id: str, query: str, limit: int = 8, token_budget: int = 700, requested_view: str = "auto") -> dict:
+def _memory_context(user_id: str, query: str, limit: int, token_budget: int, requested_view: str) -> tuple[dict, list[dict], str]:
     intent = detect_intent(query)
     raw = enrich_atomics_with_sources(user_id, search_atomics(user_id, query, limit=30))
     evidence = [a for a in raw if a.get("role", "evidence") == "evidence" and a.get("status", "ready") != "rejected"]
@@ -129,10 +130,7 @@ def query_memory(user_id: str, query: str, limit: int = 8, token_budget: int = 7
         cards.append(card); used += card["token_estimate"]
         packet.append(atomic)
         if len(cards) >= max(1,min(limit,8)): break
-    # The model may cite only evidence the UI can open directly in this packet.
-    synthesis = _ai_synthesis(user_id, query, intent, packet)
-    synthesized_view = synthesis.get("view") if synthesis and synthesis.get("status") != "error" else None
-    view = requested_view if requested_view != "auto" else (synthesized_view or (intent if intent in {"compare","problem","focus"} else "list"))
+    view = requested_view if requested_view != "auto" else (intent if intent in {"compare","problem","focus"} else "list")
     source_groups={}
     for atomic in packet:
         source_id=atomic.get("source_id") or "derived"
@@ -142,20 +140,151 @@ def query_memory(user_id: str, query: str, limit: int = 8, token_budget: int = 7
             "url":atomic.get("source_url", ""),
             "evidence_ids":[],
         })["evidence_ids"].append(atomic["id"])
-    synthesis_status=(synthesis or {}).get("status", "local_only")
-    answer = synthesis if synthesis_status == "success" else None
     return {
         "query":{"text":query,"intent":intent}, "view":view, "items":cards,
         "evidence": cards,
         "sources": list(source_groups.values()),
-        "answer": answer,
-        "synthesis_status": synthesis_status,
-        "synthesis": synthesis or {"status":"local_only","reason":"No Recall synthesis provider is configured."},
+        "answer": None,
+        "synthesis_status": "local_only",
+        "synthesis": {"status":"local_only","reason":"No Recall synthesis provider is configured."},
         "capabilities":["open","expand","trace_sources","graph"],
         "available_views":["list","focus","sources","compare","problem","graph"],
         "page":{"cursor":None,"has_more":len(evidence)>len(cards)}, "token_estimate":used,
         "result_id":hashlib.sha256(f"{user_id}:{query}".encode()).hexdigest()[:16],
-    }
+    }, packet, intent
+
+
+def _with_synthesis(result: dict, synthesis: dict | None, requested_view: str) -> dict:
+    response = dict(result)
+    status = (synthesis or {}).get("status", "local_only")
+    response["synthesis_status"] = status
+    response["synthesis"] = synthesis or {"status":"local_only","reason":"No Recall synthesis provider is configured."}
+    response["answer"] = synthesis if status == "success" else None
+    if status == "success" and requested_view == "auto":
+        response["view"] = synthesis.get("view") or response["view"]
+    return response
+
+
+def query_memory(user_id: str, query: str, limit: int = 8, token_budget: int = 700, requested_view: str = "auto", synthesize: bool = True) -> dict:
+    result, packet, intent = _memory_context(user_id, query, limit, token_budget, requested_view)
+    if not synthesize:
+        return result
+    # The model may cite only evidence the UI can open directly in this packet.
+    return _with_synthesis(result, _ai_synthesis(user_id, query, intent, packet), requested_view)
+
+
+class _StreamingDisplayParser:
+    """Expose only human-readable summary/content fields while retaining raw output for validation."""
+    def __init__(self):
+        self.buffer = ""
+        self.field = ""
+
+    def feed(self, delta: str) -> str:
+        self.buffer += delta
+        visible = []
+        while self.buffer:
+            if self.field:
+                newline = self.buffer.find("\n")
+                if newline < 0:
+                    visible.append(self.buffer)
+                    self.buffer = ""
+                    break
+                visible.append(self.buffer[:newline])
+                self.buffer = self.buffer[newline + 1:]
+                self.field = ""
+                continue
+
+            upper = self.buffer.upper()
+            matched = next((name for name in STREAM_FIELDS if upper.startswith(f"{name}:")), None)
+            if matched:
+                self.buffer = self.buffer[len(matched) + 1:].lstrip()
+                if matched in {"SUMMARY", "CONTENT"}:
+                    self.field = matched
+                elif matched == "SECTION":
+                    newline = self.buffer.find("\n")
+                    if newline < 0:
+                        return "".join(visible)
+                    visible.extend(("\n\n", self.buffer[:newline], "\n"))
+                    self.buffer = self.buffer[newline + 1:]
+                else:
+                    newline = self.buffer.find("\n")
+                    if newline < 0:
+                        return "".join(visible)
+                    self.buffer = self.buffer[newline + 1:]
+                continue
+            if any(name.startswith(upper) for name in STREAM_FIELDS):
+                break
+            newline = self.buffer.find("\n")
+            if newline < 0:
+                break
+            self.buffer = self.buffer[newline + 1:]
+        return "".join(visible)
+
+
+def _parse_streamed_synthesis(raw: str, valid_ids: set[str], model: str) -> dict | None:
+    data = {"view": "list", "title": "", "summary": "", "sections": [], "model": model}
+    current = None
+    for line in raw.splitlines():
+        key, separator, value = line.partition(":")
+        if not separator:
+            continue
+        key, value = key.strip().upper(), value.strip()
+        if key == "VIEW" and value in {"list", "focus", "compare", "problem"}:
+            data["view"] = value
+        elif key == "TITLE":
+            data["title"] = value[:160]
+        elif key == "SUMMARY":
+            data["summary"] = value[:1000]
+        elif key == "SECTION":
+            current = {"title": value[:160], "content": "", "evidence_ids": []}
+            data["sections"].append(current)
+        elif key == "CONTENT" and current is not None:
+            current["content"] = value[:3000]
+        elif key == "EVIDENCE" and current is not None:
+            current["evidence_ids"] = [item.strip() for item in value.split(",") if item.strip() in valid_ids]
+    data["sections"] = [section for section in data["sections"] if section["content"] and section["evidence_ids"]]
+    if not data["summary"] or not data["sections"]:
+        return None
+    data["status"] = "success"
+    return data
+
+
+def stream_memory_query(user_id: str, query: str, limit: int = 8, token_budget: int = 700, requested_view: str = "auto"):
+    """Yield JSON-serializable stream events for an evidence-cited recall answer."""
+    result, packet, intent = _memory_context(user_id, query, limit, token_budget, requested_view)
+    assignment = get_ai_assignment_for_feature(user_id, FEATURE_RECALL_SYNTHESIS)
+    provider = get_ai_provider(user_id, assignment["provider_id"]) if assignment else None
+    if not provider or not packet:
+        yield {"event": "done", "data": result}
+        return
+
+    streaming = dict(result)
+    streaming["synthesis_status"] = "streaming"
+    streaming["synthesis"] = {"status": "streaming", "model": assignment["model"]}
+    yield {"event": "meta", "data": streaming}
+    compact = [{"id": a["id"], "type": a.get("type"), "text": (a.get("content") or "")[:650], "source": a.get("source_title") or a.get("source_url")} for a in packet[:12]]
+    prompt = """Answer only from the supplied saved evidence. Use exactly these one-line fields: VIEW, TITLE, SUMMARY, SECTION, CONTENT, EVIDENCE. Each SECTION must be followed by one CONTENT line and one comma-separated EVIDENCE line containing only supplied evidence IDs. Never use newlines inside values. Every section must cite at least one evidence ID. Keep the answer concise and do not add markdown or other fields."""
+    raw, display = [], _StreamingDisplayParser()
+    try:
+        for delta in stream_provider_model(user_id, provider, assignment["model"], [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": json.dumps({"query": query, "intent": intent, "evidence": compact}, ensure_ascii=False)[:12000]},
+        ], timeout=45):
+            raw.append(delta)
+            visible = display.feed(delta)
+            if visible:
+                yield {"event": "delta", "text": visible}
+    except AIClientError as exc:
+        failed = _with_synthesis(result, {"status": "error", "code": exc.code, "message": str(exc), "http_status": exc.status_code, "model": assignment["model"]}, requested_view)
+        yield {"event": "done", "data": failed}
+        return
+
+    synthesis = _parse_streamed_synthesis("".join(raw), {item["id"] for item in packet}, assignment["model"])
+    if not synthesis:
+        failed = _with_synthesis(result, {"status": "error", "code": "ai_malformed_output", "message": "AI synthesis could not be validated. Local results are still available.", "model": assignment["model"]}, requested_view)
+        yield {"event": "done", "data": failed}
+        return
+    yield {"event": "done", "data": _with_synthesis(result, synthesis, requested_view)}
 
 
 def recent_memory(user_id: str, limit: int = 8) -> dict:
