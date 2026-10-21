@@ -565,6 +565,25 @@ async function renderAccountSettings() {
 
 let aiProviders = [];
 let aiAssignments = [];
+const providerModelCache = new Map();
+const providerModelLoads = new Set();
+
+function queueProviderModelCatalog(provider) {
+    if (providerModelLoads.has(provider.id) || providerModelCache.has(provider.id)) return;
+    providerModelLoads.add(provider.id);
+    providerModelCache.set(provider.id, { models: [], state: 'loading' });
+    fetchSettingsJson(`/api/ai/providers/${provider.id}/models`, null, 6500)
+        .then(data => {
+            providerModelCache.set(provider.id, data
+                ? { models: data.models || [], state: data.error ? 'error' : 'ready', error: data.error || '' }
+                : { models: [], state: 'error', error: 'timeout' });
+        })
+        .catch(() => providerModelCache.set(provider.id, { models: [], state: 'error', error: 'timeout' }))
+        .finally(() => {
+            providerModelLoads.delete(provider.id);
+            if (activeSettingsCategory === 'AI') renderAISettings();
+        });
+}
 
 async function renderAISettings() {
     const cat = settingsSchema.find(c => c.category === 'AI');
@@ -581,22 +600,9 @@ async function renderAISettings() {
     aiProviders = providerData?.providers || [];
     aiAssignments = assignmentData?.assignments || [];
 
-    // Fetch models for ALL providers in parallel (shows online status + pre-populates dropdowns)
-    const providerModels = new Map();
-    await Promise.all(aiProviders.map(async (p) => {
-        try {
-            // A model catalog is optional metadata. Keep the Settings surface
-            // responsive even while a provider is timing out or refreshing OAuth.
-            const data = await fetchSettingsJson(`/api/ai/providers/${p.id}/models`, null, 1200);
-            if (data) {
-                providerModels.set(p.id, { models: data.models || [], online: true });
-            } else {
-                providerModels.set(p.id, { models: [], online: false });
-            }
-        } catch {
-            providerModels.set(p.id, { models: [], online: false });
-        }
-    }));
+    // Model catalogs are optional remote metadata. They load after the Settings
+    // surface renders, so an unavailable provider never leaves this view blocked.
+    aiProviders.forEach(queueProviderModelCatalog);
 
     let html = '<div class="settings-field-group">';
 
@@ -613,8 +619,7 @@ async function renderAISettings() {
         html += '<div style="color:var(--text-dim);font-size:0.85rem;padding:0.3rem 0">No AI providers configured.</div>';
     } else {
         for (const p of aiProviders) {
-            const info = providerModels.get(p.id);
-            const online = info ? info.online : false;
+            const info = providerModelCache.get(p.id) || { models: [], state: 'loading' };
             const hasAssignment = aiAssignments.some(a => a.provider_id === p.id);
             const providerKey = p.provider_key || '';
             const iconPath = `/static/assets/AI_providers/${providerKey === 'chatgpt' ? 'openai' : providerKey}.svg`;
@@ -622,10 +627,12 @@ async function renderAISettings() {
             const iconHtml = providerKey
                 ? `<img src="${iconPath}" width="18" height="18"${iconStyle} alt="" style="vertical-align:middle;margin-right:0.3rem" />`
                 : '';
-            const statusBadge = online
-                ? '<span class="ai-badge" style="background:#22c55e;color:#fff;font-size:0.7rem;padding:0.1rem 0.4rem;border-radius:4px;margin-left:0.4rem">● online</span>'
-                : '<span class="ai-badge" style="background:#f87171;color:#fff;font-size:0.7rem;padding:0.1rem 0.4rem;border-radius:4px;margin-left:0.4rem">● offline</span>';
-            const modelCount = info && info.models ? `· ${info.models.length} models` : '';
+            const statusBadge = info.state === 'ready'
+                ? '<span class="ai-badge" style="background:#22c55e;color:#fff;font-size:0.7rem;padding:0.1rem 0.4rem;border-radius:4px;margin-left:0.4rem">connected</span>'
+                : info.state === 'loading'
+                    ? '<span class="ai-badge" style="background:var(--border);color:var(--text-dim);font-size:0.7rem;padding:0.1rem 0.4rem;border-radius:4px;margin-left:0.4rem">checking models</span>'
+                    : '<span class="ai-badge" style="background:#f87171;color:#fff;font-size:0.7rem;padding:0.1rem 0.4rem;border-radius:4px;margin-left:0.4rem">catalog unavailable</span>';
+            const modelCount = info.state === 'ready' ? `· ${info.models.length} models` : '';
             html += `<div class="settings-field" style="justify-content:space-between">
               <div>
                 ${iconHtml}<span style="font-weight:600">${escapeHtml(p.name)}</span>
@@ -663,7 +670,7 @@ async function renderAISettings() {
         // Build model options — pre-populate from fetched models for the assigned provider
         let modelOptions = '<option value="">— Select model —</option>';
         if (assignment) {
-            const info = providerModels.get(assignment.provider_id);
+            const info = providerModelCache.get(assignment.provider_id);
             if (info && info.models && info.models.length > 0) {
                 modelOptions = info.models.map(m =>
                     `<option value="${escapeHtml(m.id)}" ${m.id === assignment.model ? 'selected' : ''}>${escapeHtml(m.name || m.id)}</option>`
