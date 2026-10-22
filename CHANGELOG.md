@@ -1,3 +1,14 @@
+## v1.4.3 (2026-10-22)
+
+- feat: improve admin AI configuration (2bcc04f)
+- feat: add secure account administration and recovery (24d3a6b)
+- feat: stabilize workspace UI and account sessions (f6d8e2e)
+- Support LibreWolf crypto and async model catalogs (413da3e)
+- Fix ChatGPT dynamic OAuth callback (ad0f35b)
+- Fix LAN binding and settings loading (85a522b)
+- feat: stream evidence-cited recall responses (5b4dd5a)
+
+
 ## v1.4.2 (2026-10-21)
 
 - Fix Docker runtime and static asset requests (16b5904)
