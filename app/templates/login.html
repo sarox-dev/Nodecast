@@ -65,7 +65,10 @@
           <button type="submit" class="auth-submit">Sign in</button>
         </form>
         <div class="auth-link">
-          Don't have an account? <a href="/register">Register</a>
+          <a href="/forgot-password">Forgot password?</a>
+        </div>
+        <div class="auth-link">
+          Need an account? <a href="/register">Register</a>
         </div>
       </div>
     </div>
@@ -86,7 +89,7 @@
           });
           const data = await res.json();
           if (data.success) {
-            window.location.href = '/';
+            window.location.href = data.requires_recovery_setup ? '/recovery/setup' : (data.user?.role === 'owner' || data.user?.role === 'moderator' ? '/admin' : '/');
           } else {
             errorEl.textContent = data.detail || 'Invalid username or password';
             errorEl.style.display = 'block';

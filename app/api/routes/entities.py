@@ -3,7 +3,7 @@ Entity API — rewritten to use atomics(type=entity) instead of old entities tab
 """
 
 from fastapi import APIRouter, Depends, Query, HTTPException
-from app.services.auth import get_current_user
+from app.services.auth import get_member_user
 from app.services.database import (
     get_db,
     enrich_atomics_with_sources,
@@ -20,7 +20,7 @@ def api_list_entities(
     sort: str = "name",
     limit: int = 50,
     offset: int = 0,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_member_user),
 ):
     user_id = current_user["user_id"]
     conn = get_db(user_id)
@@ -76,7 +76,7 @@ def api_list_entities(
 @router.get("/api/entity/{entity_id}")
 def api_get_entity(
     entity_id: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_member_user),
 ):
     user_id = current_user["user_id"]
     conn = get_db(user_id)

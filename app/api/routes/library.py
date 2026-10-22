@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends
-from app.services.auth import get_current_user
+from app.services.auth import get_member_user
 from app.services.database import (
     get_db,
     count_captures,
@@ -9,7 +9,7 @@ router = APIRouter()
 
 
 @router.get("/api/library")
-def api_library(current_user: dict = Depends(get_current_user)):
+def api_library(current_user: dict = Depends(get_member_user)):
     user_id = current_user["user_id"]
     stats = {
         "captures": count_captures(user_id),

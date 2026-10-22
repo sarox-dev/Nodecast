@@ -6,7 +6,7 @@ import httpx
 from fastapi import APIRouter, Depends, Query
 
 from app.services.database import get_db
-from app.services.auth import get_current_user
+from app.services.auth import get_member_user
 
 router = APIRouter()
 
@@ -46,7 +46,7 @@ def _extract_suggestions(provider: str, payload: Any) -> list[str]:
 def search_route(
     q: str | None = Query(None),
     source: str | None = Query(None),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_member_user),
 ):
     """Local search only. For web search, frontend redirects to preferred engine."""
     if not q:
@@ -65,7 +65,7 @@ def search_route(
 
 @router.get("/browse")
 def browse_captures(
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_member_user),
 ):
     conn = get_db(current_user["user_id"])
     try:
@@ -81,7 +81,7 @@ def browse_captures(
 async def web_suggestions(
     q: str = Query("", min_length=0, max_length=200),
     provider: str = Query("duckduckgo"),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_member_user),
 ):
     """Proxy opt-in search suggestions so provider CORS differences stay out of the UI."""
     del current_user

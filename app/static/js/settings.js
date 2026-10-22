@@ -617,7 +617,7 @@ function _shakeActions() {
 
 async function renderAccountSettings() {
     // Fetch fresh account data
-    let user = null, users = null, settings = null, sessionAccounts = [];
+    let user = null, users = null, settings = null, sessionAccounts = [], sessions = [];
     try {
         const r1 = await fetch('/auth/me');
         user = r1.ok ? await r1.json() : null;
@@ -625,6 +625,8 @@ async function renderAccountSettings() {
         settings = r2.ok ? await r2.json() : null;
         const r4 = await fetch('/auth/accounts');
         sessionAccounts = r4.ok ? (await r4.json()).accounts || [] : [];
+        const r5 = await fetch('/auth/sessions');
+        sessions = r5.ok ? (await r5.json()).sessions || [] : [];
     } catch {}
     // Try to get users list
     try {
@@ -661,12 +663,26 @@ async function renderAccountSettings() {
         </div>
         <button id="account-logout-button" class="modal-btn modal-btn-secondary" type="button">Log out this account</button>
       </section>
+      <section class="settings-module">
+        <div class="settings-module-heading"><h4>Active sessions</h4>${infoTip('Review browsers signed into this account and revoke any session you do not recognize.')}</div>
+        <div class="account-switch-list">${sessions.map(session => `<div class="account-switch-item"><span class="account-avatar">${session.current ? '•' : '○'}</span><span><strong>${session.current ? 'This browser' : 'Browser session'}</strong><small>${escapeHtml(session.user_agent || 'Unknown device')}</small></span><button type="button" class="modal-btn modal-btn-secondary" data-revoke-session="${escapeHtml(session.id)}">Log out</button></div>`).join('')}</div>
+        <button id="account-revoke-others" class="modal-btn modal-btn-secondary" type="button">Log out other sessions</button>
+      </section>
     </div>`;
 
     document.getElementById('account-logout-button')?.addEventListener('click', async () => {
         const response = await fetch('/auth/logout', { method: 'POST' });
         const result = response.ok ? await response.json() : {};
         window.location.href = result.has_active_account ? '/' : '/login';
+    });
+    document.querySelectorAll('[data-revoke-session]').forEach(button => button.addEventListener('click', async () => {
+        const response = await fetch(`/auth/sessions/${button.dataset.revokeSession}`, { method: 'DELETE' });
+        const result = response.ok ? await response.json() : {};
+        if (result.current) window.location.href = '/login'; else renderAccountSettings();
+    }));
+    document.getElementById('account-revoke-others')?.addEventListener('click', async () => {
+        await fetch('/auth/sessions', { method: 'DELETE' });
+        renderAccountSettings();
     });
 
     async function syncExtensionAccount() {

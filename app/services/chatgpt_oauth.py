@@ -16,6 +16,7 @@ from app.services.ai_crypto import decrypt_api_key
 from app.services.database import (
     create_ai_oauth_transaction,
     get_ai_oauth_credentials,
+    resolve_ai_config_user,
     get_global_setting,
     save_ai_oauth_credentials,
     set_global_setting,
@@ -116,8 +117,9 @@ def _lock_for(provider_id: str) -> threading.Lock:
 
 
 def get_access_token(user_id: str, provider_id: str) -> str:
+    config_user_id = resolve_ai_config_user(user_id)
     with _lock_for(provider_id):
-        credentials = get_ai_oauth_credentials(user_id, provider_id)
+        credentials = get_ai_oauth_credentials(config_user_id, provider_id)
         if not credentials:
             raise ValueError("ChatGPT is not connected")
         access_token = decrypt_api_key(credentials["access_token_encrypted"])
@@ -147,6 +149,6 @@ def get_access_token(user_id: str, provider_id: str) -> str:
             tokens["refresh_token"] = refresh_token
         if not tokens.get("id_token"):
             tokens["id_token"] = decrypt_api_key(credentials.get("id_token_encrypted", ""))
-        store_tokens(user_id, provider_id, credentials["client_id"], tokens, identity)
+        store_tokens(config_user_id, provider_id, credentials["client_id"], tokens, identity)
         return tokens["access_token"]
 

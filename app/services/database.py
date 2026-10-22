@@ -28,6 +28,15 @@ def get_users_db():
       CREATE TABLE IF NOT EXISTS web_sessions(id_hash TEXT PRIMARY KEY,active_user_id TEXT NOT NULL,created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,FOREIGN KEY(active_user_id) REFERENCES users(id) ON DELETE CASCADE);
       CREATE TABLE IF NOT EXISTS web_session_accounts(session_id_hash TEXT NOT NULL,user_id TEXT NOT NULL,authenticated_at INTEGER NOT NULL,PRIMARY KEY(session_id_hash,user_id),FOREIGN KEY(session_id_hash) REFERENCES web_sessions(id_hash) ON DELETE CASCADE,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE);
       CREATE INDEX IF NOT EXISTS idx_web_sessions_expiry ON web_sessions(expires_at);
+      CREATE TABLE IF NOT EXISTS recovery_code_sets(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'active',created_at INTEGER NOT NULL,revoked_at INTEGER,reason TEXT NOT NULL DEFAULT '',FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE);
+      CREATE TABLE IF NOT EXISTS recovery_codes(id TEXT PRIMARY KEY,set_id TEXT NOT NULL,code_hash TEXT NOT NULL UNIQUE,used_at INTEGER,FOREIGN KEY(set_id) REFERENCES recovery_code_sets(id) ON DELETE CASCADE);
+      CREATE INDEX IF NOT EXISTS idx_recovery_sets_user ON recovery_code_sets(user_id,status);
+      CREATE TABLE IF NOT EXISTS password_reset_requests(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,secret_hash TEXT NOT NULL UNIQUE,status TEXT NOT NULL DEFAULT 'pending',created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,approved_at INTEGER,approved_by TEXT,consumed_at INTEGER,user_agent TEXT NOT NULL DEFAULT '',FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,FOREIGN KEY(approved_by) REFERENCES users(id) ON DELETE SET NULL);
+      CREATE INDEX IF NOT EXISTS idx_reset_requests_status ON password_reset_requests(status,expires_at);
+      CREATE TABLE IF NOT EXISTS owner_reset_challenges(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,secret_hash TEXT NOT NULL UNIQUE,code_hash TEXT NOT NULL,expires_at INTEGER NOT NULL,consumed_at INTEGER,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE);
+      CREATE TABLE IF NOT EXISTS moderator_permissions(user_id TEXT NOT NULL,permission TEXT NOT NULL,granted_by TEXT NOT NULL,created_at INTEGER NOT NULL,PRIMARY KEY(user_id,permission),FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,FOREIGN KEY(granted_by) REFERENCES users(id) ON DELETE CASCADE);
+      CREATE TABLE IF NOT EXISTS security_audit_log(id TEXT PRIMARY KEY,actor_user_id TEXT,event_type TEXT NOT NULL,target_user_id TEXT,created_at INTEGER NOT NULL,metadata TEXT NOT NULL DEFAULT '{}',FOREIGN KEY(actor_user_id) REFERENCES users(id) ON DELETE SET NULL,FOREIGN KEY(target_user_id) REFERENCES users(id) ON DELETE SET NULL);
+      CREATE INDEX IF NOT EXISTS idx_security_audit_created ON security_audit_log(created_at DESC);
     """)
     user_columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
     if "token_version" not in user_columns:
@@ -38,6 +47,18 @@ def get_users_db():
         # Pre-session extension JWTs were not bound to an active browser account.
         # Revoke them once when the role/session schema is introduced.
         conn.execute("UPDATE users SET token_version=token_version+1")
+    user_columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
+    if "disabled" not in user_columns:
+        conn.execute("ALTER TABLE users ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0")
+    if "recovery_setup_complete" not in user_columns:
+        conn.execute("ALTER TABLE users ADD COLUMN recovery_setup_complete INTEGER NOT NULL DEFAULT 0")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_single_owner ON users(role) WHERE role='owner'")
+    session_columns = {row[1] for row in conn.execute("PRAGMA table_info(web_sessions)")}
+    if "last_seen_at" not in session_columns:
+        conn.execute("ALTER TABLE web_sessions ADD COLUMN last_seen_at INTEGER NOT NULL DEFAULT 0")
+        conn.execute("UPDATE web_sessions SET last_seen_at=created_at WHERE last_seen_at=0")
+    if "user_agent" not in session_columns:
+        conn.execute("ALTER TABLE web_sessions ADD COLUMN user_agent TEXT NOT NULL DEFAULT ''")
     conn.commit(); return conn
 
 
@@ -49,9 +70,11 @@ def user_exists(name):
     c=get_users_db()
     try: return c.execute("SELECT 1 FROM users WHERE LOWER(username)=LOWER(?)",(name,)).fetchone() is not None
     finally: c.close()
-def create_user_in_db(username,password_hash,is_admin=False):
+def create_user_in_db(username,password_hash,is_admin=False,role=None):
     uid=uuid.uuid4().hex[:12]; c=get_users_db()
-    try: c.execute("INSERT INTO users(id,username,password_hash,is_admin,created_at) VALUES (?,?,?,?,?)",(uid,username,password_hash,int(is_admin),_now())); c.commit(); return uid
+    try:
+        assigned_role = role or ("owner" if is_admin else "member")
+        c.execute("INSERT INTO users(id,username,password_hash,is_admin,role,created_at) VALUES (?,?,?,?,?,?)",(uid,username,password_hash,int(assigned_role == "owner"),assigned_role,_now())); c.commit(); return uid
     finally: c.close()
 def get_user_by_username(name):
     c=get_users_db()
@@ -61,11 +84,11 @@ def get_user_by_username(name):
 def get_user_by_id(uid):
     c=get_users_db()
     try:
-        r=c.execute("SELECT id,username,password_hash,is_admin,role,created_at,token_version FROM users WHERE id=?",(uid,)).fetchone(); return dict(r) if r else None
+        r=c.execute("SELECT id,username,password_hash,is_admin,role,created_at,token_version,disabled,recovery_setup_complete FROM users WHERE id=?",(uid,)).fetchone(); return dict(r) if r else None
     finally: c.close()
 def get_all_users():
     c=get_users_db()
-    try: return [dict(r) for r in c.execute("SELECT id,username,is_admin,role,created_at FROM users ORDER BY created_at")]
+    try: return [dict(r) for r in c.execute("SELECT id,username,is_admin,role,created_at,disabled,recovery_setup_complete FROM users ORDER BY created_at")]
     finally: c.close()
 def update_password(uid,value):
     c=get_users_db()
@@ -89,11 +112,11 @@ def clear_user_data(uid):
 
 def _session_hash(secret): return hashlib.sha256(secret.encode("utf-8")).hexdigest()
 def web_session_binding(secret): return _session_hash(secret) if secret else ""
-def create_web_session(secret, uid, ttl_seconds):
+def create_web_session(secret, uid, ttl_seconds, user_agent=""):
     now=int(time.time()); sid=_session_hash(secret); c=get_users_db()
     try:
         c.execute("DELETE FROM web_sessions WHERE expires_at<=?",(now,))
-        c.execute("INSERT INTO web_sessions VALUES (?,?,?,?)",(sid,uid,now,now+ttl_seconds))
+        c.execute("INSERT INTO web_sessions(id_hash,active_user_id,created_at,expires_at,last_seen_at,user_agent) VALUES (?,?,?,?,?,?)",(sid,uid,now,now+ttl_seconds,now,user_agent[:300]))
         c.execute("INSERT INTO web_session_accounts VALUES (?,?,?)",(sid,uid,now)); c.commit()
     finally: c.close()
 def add_web_session_account(secret, uid, ttl_seconds):
@@ -108,7 +131,9 @@ def get_web_session_user(secret):
     if not secret: return None
     now=int(time.time()); sid=_session_hash(secret); c=get_users_db()
     try:
-        r=c.execute("SELECT u.* FROM web_sessions s JOIN users u ON u.id=s.active_user_id WHERE s.id_hash=? AND s.expires_at>?",(sid,now)).fetchone(); return dict(r) if r else None
+        r=c.execute("SELECT u.* FROM web_sessions s JOIN users u ON u.id=s.active_user_id WHERE s.id_hash=? AND s.expires_at>? AND u.disabled=0",(sid,now)).fetchone()
+        if r: c.execute("UPDATE web_sessions SET last_seen_at=? WHERE id_hash=?",(now,sid)); c.commit()
+        return dict(r) if r else None
     finally: c.close()
 def list_web_session_accounts(secret):
     now=int(time.time()); sid=_session_hash(secret); c=get_users_db()
@@ -144,9 +169,16 @@ def web_session_binding_matches(binding, uid):
 
 REGISTER_SETTINGS_PATH=CONTENTS_DIR/"registration.json"
 def get_registration_setting():
-    try: return json.loads(REGISTER_SETTINGS_PATH.read_text()).get("open_registration",False)
-    except (FileNotFoundError,json.JSONDecodeError,OSError): return False
-def set_registration_setting(value): REGISTER_SETTINGS_PATH.write_text(json.dumps({"open_registration":value}))
+    stored = get_global_setting("open_registration", "")
+    if stored:
+        return stored == "true"
+    try:
+        legacy = bool(json.loads(REGISTER_SETTINGS_PATH.read_text()).get("open_registration", False))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        legacy = False
+    set_global_setting("open_registration", "true" if legacy else "false")
+    return legacy
+def set_registration_setting(value): set_global_setting("open_registration", "true" if value else "false")
 
 
 def get_user_db_path(uid):
@@ -252,12 +284,43 @@ def count_captures(uid):
     finally: c.close()
 
 
-def list_ai_providers(uid):
+def resolve_ai_config_user(uid):
+    """Return the account whose provider configuration applies to this user."""
+    try:
+        policy = json.loads(get_global_setting("ai_policy", "{}") or "{}")
+    except json.JSONDecodeError:
+        policy = {}
+    mode = (policy.get("exceptions") or {}).get(uid, policy.get("mode", "user_managed"))
+    shared_uid = policy.get("shared_owner_user_id")
+    if not shared_uid or mode == "user_managed":
+        return uid
+    if mode == "locked_shared":
+        return shared_uid
+    if mode == "default_with_override":
+        c = get_db(uid)
+        try:
+            has_own = c.execute("SELECT 1 FROM ai_providers LIMIT 1").fetchone() is not None
+        finally:
+            c.close()
+        return uid if has_own else shared_uid
+    return uid
+
+
+def get_owned_ai_provider(uid,pid):
+    c=get_db(uid)
+    try:
+        r=c.execute("SELECT * FROM ai_providers WHERE id=?",(pid,)).fetchone(); return dict(r) if r else None
+    finally: c.close()
+
+
+def list_owned_ai_providers(uid):
     c=get_db(uid)
     try: return [dict(r) for r in c.execute("SELECT * FROM ai_providers ORDER BY created_at")]
     finally: c.close()
+def list_ai_providers(uid):
+    return list_owned_ai_providers(resolve_ai_config_user(uid))
 def get_ai_provider(uid,pid):
-    c=get_db(uid)
+    c=get_db(resolve_ai_config_user(uid))
     try:
         r=c.execute("SELECT * FROM ai_providers WHERE id=?",(pid,)).fetchone(); return dict(r) if r else None
     finally: c.close()
@@ -265,7 +328,7 @@ def create_ai_provider(uid,name,base_url,api_key="",provider_type="openai_compat
     pid=uuid.uuid4().hex[:12]; c=get_db(uid)
     try: c.execute("INSERT INTO ai_providers(id,name,provider_type,base_url,api_key_encrypted,provider_key,api_style,created_at) VALUES (?,?,?,?,?,?,?,?)",(pid,name,provider_type,base_url,encrypt_api_key(api_key) if api_key else "",provider_key,api_style,_now())); c.commit()
     finally: c.close()
-    return get_ai_provider(uid,pid)
+    return get_owned_ai_provider(uid,pid)
 def update_ai_provider(uid,pid,name=None,base_url=None,api_key=None,default_model=None):
     fields=[]; vals=[]
     for key,val in (("name",name),("base_url",base_url),("default_model",default_model)):
@@ -275,7 +338,7 @@ def update_ai_provider(uid,pid,name=None,base_url=None,api_key=None,default_mode
         c=get_db(uid)
         try: c.execute(f"UPDATE ai_providers SET {','.join(fields)} WHERE id=?",vals+[pid]); c.commit()
         finally: c.close()
-    return get_ai_provider(uid,pid)
+    return get_owned_ai_provider(uid,pid)
 def delete_ai_provider(uid,pid):
     c=get_db(uid)
     try: cur=c.execute("DELETE FROM ai_providers WHERE id=?",(pid,)); c.commit(); return cur.rowcount>0
@@ -295,7 +358,7 @@ def save_ai_oauth_credentials(uid, provider_id, client_id, access_token, refresh
 
 
 def get_ai_oauth_credentials(uid, provider_id):
-    c=get_db(uid)
+    c=get_db(resolve_ai_config_user(uid))
     try:
         row=c.execute("SELECT * FROM ai_oauth_credentials WHERE provider_id=?",(provider_id,)).fetchone()
         return dict(row) if row else None
@@ -319,11 +382,11 @@ def consume_ai_oauth_transaction(state):
         return dict(row) if row else None
     finally: c.close()
 def list_ai_assignments(uid):
-    c=get_db(uid)
+    c=get_db(resolve_ai_config_user(uid))
     try: return [dict(r) for r in c.execute("SELECT * FROM ai_feature_assignments ORDER BY feature")]
     finally: c.close()
 def get_ai_assignment_for_feature(uid,feature):
-    c=get_db(uid)
+    c=get_db(resolve_ai_config_user(uid))
     try:
         r=c.execute("SELECT * FROM ai_feature_assignments WHERE feature=?",(feature,)).fetchone(); return dict(r) if r else None
     finally: c.close()

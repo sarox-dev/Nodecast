@@ -37,13 +37,13 @@
           <img src="/static/logo.png" alt="Nodecast" />
           <h1>Nodecast</h1>
           {% if no_users %}
-            <p>Create your admin account</p>
+            <p>Create the installation owner</p>
           {% else %}
             <p>Create a new account</p>
           {% endif %}
         </div>
         {% if no_users %}
-          <div class="setup-banner">This is the first account — you will be the <strong>admin</strong>.</div>
+          <div class="setup-banner">This account manages Nodecast. It will not contain a personal Library.</div>
         {% endif %}
         <form class="auth-form" id="register-form">
           <div class="auth-field">
@@ -52,7 +52,7 @@
           </div>
           <div class="auth-field">
             <label for="password">Password</label>
-            <input id="password" type="password" placeholder="Minimum 12 characters" minlength="12" autocomplete="new-password" required />
+            <input id="password" type="password" placeholder="Minimum {{ 16 if no_users else 12 }} characters" minlength="{{ 16 if no_users else 12 }}" autocomplete="new-password" required />
           </div>
           <div id="auth-error" class="auth-error"></div>
           <button type="submit" class="auth-submit">Create account</button>
@@ -81,7 +81,7 @@
           });
           const data = await res.json();
           if (data.success) {
-            window.location.href = '/';
+            window.location.href = data.requires_recovery_setup ? '/recovery/setup' : '/';
           } else {
             errorEl.textContent = data.detail || 'Registration failed';
             errorEl.style.display = 'block';

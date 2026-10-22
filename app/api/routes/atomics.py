@@ -3,7 +3,7 @@ Atomics API — piekļuve atomics datiem.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from app.services.auth import get_current_user
+from app.services.auth import get_member_user
 from app.services.database import (
     search_atomics,
     get_atomic_by_id,
@@ -25,7 +25,7 @@ def api_search_atomics(
     q: str = Query(""),
     type: str = Query("", alias="type"),
     limit: int = 50,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_member_user),
 ):
     user_id = current_user["user_id"]
     if not q:
@@ -51,7 +51,7 @@ def api_search_atomics(
 @router.get("/api/atomics/{atomic_id}")
 def api_get_atomic(
     atomic_id: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_member_user),
 ):
     user_id = current_user["user_id"]
     atomic = get_atomic_by_id(user_id, atomic_id)
@@ -65,7 +65,7 @@ def api_get_atomic(
 @router.get("/api/atomics/{atomic_id}/children")
 def api_get_atomic_children(
     atomic_id: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_member_user),
 ):
     """Return child atomics of an aggregate/hierarchical atomic."""
     user_id = current_user["user_id"]
@@ -92,7 +92,7 @@ def api_get_atomic_children(
 @router.delete("/api/atomics/{atomic_id}")
 def api_delete_atomic(
     atomic_id: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_member_user),
 ):
     if not delete_atomic(current_user["user_id"], atomic_id):
         raise HTTPException(404, "Atomic not found")
@@ -101,7 +101,7 @@ def api_delete_atomic(
 
 @router.post("/api/atomics/dedup")
 def api_dedup_atomics(
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_member_user),
 ):
     """Merge duplicate atomics with identical content."""
     result = deduplicate_atomics(current_user["user_id"])

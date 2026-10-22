@@ -8,7 +8,7 @@ GET  /api/capture/{id}/render/{name}  → renderē ar konkrēto
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 
-from app.services.auth import get_current_user
+from app.services.auth import get_member_user
 from app.services.database import get_atomics_by_source, get_capture_ref
 from app.services.renderers import list_renderers, get_renderer
 
@@ -25,7 +25,7 @@ def list_all_renderers():
 def render_capture(
     capture_id: str,
     renderer_name: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_member_user),
 ):
     """Renderē capture ar konkrēto Rendereri. Atgriež HTML."""
     user_id = current_user["user_id"]

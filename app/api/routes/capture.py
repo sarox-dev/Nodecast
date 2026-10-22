@@ -24,7 +24,7 @@ from app.services.raw_storage import (
 )
 from app.services.ai_batch import add_pending_jobs_on_save
 from app.services.database import delete_atomics_by_source
-from app.services.auth import get_capture_user, get_current_user
+from app.services.auth import get_capture_user, get_member_user
 
 router = APIRouter()
 
@@ -101,7 +101,7 @@ def capture_item(
 # Returns the full CapturePackage (from raw filesystem)
 
 @router.get("/capture/{capture_id}")
-def get_capture(capture_id: str, current_user: dict = Depends(get_current_user)):
+def get_capture(capture_id: str, current_user: dict = Depends(get_member_user)):
     user_id = current_user["user_id"]
     ref = get_capture_ref(user_id, capture_id)
     if not ref:
@@ -122,7 +122,7 @@ def get_capture(capture_id: str, current_user: dict = Depends(get_current_user))
 # Returns the original page HTML
 
 @router.get("/capture/{capture_id}/page.html")
-def get_capture_html(capture_id: str, current_user: dict = Depends(get_current_user)):
+def get_capture_html(capture_id: str, current_user: dict = Depends(get_member_user)):
     user_id = current_user["user_id"]
     if not get_capture_ref(user_id, capture_id):
         raise HTTPException(404, "Capture not found")
@@ -157,7 +157,7 @@ class UpdateRequest(BaseModel):
 def update_capture(
     capture_id: str,
     update: UpdateRequest,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_member_user),
 ):
     user_id = current_user["user_id"]
     ref = get_capture_ref(user_id, capture_id)
@@ -183,7 +183,7 @@ def update_capture(
 # ─── DELETE /api/capture/{capture_id} ─────────────────────────────
 
 @router.delete("/capture/{capture_id}")
-def delete_capture(capture_id: str, current_user: dict = Depends(get_current_user)):
+def delete_capture(capture_id: str, current_user: dict = Depends(get_member_user)):
     user_id = current_user["user_id"]
     # Delete from DB
     deleted = delete_capture_ref(user_id, capture_id)
@@ -197,7 +197,7 @@ def delete_capture(capture_id: str, current_user: dict = Depends(get_current_use
 # ─── POST /api/capture/{capture_id}/reextract ─────────────────────
 
 @router.post("/capture/{capture_id}/reextract")
-def reextract_capture(capture_id: str, current_user: dict = Depends(get_current_user)):
+def reextract_capture(capture_id: str, current_user: dict = Depends(get_member_user)):
     """Delete derived atomics and enqueue the capture for atomic extraction."""
     user_id = current_user["user_id"]
     ref = get_capture_ref(user_id, capture_id)
@@ -222,7 +222,7 @@ def reextract_capture(capture_id: str, current_user: dict = Depends(get_current_
 # ─── GET /api/capture ─────────────────────────────────────────────
 
 @router.get("/capture")
-def list_all_captures(current_user: dict = Depends(get_current_user)):
+def list_all_captures(current_user: dict = Depends(get_member_user)):
     user_id = current_user["user_id"]
     captures = list_captures(user_id)
     return {"captures": captures}
@@ -231,7 +231,7 @@ def list_all_captures(current_user: dict = Depends(get_current_user)):
 # ─── GET /api/tags ────────────────────────────────────────────────
 
 @router.get("/tags")
-def get_tags(current_user: dict = Depends(get_current_user)):
+def get_tags(current_user: dict = Depends(get_member_user)):
     user_id = current_user["user_id"]
     conn = get_db(user_id)
     try:
@@ -271,7 +271,7 @@ class ProjectCreateRequest(BaseModel):
 
 
 @router.post("/projects")
-def create_project(request: ProjectCreateRequest, current_user: dict = Depends(get_current_user)):
+def create_project(request: ProjectCreateRequest, current_user: dict = Depends(get_member_user)):
     name = request.name.strip()
     if not name:
         raise HTTPException(400, "Project name is required")
@@ -295,7 +295,7 @@ class ProjectDeleteRequest(BaseModel):
 
 
 @router.post("/projects/delete")
-def delete_project(request: ProjectDeleteRequest, current_user: dict = Depends(get_current_user)):
+def delete_project(request: ProjectDeleteRequest, current_user: dict = Depends(get_member_user)):
     name = request.name.strip()
     if not name:
         raise HTTPException(400, "Project name is required")
@@ -327,12 +327,12 @@ class TagRenameRequest(BaseModel):
 
 
 @router.post("/tags/add")
-def add_tag(request: TagAddRequest, current_user: dict = Depends(get_current_user)):
+def add_tag(request: TagAddRequest, current_user: dict = Depends(get_member_user)):
     return {"success": True, "message": f"Tag '{request.tag}' is available."}
 
 
 @router.post("/tags/delete")
-def delete_tag(request: TagDeleteRequest, current_user: dict = Depends(get_current_user)):
+def delete_tag(request: TagDeleteRequest, current_user: dict = Depends(get_member_user)):
     tag = request.tag.strip()
     if not tag:
         raise HTTPException(400, "Tag name is required")
@@ -356,7 +356,7 @@ def delete_tag(request: TagDeleteRequest, current_user: dict = Depends(get_curre
 
 
 @router.post("/tags/rename")
-def rename_tag(request: TagRenameRequest, current_user: dict = Depends(get_current_user)):
+def rename_tag(request: TagRenameRequest, current_user: dict = Depends(get_member_user)):
     old = request.old.strip()
     new = request.new.strip()
     if not old or not new:
@@ -385,7 +385,7 @@ def rename_tag(request: TagRenameRequest, current_user: dict = Depends(get_curre
 # ─── GET /api/local/search ────────────────────────────────────────
 
 @router.get("/local/search")
-def local_search(q: str = "", current_user: dict = Depends(get_current_user)):
+def local_search(q: str = "", current_user: dict = Depends(get_member_user)):
     if not q:
         return []
     user_id = current_user["user_id"]

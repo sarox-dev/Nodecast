@@ -19,6 +19,7 @@ from app.api.routes.entities import router as entities_router
 from app.api.routes.atomics import router as atomics_router
 from app.api.routes.extension import router as extension_router
 from app.api.routes.memory import router as memory_router
+from app.api.routes.admin import router as admin_router
 from app.services.database import get_user_by_id, init_db, user_count
 from app.services.auth import get_current_user
 from app.services.auto_processor import start_auto_processor
@@ -64,6 +65,7 @@ app.include_router(entities_router)
 app.include_router(atomics_router)
 app.include_router(extension_router)
 app.include_router(memory_router)
+app.include_router(admin_router)
 
 # ─── Auth status template variable ────────────────────────────────
 templates = Jinja2Templates(directory="app/templates")
@@ -74,7 +76,8 @@ async def _auth_context(request: Request) -> dict:
     from app.services.auth import get_user_from_cookie
     user = await get_user_from_cookie(request)
     if user:
-        return {"logged_in": True, "username": user["username"]}
+        stored = get_user_by_id(user["user_id"])
+        return {"logged_in": True, "username": user["username"], "user": stored}
     return {"logged_in": False, "username": ""}
 
 
@@ -87,7 +90,39 @@ def login_page(request: Request):
 @app.get("/register")
 def register_page(request: Request):
     no_users = user_count() == 0
+    from app.services.database import get_registration_setting
+    if not no_users and not get_registration_setting():
+        return RedirectResponse(url="/login")
     return templates.TemplateResponse(request, "register.html", {"no_users": no_users})
+
+
+@app.get("/forgot-password")
+def forgot_password_page(request: Request):
+    return templates.TemplateResponse(request, "forgot_password.html")
+
+
+@app.get("/recovery/setup")
+async def recovery_setup_page(request: Request):
+    ctx = await _auth_context(request)
+    user = ctx.get("user")
+    if not user: return RedirectResponse(url="/login")
+    if user.get("role") != "owner": return RedirectResponse(url="/")
+    if user.get("recovery_setup_complete"): return RedirectResponse(url="/admin")
+    return templates.TemplateResponse(request, "recovery_setup.html", ctx)
+
+
+@app.get("/admin")
+async def admin_page(request: Request):
+    ctx = await _auth_context(request)
+    user = ctx.get("user")
+    if not user: return RedirectResponse(url="/login")
+    if user.get("role") not in {"owner", "moderator"}: return RedirectResponse(url="/")
+    if user.get("role") == "owner" and not user.get("recovery_setup_complete"): return RedirectResponse(url="/recovery/setup")
+    from app.services.account_security import has_permission
+    ctx["can_manage_members"] = has_permission(user, "manage_members")
+    ctx["can_manage_resets"] = has_permission(user, "manage_member_resets")
+    ctx["can_ai_policy"] = has_permission(user, "manage_ai_policy")
+    return templates.TemplateResponse(request, "admin.html", ctx)
 
 
 @app.get("/")
@@ -96,6 +131,11 @@ async def home(request: Request):
     if user_count() == 0:
         return RedirectResponse(url="/register")
     ctx = await _auth_context(request)
+    user = ctx.get("user")
+    if not user:
+        return RedirectResponse(url="/login")
+    if user.get("role") in {"owner", "moderator"}:
+        return RedirectResponse(url="/recovery/setup" if user.get("role") == "owner" and not user.get("recovery_setup_complete") else "/admin")
     return templates.TemplateResponse(request, "index.html", ctx)
 
 
@@ -126,7 +166,7 @@ def get_version():
 
 def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
     user = get_user_by_id(current_user["user_id"])
-    if not user or not user["is_admin"]:
+    if not user or user.get("role") != "owner":
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
 

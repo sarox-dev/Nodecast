@@ -1,5 +1,6 @@
 """AI provider configuration and atomic-pipeline controls."""
 import html
+import json
 import os
 
 import httpx
@@ -14,8 +15,9 @@ from app.services.ai_batch import get_batch_status, start_background_batch
 from app.services.database import (
     consume_ai_oauth_transaction, count_pending_ai_jobs, create_ai_provider, delete_ai_assignment, delete_ai_provider,
     get_ai_provider, get_atomic_graph, get_user_setting, list_ai_assignments,
-    list_ai_providers, list_captures_without_ai_data, set_ai_assignment,
+    list_ai_providers, list_owned_ai_providers, list_captures_without_ai_data, set_ai_assignment,
     set_user_setting, update_ai_provider, add_ai_job, get_user_by_id,
+    get_global_setting, get_owned_ai_provider, resolve_ai_config_user,
 )
 from app.services.outbound_security import (
     UnsafeProviderURL,
@@ -70,12 +72,26 @@ def _validated_provider_url(url: str, provider_key: str, user: dict) -> str:
         raise HTTPException(422, str(exc)) from exc
 
 
+def _assert_provider_write_allowed(user: dict) -> None:
+    account = get_user_by_id(user["user_id"])
+    if account and account.get("role") == "owner":
+        return
+    try:
+        policy = json.loads(get_global_setting("ai_policy", "{}") or "{}")
+    except json.JSONDecodeError:
+        policy = {}
+    mode = (policy.get("exceptions") or {}).get(user["user_id"], policy.get("mode", "user_managed"))
+    if mode == "locked_shared":
+        raise HTTPException(403, "AI providers are managed by the installation owner")
+
+
 @router.get("/provider-presets")
 def presets(): return {"presets": PROVIDER_PRESETS}
 
 
 @router.post("/chatgpt/start")
 def start_chatgpt_oauth(request: Request, user=Depends(get_current_user)):
+    _assert_provider_write_allowed(user)
     del request
     redirect_uri = os.getenv(
         "NODECAST_OAUTH_REDIRECT_URI",
@@ -100,7 +116,7 @@ def chatgpt_oauth_callback(
         return HTMLResponse(f"<h1>ChatGPT was not connected</h1><p>{detail}</p>", status_code=400)
     try:
         tokens, identity = exchange_code(transaction, code, client_id)
-        existing = next((p for p in list_ai_providers(transaction["user_id"]) if p.get("provider_type") == "chatgpt_oauth"), None)
+        existing = next((p for p in list_owned_ai_providers(transaction["user_id"]) if p.get("provider_type") == "chatgpt_oauth"), None)
         provider = existing or create_ai_provider(
             transaction["user_id"], "ChatGPT subscription", "https://api.openai.com/v1", "",
             "chatgpt_oauth", "chatgpt", "responses_oauth",
@@ -133,11 +149,13 @@ def provider(provider_id:str,user=Depends(get_current_user)):
     row.pop("api_key_encrypted",None); return row
 @router.post("/providers")
 def create_provider(body:ProviderCreate,user=Depends(get_current_user)):
+    _assert_provider_write_allowed(user)
     base_url = _validated_provider_url(body.base_url, body.provider_key, user)
     row=create_ai_provider(user["user_id"],body.name,base_url,body.api_key,body.provider_type,body.provider_key,body.api_style); row.pop("api_key_encrypted",None); return row
 @router.put("/providers/{provider_id}")
 def edit_provider(provider_id:str,body:ProviderUpdate,user=Depends(get_current_user)):
-    existing = get_ai_provider(user["user_id"], provider_id)
+    _assert_provider_write_allowed(user)
+    existing = get_owned_ai_provider(user["user_id"], provider_id)
     if not existing: raise HTTPException(404,"Provider not found")
     base_url = _validated_provider_url(body.base_url, existing.get("provider_key", ""), user) if body.base_url else None
     row=update_ai_provider(user["user_id"],provider_id,body.name,base_url,body.api_key,body.default_model)
@@ -145,6 +163,7 @@ def edit_provider(provider_id:str,body:ProviderUpdate,user=Depends(get_current_u
     row.pop("api_key_encrypted",None); return row
 @router.delete("/providers/{provider_id}")
 def remove_provider(provider_id:str,user=Depends(get_current_user)):
+    _assert_provider_write_allowed(user)
     if not delete_ai_provider(user["user_id"],provider_id): raise HTTPException(404,"Provider not found")
     return {"success":True}
 @router.get("/providers/{provider_id}/models")
@@ -161,7 +180,7 @@ def models(provider_id:str,user=Depends(get_current_user)):
             return {"models":[],"error":"reconnect_required" if status in {401,403} else "provider_error","status":status}
         except (httpx.HTTPError,KeyError,TypeError,ValueError):
             return {"models":[],"error":"provider_unavailable"}
-    account = get_user_by_id(user["user_id"])
+    account = get_user_by_id(resolve_ai_config_user(user["user_id"]))
     try:
         base_url = validate_provider_destination(
             row["base_url"],
@@ -188,10 +207,12 @@ def features():
 def assignments(user=Depends(get_current_user)): return {"assignments":list_ai_assignments(user["user_id"])}
 @router.post("/assignments")
 def assign(body:AssignmentSet,user=Depends(get_current_user)):
-    if not get_ai_provider(user["user_id"],body.provider_id): raise HTTPException(404,"Provider not found")
+    _assert_provider_write_allowed(user)
+    if not get_owned_ai_provider(user["user_id"],body.provider_id): raise HTTPException(404,"Provider not found")
     return set_ai_assignment(user["user_id"],body.feature,body.provider_id,body.model)
 @router.delete("/assignments/{assignment_id}")
 def unassign(assignment_id:str,user=Depends(get_current_user)):
+    _assert_provider_write_allowed(user)
     return {"success":delete_ai_assignment(user["user_id"],assignment_id)}
 
 @router.post("/process-unprocessed")

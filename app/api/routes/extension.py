@@ -6,7 +6,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services.auth import create_token, get_capture_user, get_current_user
+from app.services.auth import create_token, get_capture_user, get_member_user
 from app.services.database import get_user_setting, set_user_setting, web_session_binding
 
 
@@ -45,7 +45,7 @@ def _load_settings(user_id: str) -> ExtensionSettings:
 
 
 @router.post("/pairing-code")
-def create_pairing_code(current_user: dict = Depends(get_current_user)):
+def create_pairing_code(current_user: dict = Depends(get_member_user)):
     now = time.time()
     code = secrets.token_urlsafe(24)
     with _pairing_lock:

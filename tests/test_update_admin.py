@@ -10,7 +10,7 @@ def test_version_comparison_is_semantic():
 
 
 def test_require_admin_accepts_first_admin(monkeypatch):
-    monkeypatch.setattr(main, "get_user_by_id", lambda _uid: {"id": "admin", "is_admin": 1})
+    monkeypatch.setattr(main, "get_user_by_id", lambda _uid: {"id": "admin", "is_admin": 1, "role": "owner"})
     assert main.require_admin({"user_id": "admin"})["id"] == "admin"
 
 

@@ -241,8 +241,10 @@ def test_request_middleware_does_not_read_get_body(monkeypatch):
 
 
 def test_auth_rate_limit_prunes_expired_keys(monkeypatch):
-    auth_routes._attempts.clear()
-    auth_routes._attempts["old"] = [0.0]
-    monkeypatch.setattr(auth_routes.time, "monotonic", lambda: 1000.0)
-    auth_routes._check_rate_limit("current")
-    assert "old" not in auth_routes._attempts
+    from app.services import auth_rate_limit
+
+    auth_rate_limit._attempts.clear()
+    auth_rate_limit._attempts["old"] = [0.0]
+    monkeypatch.setattr(auth_rate_limit.time, "monotonic", lambda: 1000.0)
+    auth_rate_limit.check_rate_limit("current")
+    assert "old" not in auth_rate_limit._attempts

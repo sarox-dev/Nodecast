@@ -2,14 +2,14 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 
-from app.services.auth import get_current_user
+from app.services.auth import get_member_user
 from app.services.database import get_atomics_by_source, get_atomics_by_type, get_capture_ref, get_db
 
 router = APIRouter()
 
 
 @router.get("/api/capture/{capture_id}/knowledge")
-def get_knowledge(capture_id: str, current_user: dict = Depends(get_current_user)):
+def get_knowledge(capture_id: str, current_user: dict = Depends(get_member_user)):
     user_id = current_user["user_id"]
     if not get_capture_ref(user_id, capture_id):
         raise HTTPException(404, "Capture not found")
@@ -18,7 +18,7 @@ def get_knowledge(capture_id: str, current_user: dict = Depends(get_current_user
 
 
 @router.get("/api/capture/{capture_id}/markdown")
-def get_markdown(capture_id: str, current_user: dict = Depends(get_current_user)):
+def get_markdown(capture_id: str, current_user: dict = Depends(get_member_user)):
     user_id = current_user["user_id"]
     capture = get_capture_ref(user_id, capture_id)
     if not capture:
@@ -42,13 +42,13 @@ def list_knowledge_types():
 
 
 @router.get("/api/knowledge/stats")
-def knowledge_stats(current_user: dict = Depends(get_current_user)):
+def knowledge_stats(current_user: dict = Depends(get_member_user)):
     conn = get_db(current_user["user_id"])
     try: return {r["type"]: r["count"] for r in conn.execute("SELECT type,COUNT(*) count FROM atomics GROUP BY type")}
     finally: conn.close()
 
 
 @router.get("/api/knowledge/type/{type_}")
-def get_by_type(type_: str, current_user: dict = Depends(get_current_user)):
+def get_by_type(type_: str, current_user: dict = Depends(get_member_user)):
     atomics = get_atomics_by_type(current_user["user_id"], type_)
     return {"success": True, "type": type_, "count": len(atomics), "atomics": atomics}
