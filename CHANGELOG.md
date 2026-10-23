@@ -1,3 +1,10 @@
+## v1.6.0 (2026-10-23)
+
+- feat: add cross-platform installation profiles (98dc3a0)
+- feat: add evidence-first ChatGPT recall summaries (2b25cfe)
+- feat: add multilingual recall foundation (54aa12c)
+
+
 ## v1.5.0 (2026-10-22)
 
 - chore: bump version to 1.4.3 (b93dcdf)
