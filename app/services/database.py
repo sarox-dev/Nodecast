@@ -11,6 +11,7 @@ from pathlib import Path
 
 from app.core.security import CONTENTS_DIR, USERS_DB_PATH, USERS_DATA_DIR
 from app.services.ai_crypto import encrypt_api_key
+from app.services.text_analysis import ANALYZER_ID, ANALYZER_VERSION, analyze_text, index_terms, language_hint
 
 
 def _now(): return datetime.now(timezone.utc).isoformat()
@@ -197,13 +198,19 @@ CREATE VIRTUAL TABLE IF NOT EXISTS atomic_fts USING fts5(atomic_id UNINDEXED,con
 CREATE TRIGGER IF NOT EXISTS atomic_fts_insert AFTER INSERT ON atomics BEGIN INSERT INTO atomic_fts(atomic_id,content,context_header,canonical_key) VALUES(new.id,new.content,new.context_header,new.canonical_key); END;
 CREATE TRIGGER IF NOT EXISTS atomic_fts_delete AFTER DELETE ON atomics BEGIN DELETE FROM atomic_fts WHERE atomic_id=old.id; END;
 CREATE TRIGGER IF NOT EXISTS atomic_fts_update AFTER UPDATE OF content,context_header,canonical_key ON atomics BEGIN DELETE FROM atomic_fts WHERE atomic_id=old.id; INSERT INTO atomic_fts(atomic_id,content,context_header,canonical_key) VALUES(new.id,new.content,new.context_header,new.canonical_key); END;
-CREATE TABLE IF NOT EXISTS atomic_embeddings(atomic_id TEXT NOT NULL,provider TEXT NOT NULL,model TEXT NOT NULL,dimensions INTEGER DEFAULT 0,embedding BLOB NOT NULL,created_at TEXT DEFAULT '',PRIMARY KEY(atomic_id,provider,model),FOREIGN KEY(atomic_id) REFERENCES atomics(id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS atomic_lexical_documents(atomic_id TEXT PRIMARY KEY,analyzer_id TEXT NOT NULL,analyzer_version TEXT NOT NULL,terms TEXT NOT NULL DEFAULT '',scripts TEXT NOT NULL DEFAULT '[]',language_tag TEXT NOT NULL DEFAULT 'und',language_confidence REAL NOT NULL DEFAULT 0.0,updated_at TEXT DEFAULT '',FOREIGN KEY(atomic_id) REFERENCES atomics(id) ON DELETE CASCADE);
+CREATE VIRTUAL TABLE IF NOT EXISTS atomic_lexical_fts USING fts5(atomic_id UNINDEXED,terms,tokenize='unicode61 remove_diacritics 0');
+CREATE TRIGGER IF NOT EXISTS atomic_lexical_fts_insert AFTER INSERT ON atomic_lexical_documents BEGIN INSERT INTO atomic_lexical_fts(atomic_id,terms) VALUES(new.atomic_id,new.terms); END;
+CREATE TRIGGER IF NOT EXISTS atomic_lexical_fts_delete AFTER DELETE ON atomic_lexical_documents BEGIN DELETE FROM atomic_lexical_fts WHERE atomic_id=old.atomic_id; END;
+CREATE TRIGGER IF NOT EXISTS atomic_lexical_fts_update AFTER UPDATE OF terms ON atomic_lexical_documents BEGIN DELETE FROM atomic_lexical_fts WHERE atomic_id=old.atomic_id; INSERT INTO atomic_lexical_fts(atomic_id,terms) VALUES(new.atomic_id,new.terms); END;
+CREATE TABLE IF NOT EXISTS atomic_embeddings(atomic_id TEXT NOT NULL,provider TEXT NOT NULL,model TEXT NOT NULL,model_revision TEXT DEFAULT '',dimensions INTEGER DEFAULT 0,embedding BLOB NOT NULL,input_hash TEXT DEFAULT '',created_at TEXT DEFAULT '',PRIMARY KEY(atomic_id,provider,model),FOREIGN KEY(atomic_id) REFERENCES atomics(id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS memory_feedback(id TEXT PRIMARY KEY,atomic_id TEXT NOT NULL,feedback TEXT NOT NULL,outcome TEXT DEFAULT '',created_at TEXT DEFAULT '',FOREIGN KEY(atomic_id) REFERENCES atomics(id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS ai_providers(id TEXT PRIMARY KEY,name TEXT NOT NULL,provider_type TEXT NOT NULL DEFAULT 'openai_compatible',base_url TEXT NOT NULL,api_key_encrypted TEXT DEFAULT '',default_model TEXT DEFAULT '',provider_key TEXT DEFAULT '',api_style TEXT DEFAULT 'openai',created_at TEXT DEFAULT '');
 CREATE TABLE IF NOT EXISTS ai_oauth_credentials(provider_id TEXT PRIMARY KEY,client_id TEXT NOT NULL,access_token_encrypted TEXT NOT NULL,refresh_token_encrypted TEXT DEFAULT '',id_token_encrypted TEXT DEFAULT '',expires_at TEXT DEFAULT '',account_id TEXT DEFAULT '',account_email TEXT DEFAULT '',granted_scopes TEXT DEFAULT '',updated_at TEXT DEFAULT '',FOREIGN KEY(provider_id) REFERENCES ai_providers(id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS ai_feature_assignments(id TEXT PRIMARY KEY,feature TEXT UNIQUE NOT NULL,provider_id TEXT NOT NULL,model TEXT NOT NULL,created_at TEXT DEFAULT '',FOREIGN KEY(provider_id) REFERENCES ai_providers(id) ON DELETE CASCADE);
-CREATE TABLE IF NOT EXISTS pending_ai_jobs(id TEXT PRIMARY KEY,capture_id TEXT NOT NULL,feature TEXT NOT NULL,status TEXT DEFAULT 'pending',created_at TEXT DEFAULT '',processed_at TEXT DEFAULT '',error_message TEXT DEFAULT '',FOREIGN KEY(capture_id) REFERENCES captures(id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS pending_ai_jobs(id TEXT PRIMARY KEY,capture_id TEXT NOT NULL,feature TEXT NOT NULL,status TEXT DEFAULT 'pending',idempotency_key TEXT DEFAULT '',attempt_count INTEGER DEFAULT 0,max_attempts INTEGER DEFAULT 3,next_retry_at TEXT DEFAULT '',lease_owner TEXT DEFAULT '',lease_expires_at TEXT DEFAULT '',input_version TEXT DEFAULT '',processor_version TEXT DEFAULT '',error_code TEXT DEFAULT '',created_at TEXT DEFAULT '',processed_at TEXT DEFAULT '',error_message TEXT DEFAULT '',FOREIGN KEY(capture_id) REFERENCES captures(id) ON DELETE CASCADE);
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON pending_ai_jobs(status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_idempotency ON pending_ai_jobs(idempotency_key) WHERE idempotency_key!='';
 CREATE TABLE IF NOT EXISTS user_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL DEFAULT '');
 """
 def _add_missing_columns(c, table, columns):
@@ -211,6 +218,38 @@ def _add_missing_columns(c, table, columns):
     for name, definition in columns.items():
         if name not in existing:
             c.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+
+
+def _lexical_document(content, context_header, canonical_key):
+    analysis = analyze_text(" ".join(part for part in (content, context_header, canonical_key) if part), mode="index")
+    scripts = sorted({span.script for span in analysis.scripts})
+    language_tag, confidence = language_hint(analysis)
+    return " ".join(index_terms(content, context_header, canonical_key)), json.dumps(scripts), language_tag, confidence
+
+
+def _upsert_lexical_document(c, atomic_id, content, context_header, canonical_key):
+    terms, scripts, language_tag, confidence = _lexical_document(content, context_header, canonical_key)
+    c.execute(
+        """INSERT INTO atomic_lexical_documents(atomic_id,analyzer_id,analyzer_version,terms,scripts,language_tag,language_confidence,updated_at)
+           VALUES (?,?,?,?,?,?,?,?)
+           ON CONFLICT(atomic_id) DO UPDATE SET analyzer_id=excluded.analyzer_id,
+             analyzer_version=excluded.analyzer_version,terms=excluded.terms,scripts=excluded.scripts,
+             language_tag=excluded.language_tag,language_confidence=excluded.language_confidence,
+             updated_at=excluded.updated_at""",
+        (atomic_id, ANALYZER_ID, ANALYZER_VERSION, terms, scripts, language_tag, confidence, _now()),
+    )
+
+
+def _ensure_lexical_index(c):
+    rows = c.execute(
+        """SELECT a.id,a.content,a.context_header,a.canonical_key
+           FROM atomics a LEFT JOIN atomic_lexical_documents d ON d.atomic_id=a.id
+           WHERE d.atomic_id IS NULL OR d.analyzer_id!=? OR d.analyzer_version!=?""",
+        (ANALYZER_ID, ANALYZER_VERSION),
+    ).fetchall()
+    for row in rows:
+        _upsert_lexical_document(c, row[0], row[1], row[2], row[3])
+    return len(rows)
 
 
 def init_user_db(uid):
@@ -235,10 +274,34 @@ def init_user_db(uid):
                 "status": "TEXT DEFAULT 'candidate'",
                 "updated_at": "TEXT DEFAULT ''",
             })
+        if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='pending_ai_jobs'").fetchone():
+            _add_missing_columns(c, "pending_ai_jobs", {
+                "idempotency_key": "TEXT DEFAULT ''", "attempt_count": "INTEGER DEFAULT 0",
+                "max_attempts": "INTEGER DEFAULT 3", "next_retry_at": "TEXT DEFAULT ''",
+                "lease_owner": "TEXT DEFAULT ''", "lease_expires_at": "TEXT DEFAULT ''",
+                "input_version": "TEXT DEFAULT ''", "processor_version": "TEXT DEFAULT ''",
+                "error_code": "TEXT DEFAULT ''",
+            })
         c.executescript(SCHEMA)
+        _add_missing_columns(c, "atomic_lexical_documents", {
+            "language_tag": "TEXT NOT NULL DEFAULT 'und'",
+            "language_confidence": "REAL NOT NULL DEFAULT 0.0",
+        })
+        _add_missing_columns(c, "atomic_embeddings", {
+            "model_revision": "TEXT DEFAULT ''",
+            "input_hash": "TEXT DEFAULT ''",
+        })
+        _add_missing_columns(c, "pending_ai_jobs", {
+            "idempotency_key": "TEXT DEFAULT ''", "attempt_count": "INTEGER DEFAULT 0",
+            "max_attempts": "INTEGER DEFAULT 3", "next_retry_at": "TEXT DEFAULT ''",
+            "lease_owner": "TEXT DEFAULT ''", "lease_expires_at": "TEXT DEFAULT ''",
+            "input_version": "TEXT DEFAULT ''", "processor_version": "TEXT DEFAULT ''",
+            "error_code": "TEXT DEFAULT ''",
+        })
         c.execute("""INSERT INTO atomic_fts(atomic_id,content,context_header,canonical_key)
                      SELECT a.id,a.content,a.context_header,a.canonical_key FROM atomics a
                      WHERE NOT EXISTS (SELECT 1 FROM atomic_fts f WHERE f.atomic_id=a.id)""")
+        _ensure_lexical_index(c)
         c.commit()
     finally: c.close()
 def get_db(uid):
@@ -432,16 +495,21 @@ def list_captures_without_ai_data(uid):
             if selected and (raw_path/"page.html").is_file() and n==0: out.append({"id":r["id"],"source_title":r["source_title"] or ""})
         return out
     finally: c.close()
-def add_ai_job(uid,cid,feature):
+def add_ai_job(uid,cid,feature,input_version="1",processor_version="1"):
     c=get_db(uid)
     try:
-        r=c.execute("SELECT id FROM pending_ai_jobs WHERE capture_id=? AND feature=? AND status='pending'",(cid,feature)).fetchone()
-        if r: return {"id":r["id"],"status":"pending"}
-        jid=uuid.uuid4().hex[:12]; c.execute("INSERT INTO pending_ai_jobs(id,capture_id,feature,status,created_at) VALUES (?,?,?,'pending',?)",(jid,cid,feature,_now())); c.commit(); return {"id":jid,"status":"pending"}
+        key=f"{cid}:{feature}:{input_version}:{processor_version}"
+        r=c.execute("SELECT id,status FROM pending_ai_jobs WHERE idempotency_key=?",(key,)).fetchone()
+        if r: return {"id":r["id"],"status":r["status"]}
+        jid=uuid.uuid4().hex[:12]
+        c.execute("""INSERT INTO pending_ai_jobs
+          (id,capture_id,feature,status,idempotency_key,input_version,processor_version,created_at)
+          VALUES (?,?,?,'pending',?,?,?,?)""",(jid,cid,feature,key,input_version,processor_version,_now()))
+        c.commit(); return {"id":jid,"status":"pending"}
     finally: c.close()
 def get_pending_ai_jobs_grouped(uid):
     c=get_db(uid)
-    try: return [dict(r) for r in c.execute("SELECT j.id,j.capture_id,j.feature,j.created_at,COALESCE(c.source_title,'') source_title,COALESCE(a.provider_id,'') provider_id,COALESCE(a.model,'') model FROM pending_ai_jobs j LEFT JOIN captures c ON c.id=j.capture_id LEFT JOIN ai_feature_assignments a ON a.feature=j.feature WHERE j.status='pending' ORDER BY a.provider_id,a.model,j.created_at")]
+    try: return [dict(r) for r in c.execute("SELECT j.*,COALESCE(c.source_title,'') source_title,COALESCE(a.provider_id,'') provider_id,COALESCE(a.model,'') model FROM pending_ai_jobs j LEFT JOIN captures c ON c.id=j.capture_id LEFT JOIN ai_feature_assignments a ON a.feature=j.feature WHERE (j.status='pending' AND (j.next_retry_at='' OR j.next_retry_at<=?)) OR (j.status='processing' AND j.lease_expires_at!='' AND j.lease_expires_at<=?) ORDER BY a.provider_id,a.model,j.created_at",(_now(),_now()))]
     finally: c.close()
 def count_pending_ai_jobs(uid):
     c=get_db(uid)
@@ -455,10 +523,41 @@ def mark_ai_job_done(uid,jid): _finish(uid,jid,"done")
 def mark_ai_job_error(uid,jid,error=""): _finish(uid,jid,"error",error)
 
 
+def lease_ai_job(uid,jid,owner,lease_seconds=120):
+    from datetime import datetime, timedelta, timezone
+    now=datetime.now(timezone.utc); expires=(now+timedelta(seconds=max(10,min(lease_seconds,900)))).isoformat().replace("+00:00","Z")
+    now_text=now.isoformat().replace("+00:00","Z"); c=get_db(uid)
+    try:
+        cur=c.execute("""UPDATE pending_ai_jobs SET status='processing',lease_owner=?,lease_expires_at=?,attempt_count=attempt_count+1
+          WHERE id=? AND ((status='pending' AND (next_retry_at='' OR next_retry_at<=?)) OR (status='processing' AND lease_expires_at<=?))""",(owner,expires,jid,now_text,now_text))
+        c.commit(); return cur.rowcount==1
+    finally: c.close()
+
+
+def retry_or_fail_ai_job(uid,jid,error_code,error_message,base_delay_seconds=30):
+    from datetime import datetime, timedelta, timezone
+    c=get_db(uid)
+    try:
+        row=c.execute("SELECT attempt_count,max_attempts FROM pending_ai_jobs WHERE id=?",(jid,)).fetchone()
+        if not row: return "missing"
+        terminal=int(row["attempt_count"] or 0)>=int(row["max_attempts"] or 3)
+        delay=base_delay_seconds*(2**max(0,int(row["attempt_count"] or 1)-1))
+        retry=(datetime.now(timezone.utc)+timedelta(seconds=min(delay,3600))).isoformat().replace("+00:00","Z")
+        status="error" if terminal else "pending"
+        c.execute("""UPDATE pending_ai_jobs SET status=?,next_retry_at=?,lease_owner='',lease_expires_at='',
+          error_code=?,error_message=?,processed_at=? WHERE id=?""",(status,"" if terminal else retry,error_code[:80],error_message[:500],_now() if terminal else "",jid))
+        c.commit(); return status
+    finally: c.close()
+
+
 def insert_atomic(user_id,atomic_type,content="",properties=None,source_id=None,source_atomics=None,confidence=1.0,extracted_by="",position=0,relevance=0.0,role="evidence",context_header="",canonical_key="",status="ready"):
     aid=uuid.uuid4().hex[:16]; c=get_db(user_id)
     now=_now()
-    try: c.execute("INSERT INTO atomics(id,role,type,content,context_header,canonical_key,status,properties,source_id,source_atomics,confidence,extracted_by,created_at,updated_at,position,relevance) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(aid,role,atomic_type,content,context_header,canonical_key,status,json.dumps(properties or {}),source_id,json.dumps(source_atomics or []),confidence,extracted_by,now,now,position,relevance)); c.commit(); return aid
+    try:
+        c.execute("INSERT INTO atomics(id,role,type,content,context_header,canonical_key,status,properties,source_id,source_atomics,confidence,extracted_by,created_at,updated_at,position,relevance) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(aid,role,atomic_type,content,context_header,canonical_key,status,json.dumps(properties or {}),source_id,json.dumps(source_atomics or []),confidence,extracted_by,now,now,position,relevance))
+        _upsert_lexical_document(c, aid, content, context_header, canonical_key)
+        c.commit()
+        return aid
     finally: c.close()
 def insert_atomics_batch(uid,items):
     return [insert_atomic(uid,a.get("type","text"),a.get("content",""),a.get("properties"),a.get("source_id"),a.get("source_atomics"),a.get("confidence",1.0),a.get("extracted_by",""),a.get("position",0),a.get("relevance",0.0),a.get("role","evidence"),a.get("context_header",""),a.get("canonical_key",""),a.get("status","ready")) for a in items]
@@ -479,16 +578,86 @@ def get_atomics_by_type(uid,type_,limit=50):
 def search_atomics(uid,query,type_=None,limit=50):
     c=get_db(uid)
     try:
-        terms=[t.replace('"','') for t in query.split() if t.strip()]
-        match=" OR ".join(f'"{t}"' for t in terms)
-        if not match: return []
-        sql="SELECT a.*,bm25(atomic_fts) AS search_rank FROM atomic_fts JOIN atomics a ON a.id=atomic_fts.atomic_id WHERE atomic_fts MATCH ?"
-        params=[match]
-        if type_: sql+=" AND a.type=?"; params.append(type_)
-        sql+=" ORDER BY search_rank ASC,a.relevance DESC,a.created_at DESC LIMIT ?"; params.append(limit)
-        rows=c.execute(sql,params)
-        return [_atomic(r) for r in rows]
+        analysis=analyze_text(query,mode="query")
+        terms=list(analysis.search_terms)
+        if not terms: return []
+        quoted=[f'"{term.replace(chr(34), chr(34) * 2)}"' for term in terms[:24]]
+        stages=[]
+        if len(quoted)>1: stages.append(" AND ".join(quoted[:min(6,len(quoted))]))
+        stages.append(" OR ".join(quoted))
+        found={}
+        for stage_index,match in enumerate(stages):
+            sql="SELECT a.*,bm25(atomic_lexical_fts) AS search_rank FROM atomic_lexical_fts JOIN atomics a ON a.id=atomic_lexical_fts.atomic_id WHERE atomic_lexical_fts MATCH ?"
+            params=[match]
+            if type_: sql+=" AND a.type=?"; params.append(type_)
+            sql+=" ORDER BY search_rank ASC,a.relevance DESC,a.created_at DESC LIMIT ?"; params.append(max(limit,len(found)+limit))
+            for row in c.execute(sql,params):
+                item=_atomic(row)
+                item["search_stage"]="strict" if stage_index==0 and len(stages)>1 else "relaxed"
+                found.setdefault(item["id"],item)
+                if len(found)>=limit: break
+            if len(found)>=limit: break
+        return list(found.values())[:limit]
     finally: c.close()
+
+
+def rebuild_lexical_index(uid):
+    c=get_db(uid)
+    try:
+        c.execute("DELETE FROM atomic_lexical_documents")
+        count=_ensure_lexical_index(c)
+        c.commit()
+        return {"indexed":count,"analyzer_id":ANALYZER_ID,"analyzer_version":ANALYZER_VERSION}
+    finally: c.close()
+
+
+def upsert_atomic_embedding(uid, atomic_id, provider, model, model_revision, vector, input_hash=""):
+    from app.services.semantic_retrieval import pack_vector
+    payload = pack_vector(vector)
+    c = get_db(uid)
+    try:
+        if not c.execute("SELECT 1 FROM atomics WHERE id=?", (atomic_id,)).fetchone():
+            raise ValueError("Atomic does not belong to this user")
+        c.execute(
+            """INSERT INTO atomic_embeddings
+               (atomic_id,provider,model,model_revision,dimensions,embedding,input_hash,created_at)
+               VALUES (?,?,?,?,?,?,?,?)
+               ON CONFLICT(atomic_id,provider,model) DO UPDATE SET
+                 model_revision=excluded.model_revision,dimensions=excluded.dimensions,
+                 embedding=excluded.embedding,input_hash=excluded.input_hash,created_at=excluded.created_at""",
+            (atomic_id, provider, model, model_revision, len(vector), payload, input_hash, _now()),
+        )
+        c.commit()
+    finally:
+        c.close()
+
+
+def search_atomic_embeddings(uid, query_vector, provider, model, model_revision="", type_=None, limit=50):
+    from app.services.semantic_retrieval import cosine_similarity, unpack_vector
+    c = get_db(uid)
+    try:
+        sql = """SELECT a.*,e.dimensions,e.embedding,e.model_revision
+                 FROM atomic_embeddings e JOIN atomics a ON a.id=e.atomic_id
+                 WHERE e.provider=? AND e.model=?"""
+        params = [provider, model]
+        if model_revision:
+            sql += " AND e.model_revision=?"; params.append(model_revision)
+        if type_:
+            sql += " AND a.type=?"; params.append(type_)
+        rows = []
+        for row in c.execute(sql, params):
+            try:
+                score = cosine_similarity(query_vector, unpack_vector(row["embedding"], row["dimensions"]))
+            except ValueError:
+                continue
+            item = _atomic(row); item.pop("embedding", None)
+            item["semantic_score"] = score
+            item["search_stage"] = "semantic"
+            rows.append(item)
+        rows.sort(key=lambda item: (-item["semantic_score"], item["id"]))
+        return rows[:limit]
+    finally:
+        c.close()
 def get_atomic_by_id(uid,aid):
     c=get_db(uid)
     try:

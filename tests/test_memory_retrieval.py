@@ -2,7 +2,7 @@ from app.services import database
 from app.services import memory_retrieval
 from app.services.ai_client import AIClientError
 from app.services.atomic_extraction import split_evidence
-from app.services.memory_retrieval import detect_intent, focused_graph, memory_constellation, query_memory, recent_memory, relation_feedback, stream_memory_query
+from app.services.memory_retrieval import detect_intent, focused_graph, memory_constellation, query_memory, recent_memory, relation_feedback, stream_memory_query, stream_memory_query_v2
 
 
 def _user_db(tmp_path, monkeypatch):
@@ -171,3 +171,37 @@ def test_streamed_recall_emits_early_evidence_and_validated_result(tmp_path, mon
     assert any(event["event"] == "delta" and "Docker packages" in event["text"] for event in events)
     assert events[-1]["data"]["synthesis_status"] == "success"
     assert events[-1]["data"]["answer"]["sections"][0]["evidence_ids"] == [atomic_id]
+
+
+def test_v2_stream_has_ordered_typed_events_without_chain_of_thought(tmp_path, monkeypatch):
+    user_id = _user_db(tmp_path, monkeypatch)
+    database.insert_capture_ref(user_id, "cap", "snippet", "https://example.com", "Docker", "example.com", "", "", [], "", "")
+    atomic_id = database.insert_atomic(user_id, "text", "Docker container evidence", source_id="cap")
+    monkeypatch.setattr(memory_retrieval, "get_ai_assignment_for_feature", lambda *_: None)
+    events = list(stream_memory_query_v2(user_id, "What did I save about Docker?", request_id="req-1"))
+    assert [item["seq"] for item in events] == list(range(1, len(events) + 1))
+    assert events[0]["event"] == "request.started"
+    assert events[-1]["event"] == "request.completed"
+    assert all(item["version"] == "2.0" and item["request_id"] == "req-1" for item in events)
+    analysis = next(item for item in events if item["event"] == "query.analyzed")["data"]
+    assert "reasoning" not in analysis and "chain_of_thought" not in analysis
+    selected = next(item for item in events if item["event"] == "evidence.selected")
+    assert selected["data"]["result"]["items"][0]["id"] == atomic_id
+
+
+def test_v2_stream_cancellation_stops_pipeline(tmp_path, monkeypatch):
+    user_id = _user_db(tmp_path, monkeypatch)
+    monkeypatch.setattr(memory_retrieval, "get_ai_assignment_for_feature", lambda *_: None)
+    calls = iter([False, True])
+    events = list(stream_memory_query_v2(user_id, "Docker", cancel_check=lambda: next(calls)))
+    assert events[-1]["event"] == "request.cancelled"
+    assert not any(item["event"] == "request.completed" for item in events)
+
+
+def test_v2_local_only_stream_never_opens_synthesis_provider(tmp_path, monkeypatch):
+    user_id = _user_db(tmp_path, monkeypatch)
+    database.insert_capture_ref(user_id, "cap", "snippet", "https://example.com", "Docker", "example.com", "", "", [], "", "")
+    database.insert_atomic(user_id, "text", "Docker container evidence", source_id="cap")
+    monkeypatch.setattr(memory_retrieval, "stream_memory_query", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("provider stream must not open")))
+    events = list(stream_memory_query_v2(user_id, "Docker", synthesize=False))
+    assert [item["event"] for item in events][-2:] == ["usage", "request.completed"]

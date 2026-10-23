@@ -66,7 +66,10 @@ window.addEventListener('DOMContentLoaded', async () => {
     scrollTopButton.textContent = '↑';
     document.body.appendChild(scrollTopButton);
 
-    webMode = false;
+    // workspace-controller selects Web during initial page setup.  This async
+    // auth continuation used to overwrite that selection, so the first mode
+    // toggle only repaired state instead of changing the visible mode.
+    webMode = typeof window.webMode === 'boolean' ? window.webMode : false;
     currentQuery = '';
     currentPage = 1;
     loading = false;

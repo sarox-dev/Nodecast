@@ -82,13 +82,15 @@ def capture_item(
     has_anchor = bool(package.anchor and package.anchor.selected_text)
     atomic_count = 0
 
-    if has_anchor and page_html:
+    if page_html:
         add_pending_jobs_on_save(user_id, package.capture_id)
 
     if has_anchor:
         msg = "Saved with highlight — atomic extraction queued"
+    elif page_html:
+        msg = "Saved — full-page indexing queued"
     else:
-        msg = "Saved as bookmark — highlight text next time to extract knowledge"
+        msg = "Saved, not indexed — no page content was provided"
 
     return CPResponse(
         success=True,

@@ -1,11 +1,13 @@
 """Background processing for the single atomic extraction pipeline."""
 import logging
 import threading
+import uuid
 
 from app.services.atomic_extraction import FEATURE_ATOMIC_EXTRACTION, extract_atomics_for_capture
 from app.services.database import (
     add_ai_job, count_pending_ai_jobs, get_pending_ai_jobs_grouped,
     mark_ai_job_done, mark_ai_job_error,
+    lease_ai_job, retry_or_fail_ai_job,
 )
 
 logger = logging.getLogger(__name__)
@@ -31,6 +33,8 @@ def process_batch(user_id: str, operation: str = "atomic_extraction") -> dict:
     _update_progress(user_id, running=True, operation=operation, current="", **result)
     while jobs:
         for job in jobs:
+            if "attempt_count" in job and not lease_ai_job(user_id, job["id"], f"worker-{uuid.uuid4().hex[:8]}"):
+                continue
             current = job.get("source_title") or job["capture_id"]
             _update_progress(user_id, **result, current=current)
             try:
@@ -40,9 +44,9 @@ def process_batch(user_id: str, operation: str = "atomic_extraction") -> dict:
                 elif response.get("status") == "skipped":
                     mark_ai_job_done(user_id, job["id"]); result["skipped"] += 1
                 else:
-                    mark_ai_job_error(user_id, job["id"], response.get("message", "Atomic extraction failed")); result["errors"] += 1
+                    retry_or_fail_ai_job(user_id, job["id"], "extraction_failed", response.get("message", "Atomic extraction failed")); result["errors"] += 1
             except Exception as exc:
-                mark_ai_job_error(user_id, job["id"], str(exc)); result["errors"] += 1
+                retry_or_fail_ai_job(user_id, job["id"], "processor_exception", str(exc)); result["errors"] += 1
                 logger.exception("Atomic job failed for %s", job["capture_id"])
             _update_progress(user_id, **result, current=current)
 

@@ -1,0 +1,143 @@
+{
+  "corpus_version": 1,
+  "purpose": "Immutable source-bound baseline for multilingual and cross-language retrieval. All content is synthetic test evidence.",
+  "captures": [
+    {
+      "id": "ml_lv_runtime",
+      "language": "lv",
+      "script": "Latn",
+      "title": "Lokālo modeļu izpildes rīki",
+      "site": "example.test",
+      "url": "https://example.test/lv/runtime",
+      "capture_type": "snippet",
+      "evidence": [
+        {"key": "lv_ollama", "dimension": "runtime", "text": "Ollama vienkāršo lokālu valodas modeļu lejupielādi, palaišanu un API izmantošanu."},
+        {"key": "lv_llamacpp", "dimension": "runtime", "text": "llama.cpp nodrošina pārnesamu GGUF modeļu izpildi uz CPU un dažādiem GPU paātrinātājiem."}
+      ]
+    },
+    {
+      "id": "ml_en_qwen",
+      "language": "en",
+      "script": "Latn",
+      "title": "Qwen Coder memory requirements",
+      "site": "example.test",
+      "url": "https://example.test/en/qwen",
+      "capture_type": "snippet",
+      "evidence": [
+        {"key": "en_qwen_vram", "dimension": "vram", "text": "Qwen2.5-Coder 7B can run in about 5 GB of VRAM with four-bit quantization, while larger variants require more memory."},
+        {"key": "en_qwen_license", "dimension": "license", "text": "The Qwen2.5-Coder model family is published under the Apache 2.0 license."}
+      ]
+    },
+    {
+      "id": "ml_ru_postgres",
+      "language": "ru",
+      "script": "Cyrl",
+      "title": "Индексы PostgreSQL",
+      "site": "example.test",
+      "url": "https://example.test/ru/postgres",
+      "capture_type": "snippet",
+      "evidence": [
+        {"key": "ru_postgres_index", "dimension": "tradeoff", "text": "Индексы PostgreSQL ускоряют чтение строк, но занимают место и увеличивают стоимость операций записи."}
+      ]
+    },
+    {
+      "id": "ml_ar_auth",
+      "language": "ar",
+      "script": "Arab",
+      "title": "حماية تسجيل الدخول",
+      "site": "example.test",
+      "url": "https://example.test/ar/auth",
+      "capture_type": "snippet",
+      "evidence": [
+        {"key": "ar_auth_rate", "dimension": "security", "text": "يجب تقييد محاولات تسجيل الدخول المتكررة واستخدام رسائل خطأ عامة لحماية بيانات الاعتماد."}
+      ]
+    },
+    {
+      "id": "ml_zh_sqlite",
+      "language": "zh-Hans",
+      "script": "Hans",
+      "title": "SQLite 预写式日志",
+      "site": "example.test",
+      "url": "https://example.test/zh/sqlite-wal",
+      "capture_type": "snippet",
+      "evidence": [
+        {"key": "zh_sqlite_wal", "dimension": "concurrency", "text": "SQLite 的预写式日志模式允许读取者和写入者并发工作，因为修改会先追加到 WAL 文件。"}
+      ]
+    },
+    {
+      "id": "ml_tr_backups",
+      "language": "tr",
+      "script": "Latn",
+      "title": "Yedekleme doğrulaması",
+      "site": "example.test",
+      "url": "https://example.test/tr/backups",
+      "capture_type": "snippet",
+      "evidence": [
+        {"key": "tr_backup_restore", "dimension": "verification", "text": "Yedeklemelerin güvenilirliği, düzenli geri yükleme denemeleriyle doğrulanmalıdır."}
+      ]
+    },
+    {
+      "id": "ml_th_tls",
+      "language": "th",
+      "script": "Thai",
+      "title": "การตรวจสอบใบรับรอง TLS",
+      "site": "example.test",
+      "url": "https://example.test/th/tls",
+      "capture_type": "snippet",
+      "evidence": [
+        {"key": "th_tls_verify", "dimension": "security", "text": "ไคลเอนต์ต้องตรวจสอบชื่อโฮสต์และวันหมดอายุของใบรับรองTLSก่อนเชื่อมต่อ"}
+      ]
+    },
+    {
+      "id": "ml_mixed_error",
+      "language": "und",
+      "script": "Latn",
+      "title": "Kļūda API servisā",
+      "site": "example.test",
+      "url": "https://example.test/mixed/error",
+      "capture_type": "snippet",
+      "evidence": [
+        {"key": "mixed_timeout", "dimension": "troubleshooting", "text": "Ja API atgriež GatewayTimeoutError E504, pārbaudi upstream_server savienojumu un proxy_read_timeout vērtību."}
+      ]
+    },
+    {
+      "id": "ml_lv_full_page",
+      "language": "lv",
+      "script": "Latn",
+      "title": "Pilnas lapas lokālo modeļu ceļvedis",
+      "site": "example.test",
+      "url": "https://example.test/lv/full-page",
+      "capture_type": "page",
+      "indexed": false,
+      "page_text": "Pilnas lapas saturs ir saglabāts, taču pašreizējā sistēma bez iezīmēta teksta tam neveido atomics."
+    },
+    {
+      "id": "ml_noise_video",
+      "language": "en",
+      "script": "Latn",
+      "title": "Unrelated video platform notes",
+      "site": "example.test",
+      "url": "https://example.test/en/video",
+      "capture_type": "snippet",
+      "evidence": [
+        {"key": "noise_video", "dimension": "noise", "text": "A video platform can recommend clips, channels, comments, and playlists to viewers."}
+      ]
+    }
+  ],
+  "queries": [
+    {"id": "same_lv_compare", "kind": "same_language", "query_language": "lv", "query": "Salīdzini Ollama un llama.cpp darbības pieeju", "expected_sources": ["ml_lv_runtime"], "expected_evidence": ["lv_ollama", "lv_llamacpp"], "required_dimensions": ["runtime"]},
+    {"id": "cross_lv_en_vram", "kind": "cross_language", "query_language": "lv", "query": "Cik videokartes atmiņas vajag saglabātajam programmēšanas modelim?", "expected_sources": ["ml_en_qwen"], "expected_evidence": ["en_qwen_vram"], "required_dimensions": ["vram"]},
+    {"id": "cross_en_lv_runtime", "kind": "cross_language", "query_language": "en", "query": "Which saved tools run local language models?", "expected_sources": ["ml_lv_runtime"], "expected_evidence": ["lv_ollama", "lv_llamacpp"], "required_dimensions": ["runtime"]},
+    {"id": "same_ru_index", "kind": "same_language", "query_language": "ru", "query": "Как индексы PostgreSQL влияют на чтение и запись?", "expected_sources": ["ml_ru_postgres"], "expected_evidence": ["ru_postgres_index"], "required_dimensions": ["tradeoff"]},
+    {"id": "cross_en_ru_index", "kind": "cross_language", "query_language": "en", "query": "What is the read and write tradeoff of PostgreSQL indexes?", "expected_sources": ["ml_ru_postgres"], "expected_evidence": ["ru_postgres_index"], "required_dimensions": ["tradeoff"]},
+    {"id": "same_ar_auth", "kind": "same_language", "query_language": "ar", "query": "كيف نحمي محاولات تسجيل الدخول المتكررة؟", "expected_sources": ["ml_ar_auth"], "expected_evidence": ["ar_auth_rate"], "required_dimensions": ["security"]},
+    {"id": "same_zh_wal", "kind": "same_language", "query_language": "zh-Hans", "query": "SQLite预写式日志如何支持并发读写？", "expected_sources": ["ml_zh_sqlite"], "expected_evidence": ["zh_sqlite_wal"], "required_dimensions": ["concurrency"]},
+    {"id": "cross_en_zh_wal", "kind": "cross_language", "query_language": "en", "query": "How does SQLite write-ahead logging allow concurrent readers?", "expected_sources": ["ml_zh_sqlite"], "expected_evidence": ["zh_sqlite_wal"], "required_dimensions": ["concurrency"]},
+    {"id": "same_tr_restore", "kind": "same_language", "query_language": "tr", "query": "Yedeklemelerin güvenilirliğini nasıl doğrulamalıyız?", "expected_sources": ["ml_tr_backups"], "expected_evidence": ["tr_backup_restore"], "required_dimensions": ["verification"]},
+    {"id": "same_th_tls", "kind": "same_language", "query_language": "th", "query": "ไคลเอนต์ควรตรวจสอบอะไรในใบรับรองTLS", "expected_sources": ["ml_th_tls"], "expected_evidence": ["th_tls_verify"], "required_dimensions": ["security"]},
+    {"id": "mixed_identifier", "kind": "technical_identifier", "query_language": "lv", "query": "Ko pārbaudīt GatewayTimeoutError E504 gadījumā?", "expected_sources": ["ml_mixed_error"], "expected_evidence": ["mixed_timeout"], "required_dimensions": ["troubleshooting"]},
+    {"id": "comparison_dimensions", "kind": "comparison", "query_language": "lv", "query": "Salīdzini Ollama un llama.cpp ar Qwen Coder VRAM un licenci", "expected_sources": ["ml_lv_runtime", "ml_en_qwen"], "expected_evidence": ["lv_ollama", "lv_llamacpp", "en_qwen_vram", "en_qwen_license"], "required_dimensions": ["runtime", "vram", "license"]},
+    {"id": "full_page_not_indexed", "kind": "full_page", "query_language": "lv", "query": "Ko pilnas lapas ceļvedis saka par atomics?", "expected_sources": ["ml_lv_full_page"], "expected_evidence": [], "required_dimensions": [], "expected_current_gap": "saved_not_indexed"},
+    {"id": "negative_noise", "kind": "negative", "query_language": "lv", "query": "Qwen Coder VRAM prasības", "expected_sources": ["ml_en_qwen"], "expected_evidence": ["en_qwen_vram"], "forbidden_sources": ["ml_noise_video"], "required_dimensions": ["vram"]}
+  ]
+}

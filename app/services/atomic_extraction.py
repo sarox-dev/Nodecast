@@ -22,6 +22,7 @@ from app.services.html_cleaner import extract_main_content
 from app.services.ai_client import call_provider_model
 from app.services.atomic_relations import discover_relations_for_capture
 from app.services.aggregate_creator import create_aggregates_for_user
+from app.services.structured_extraction import extract_structured_blocks
 
 logger = logging.getLogger(__name__)
 
@@ -186,6 +187,20 @@ def process_capture_to_atomics(user_id: str, capture_id: str, page_html: str | N
     if not page_html and not anchor_text:
         return {"atomics": [], "message": "No highlighted content to process"}
 
+    if not anchor_text:
+        structured = extract_structured_blocks(page_html or "", capture_id)
+        if structured["status"] != "indexed":
+            return {"atomics": [], "atomic_count": 0, "index_status": structured["status"], "message": structured["reason"]}
+        items = structured["blocks"]
+        for item in items:
+            item.update({"role": "evidence", "source_id": capture_id, "extracted_by": "deterministic-structured-html"})
+        ids = insert_atomics_batch(user_id, items)
+        for index in range(1, len(ids)):
+            insert_atomic_relation(user_id, ids[index - 1], ids[index], "precedes", 1.0,
+                                   method="structural", reason="Adjacent source blocks", confidence=1.0, status="accepted")
+        return {"atomics": [{**item, "id": ids[index]} for index, item in enumerate(items)],
+                "atomic_count": len(ids), "index_status": "indexed"}
+
     cleaned = anchor_text or extract_main_content(page_html or "")
     if not cleaned.strip():
         return {"atomics": [], "message": "No clean content extracted"}
@@ -230,13 +245,12 @@ def extract_atomics_for_capture(user_id: str, capture_id: str) -> dict:
 
     raw = load_raw_capture(user_id, capture_id)
     anchor = raw.anchor.model_dump() if raw and raw.anchor else None
-    if not anchor or not anchor.get("selected_text"):
-        return {"status": "skipped", "message": "Bookmark has no highlighted content"}
     result = process_capture_to_atomics(user_id, capture_id, html, {"anchor": anchor})
     count = result.get("atomic_count", 0)
     return {
         "status": "success" if count else "skipped",
+        "index_status": result.get("index_status", "indexed" if count else "saved_not_indexed"),
         "atomic_count": count,
         "data": {"count": count, "atomics": result.get("atomics", [])},
-        "message": f"Extracted {count} atomics",
+        "message": f"Extracted {count} atomics" if count else f"Saved, not indexed: {result.get('message', 'no extractable content')}",
     }

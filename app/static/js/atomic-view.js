@@ -205,7 +205,7 @@ async function doSearch(query, page) {
         }
         const resp = await fetch('/api/memory/query', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query, limit: 8, token_budget: 700 }),
+            body: JSON.stringify({ query, limit: 8, token_budget: 700, stream_version: 2, synthesize: false }),
         });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
@@ -256,7 +256,7 @@ async function doStreamingSearch(query) {
     try {
         resp = await fetch('/api/memory/query/stream', {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/x-ndjson' },
-            body: JSON.stringify({ query, limit: 8, token_budget: 700 }),
+            body: JSON.stringify({ query, limit: 8, token_budget: 700, stream_version: 2, synthesize: false }),
         });
     } catch (error) {
         renderStreamFallback(local, error);
@@ -303,6 +303,17 @@ function renderStreamFallback(local, error) {
 }
 
 function handleMemoryStreamEvent(event) {
+    // v2 is typed and ordered; legacy meta/delta/done remains accepted during rollout.
+    if (event.version === '2.0') {
+        if (event.event === 'evidence.selected') event = { event: 'meta', data: event.data?.result };
+        else if (event.event === 'answer.delta') event = { event: 'delta', text: event.data?.text };
+        else if (event.event === 'request.completed') event = { event: 'done', data: event.data?.result };
+        else if (event.event === 'request.error' || event.event === 'request.cancelled') {
+            const current = window.currentMemoryViewModel || { items: [] };
+            renderStreamFallback(current, new Error(event.data?.message || event.event));
+            return;
+        } else return;
+    }
     if (event.event === 'meta') {
         const data = event.data;
         allResults = data.items || [];

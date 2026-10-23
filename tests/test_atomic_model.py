@@ -19,7 +19,7 @@ def test_fresh_schema_contains_only_atomic_knowledge_tables(tmp_path, monkeypatc
         tables = {r["name"] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     finally:
         conn.close()
-    assert {"captures", "atomics", "atomic_relations", "atomic_fts", "atomic_embeddings", "memory_feedback"} <= tables
+    assert {"captures", "atomics", "atomic_relations", "atomic_fts", "atomic_embeddings", "atomic_lexical_documents", "atomic_lexical_fts", "memory_feedback"} <= tables
     assert not {"knowledge_objects", "entities", "capture_entities", "facts", "relations", "capture_ai_tags"} & tables
 
 

@@ -4,9 +4,11 @@ import hashlib
 import json
 import re
 import uuid
+from datetime import datetime, timezone
 from collections import defaultdict
 
 from app.services.ai_client import AIClientError, call_provider_model, stream_provider_model
+from app.services.query_planning import build_query_plan
 from app.services.database import (
     enrich_atomics_with_sources,
     get_ai_assignment_for_feature,
@@ -14,8 +16,11 @@ from app.services.database import (
     get_atomic_by_id,
     get_atomic_relations,
     get_db,
+    get_user_setting,
     search_atomics,
+    search_atomic_embeddings,
 )
+from app.services.semantic_retrieval import get_embedding_provider, reciprocal_rank_fusion
 
 
 ERROR_RE = re.compile(r"(?:\b[A-Z][A-Za-z]+Error\b|\b(?:error|exception|traceback|failed)\b|\b[A-Z]{2,8}-?\d{3,}\b)", re.I)
@@ -25,11 +30,8 @@ STREAM_FIELDS = ("VIEW", "TITLE", "SUMMARY", "SECTION", "CONTENT", "EVIDENCE")
 
 
 def detect_intent(query: str) -> str:
-    if ERROR_RE.search(query): return "problem"
-    if COMPARE_RE.search(query): return "compare"
-    if query.lower().startswith(("source:", "sources ")): return "sources"
-    words = query.split()
-    return "focus" if 0 < len(words) <= 3 else "list"
+    planned = build_query_plan(query)["intent"]
+    return {"troubleshoot":"problem","lookup":"focus" if 0 < len(query.split()) <= 3 else "list"}.get(planned,planned)
 
 
 def _summary(atomic: dict) -> tuple[str, bool]:
@@ -118,9 +120,29 @@ For compare, use shared dimensions as section titles and never invent missing va
     except (json.JSONDecodeError, AttributeError, TypeError): return None
 
 
-def _memory_context(user_id: str, query: str, limit: int, token_budget: int, requested_view: str) -> tuple[dict, list[dict], str]:
-    intent = detect_intent(query)
-    raw = enrich_atomics_with_sources(user_id, search_atomics(user_id, query, limit=30))
+def _candidate_search(user_id: str, query: str, limit: int = 30, embedding_identity: tuple[str, str] | None = None):
+    lexical = search_atomics(user_id, query, limit=limit)
+    if not embedding_identity:
+        return lexical, {"lexical": True, "cross_language": False, "semantic_reason": "not_configured"}
+    provider = get_embedding_provider(*embedding_identity)
+    if not provider:
+        return lexical, {"lexical": True, "cross_language": False, "semantic_reason": "provider_unavailable"}
+    vectors = provider.embed([query])
+    if len(vectors) != 1 or len(vectors[0]) != provider.dimensions:
+        return lexical, {"lexical": True, "cross_language": False, "semantic_reason": "invalid_query_embedding"}
+    semantic = search_atomic_embeddings(user_id, vectors[0], provider.provider, provider.model, provider.revision, limit=limit)
+    return reciprocal_rank_fusion(lexical, semantic, limit), {"lexical": True, "cross_language": True, "semantic_reason": "available"}
+
+
+def _memory_context(user_id: str, query: str, limit: int, token_budget: int, requested_view: str, embedding_identity: tuple[str, str] | None = None) -> tuple[dict, list[dict], str]:
+    query_plan = build_query_plan(query)
+    intent = {"troubleshoot":"problem","lookup":"focus" if 0 < len(query.split()) <= 3 else "list"}.get(query_plan["intent"],query_plan["intent"])
+    if embedding_identity is None:
+        configured_provider = get_user_setting(user_id, "multilingual_embedding_provider", "")
+        configured_model = get_user_setting(user_id, "multilingual_embedding_model", "")
+        embedding_identity = (configured_provider, configured_model) if configured_provider and configured_model else None
+    candidates, retrieval_capabilities = _candidate_search(user_id, query, limit=30, embedding_identity=embedding_identity)
+    raw = enrich_atomics_with_sources(user_id, candidates)
     evidence = [a for a in raw if a.get("role", "evidence") == "evidence" and a.get("status", "ready") != "rejected"]
     evidence = _diverse(evidence, 12)
     cards=[]; packet=[]; used=0
@@ -141,13 +163,14 @@ def _memory_context(user_id: str, query: str, limit: int, token_budget: int, req
             "evidence_ids":[],
         })["evidence_ids"].append(atomic["id"])
     return {
-        "query":{"text":query,"intent":intent}, "view":view, "items":cards,
+        "query":{"text":query,"intent":intent}, "query_analysis":query_plan, "view":view, "items":cards,
         "evidence": cards,
         "sources": list(source_groups.values()),
         "answer": None,
         "synthesis_status": "local_only",
         "synthesis": {"status":"local_only","reason":"No Recall synthesis provider is configured."},
         "capabilities":["open","expand","trace_sources","graph"],
+        "retrieval":{"capabilities":retrieval_capabilities,"analyzer":"nodecast-unicode-v2"},
         "available_views":["list","focus","sources","compare","problem","graph"],
         "page":{"cursor":None,"has_more":len(evidence)>len(cards)}, "token_estimate":used,
         "result_id":hashlib.sha256(f"{user_id}:{query}".encode()).hexdigest()[:16],
@@ -383,6 +406,63 @@ def stream_memory_query(user_id: str, query: str, limit: int = 8, token_budget: 
         yield {"event": "done", "data": failed}
         return
     yield {"event": "done", "data": _with_synthesis(result, synthesis, requested_view)}
+
+
+def stream_memory_query_v2(user_id: str, query: str, limit: int = 8, token_budget: int = 700,
+                           requested_view: str = "auto", request_id: str = "", cancel_check=None,
+                           synthesize: bool = True):
+    """Translate the stable recall pipeline into a typed, ordered NDJSON contract."""
+    request_id = request_id or uuid.uuid4().hex
+    seq = 0
+
+    def event(name, data):
+        nonlocal seq
+        seq += 1
+        return {
+            "version": "2.0", "request_id": request_id, "seq": seq, "event": name,
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"), "data": data,
+        }
+
+    yield event("request.started", {"mode": "auto"})
+    plan = build_query_plan(query)
+    yield event("query.analyzed", {
+        "intent": plan["intent"], "query_language": plan["query_language"],
+        "response_language": plan["response_language"], "dimensions": plan["dimensions"],
+    })
+    yield event("search.started", {"sources": ["lexical", "semantic_if_available"]})
+    if cancel_check and cancel_check():
+        yield event("request.cancelled", {"reason": "client_cancelled"})
+        return
+    if not synthesize:
+        result, _packet, _intent = _memory_context(user_id, query, limit, token_budget, requested_view)
+        yield event("search.completed", {"count": len(result.get("items", [])), "retrieval": result.get("retrieval", {})})
+        yield event("evidence.selected", {"result": result})
+        yield event("usage", {"token_estimate": result.get("token_estimate", 0), "budget": token_budget})
+        yield event("request.completed", {"result": result})
+        return
+    legacy = stream_memory_query(user_id, query, limit, token_budget, requested_view)
+    evidence_emitted = False
+    for item in legacy:
+        if cancel_check and cancel_check():
+            close = getattr(legacy, "close", None)
+            if close: close()
+            yield event("request.cancelled", {"reason": "client_cancelled"})
+            return
+        name = item.get("event")
+        if name == "meta":
+            data = item["data"]
+            yield event("search.completed", {"count": len(data.get("items", [])), "retrieval": data.get("retrieval", {})})
+            yield event("evidence.selected", {"result": data})
+            evidence_emitted = True
+        elif name == "delta":
+            yield event("answer.delta", {"text": item.get("text", "")})
+        elif name == "done":
+            data = item["data"]
+            if not evidence_emitted:
+                yield event("search.completed", {"count": len(data.get("items", [])), "retrieval": data.get("retrieval", {})})
+                yield event("evidence.selected", {"result": data})
+            yield event("usage", {"token_estimate": data.get("token_estimate", 0), "budget": token_budget})
+            yield event("request.completed", {"result": data})
 
 
 def recent_memory(user_id: str, limit: int = 8) -> dict:
