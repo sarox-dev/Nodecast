@@ -37,7 +37,14 @@ try {
     $expected = ($checksumLine -split '\s+')[0].ToLowerInvariant()
     $actual = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLowerInvariant()
     if ($actual -ne $expected) { throw "Installer checksum verification failed." }
+    $installEnv = @{}
+    Get-Content (Join-Path $InstallDir ".env") | ForEach-Object { if ($_ -match '^([^=]+)=(.*)$') { $installEnv[$matches[1]] = $matches[2] } }
     $env:NODECAST_INSTALL_DIR = $InstallDir; $env:NODECAST_MODE = $Mode; $env:NODECAST_AUTO_UPDATE = "true"
+    $env:NODECAST_ACCOUNT_MODE = if ($installEnv.NODECAST_ACCOUNT_MODE) { $installEnv.NODECAST_ACCOUNT_MODE } else { "shared" }
+    $env:NODECAST_NETWORK_ACCESS = if ($installEnv.NODECAST_BIND_HOST -eq "0.0.0.0") { "lan" } else { "local" }
+    if ($env:NODECAST_NETWORK_ACCESS -eq "lan") {
+        $env:NODECAST_LAN_HOST = ($installEnv.NODECAST_PUBLIC_ORIGIN -replace '^https?://', '' -replace ':\d+$', '')
+    }
     & $installer
 
     $healthy = $false

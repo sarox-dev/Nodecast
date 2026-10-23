@@ -12,15 +12,56 @@ Nodecast can run in Docker or as a native Python service. The release installers
 
 The helper pushes `main`, creates and pushes the annotated tag, waits at least 35 seconds, then polls GitHub Actions' resulting `main` commit. Once the workflow has generated the version and changelog, it fast-forwards the local checkout and force-refreshes the local tag. It exits with a clear timeout instead of silently assuming a release completed.
 
+Docker is the recommended and fully supported installation mode. Native Python is
+provided as a best-effort alternative for people who do not want to install Docker;
+its compatibility depends on the local Python installation, permissions and service
+manager.
+
+| Platform | Docker | Native Python |
+| --- | --- | --- |
+| Linux | Supported | Best effort; systemd user service required |
+| macOS | Supported through Docker Desktop | Best effort; LaunchAgent |
+| Windows | Supported through Docker Desktop | Best effort; Task Scheduler |
+
+Download and verify the installer before running it. Do not pipe a remote script
+directly into a shell.
+
 ```bash
 # Linux / macOS
-curl -fsSL https://github.com/sarox-dev/Nodecast/releases/latest/download/install.sh | bash
+curl -fLO https://github.com/sarox-dev/Nodecast/releases/latest/download/install.sh
+curl -fLO https://github.com/sarox-dev/Nodecast/releases/latest/download/SHA256SUMS
+grep ' install.sh$' SHA256SUMS | sha256sum -c -  # use: shasum -a 256 -c - on macOS
+bash install.sh
 ```
 
 ```powershell
 # Windows PowerShell
-irm https://github.com/sarox-dev/Nodecast/releases/latest/download/install.ps1 | iex
+Invoke-WebRequest https://github.com/sarox-dev/Nodecast/releases/latest/download/install.ps1 -OutFile install.ps1
+Invoke-WebRequest https://github.com/sarox-dev/Nodecast/releases/latest/download/SHA256SUMS -OutFile SHA256SUMS
+$expected = ((Get-Content SHA256SUMS | Select-String ' install.ps1$').Line -split '\s+')[0]
+if ((Get-FileHash install.ps1 -Algorithm SHA256).Hash -ne $expected) { throw 'Checksum mismatch' }
+& ./install.ps1
 ```
+
+Both installers ask for the mode, update preference and installation directory,
+then verify the release archive and wait for the running health endpoint. Native
+services use `scripts/run-nodecast.py` to load `.env` without executing it as shell
+code.
+
+Runtime and access are separate choices. Docker and Native installations both ask
+for an account profile and a network profile:
+
+- **Personal** permits one Library member plus the separate owner control account.
+- **Shared** permits multiple isolated member Libraries.
+- **This device only** binds to `127.0.0.1`.
+- **Trusted LAN** binds to `0.0.0.0` and requires the exact LAN IP address or
+  hostname used for `NODECAST_PUBLIC_ORIGIN`.
+
+Re-running the installer is the interactive configuration path for changing these
+profiles. Switching an existing Shared installation to Personal requires removing
+extra member accounts first; Nodecast refuses to start Personal mode while multiple
+Library members remain. LAN mode does not modify the host firewall and must never be
+forwarded directly to the public internet.
 
 The first registered Nodecast account is the administrator. Only that account can see or change update settings. Automatic updates are always orchestrated by the host: systemd/launchd/cron on Linux or macOS and Task Scheduler on Windows. The application container is never given access to the Docker socket.
 

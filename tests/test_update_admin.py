@@ -25,5 +25,14 @@ def test_require_admin_rejects_regular_user(monkeypatch):
 def test_server_settings_report_installation_mode(monkeypatch):
     monkeypatch.setattr("app.services.database.get_global_setting", lambda *_args: "true")
     monkeypatch.setenv("NODECAST_INSTALL_MODE", "host")
+    monkeypatch.setenv("NODECAST_ACCOUNT_MODE", "personal")
+    monkeypatch.setenv("NODECAST_BIND_HOST", "127.0.0.1")
+    monkeypatch.setenv("NODECAST_PUBLIC_ORIGIN", "http://localhost:5000")
     settings = main.get_server_settings({"is_admin": 1})
-    assert settings == {"auto_update": True, "installation_mode": "host"}
+    assert settings == {
+        "auto_update": True,
+        "installation_mode": "host",
+        "account_mode": "personal",
+        "network_access": "local",
+        "public_origin": "http://localhost:5000",
+    }

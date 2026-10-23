@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+umask 077
 
 STATE_DIR="${HOME}/.nodecast"
 CONFIG="$STATE_DIR/config"
@@ -49,7 +50,14 @@ else
   ACTUAL="$(shasum -a 256 "$UPDATE_TMP/install.sh" | awk '{ print $1 }')"
 fi
 [[ "$ACTUAL" == "$EXPECTED" ]] || { echo "Installer checksum verification failed." >&2; exit 1; }
-NODECAST_INSTALL_DIR="$INSTALL_DIR" NODECAST_MODE="$MODE" NODECAST_AUTO_UPDATE=true bash "$UPDATE_TMP/install.sh"
+ACCOUNT_MODE="$(sed -n 's/^NODECAST_ACCOUNT_MODE=//p' "$INSTALL_DIR/.env" | tail -1)"
+BIND_HOST="$(sed -n 's/^NODECAST_BIND_HOST=//p' "$INSTALL_DIR/.env" | tail -1)"
+PUBLIC_ORIGIN="$(sed -n 's/^NODECAST_PUBLIC_ORIGIN=//p' "$INSTALL_DIR/.env" | tail -1)"
+NETWORK_ACCESS="local"; LAN_HOST=""
+if [[ "$BIND_HOST" == "0.0.0.0" ]]; then
+  NETWORK_ACCESS="lan"; LAN_HOST="${PUBLIC_ORIGIN#*://}"; LAN_HOST="${LAN_HOST%%:*}"
+fi
+NODECAST_INSTALL_DIR="$INSTALL_DIR" NODECAST_MODE="$MODE" NODECAST_AUTO_UPDATE=true NODECAST_ACCOUNT_MODE="${ACCOUNT_MODE:-shared}" NODECAST_NETWORK_ACCESS="$NETWORK_ACCESS" NODECAST_LAN_HOST="$LAN_HOST" bash "$UPDATE_TMP/install.sh"
 
 for _ in $(seq 1 30); do
   curl -fsSL "http://localhost:${APP_PORT:-5000}/api/version" >/dev/null 2>&1 && exit 0

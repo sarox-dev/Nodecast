@@ -11,6 +11,7 @@ from app.services.auth_rate_limit import check_rate_limit, clear_failures, rate_
 from app.services.database import (
     create_user_in_db, delete_user, get_all_users, get_global_setting, get_user_by_id,
     get_users_db, init_user_db, list_ai_assignments, set_global_setting,
+    get_account_mode, member_count,
 )
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -69,7 +70,7 @@ def overview(current_user: dict = Depends(get_current_user)):
         pending = db.execute("SELECT COUNT(*) c FROM password_reset_requests WHERE status='pending' AND expires_at>?", (now,)).fetchone()["c"]
         sessions = db.execute("SELECT COUNT(*) c FROM web_sessions WHERE expires_at>?", (now,)).fetchone()["c"]
     finally: db.close()
-    return {"role": actor["role"], "users": len(get_all_users()), "pending_resets": pending, "active_sessions": sessions, "open_registration": get_global_setting("open_registration", "false") == "true"}
+    return {"role": actor["role"], "users": len(get_all_users()), "pending_resets": pending, "active_sessions": sessions, "open_registration": get_global_setting("open_registration", "false") == "true", "account_mode": get_account_mode()}
 
 
 @router.get("/users")
@@ -97,6 +98,8 @@ def users(current_user: dict = Depends(get_current_user)):
 def create_account(req: CreateAccountRequest, current_user: dict = Depends(get_current_user)):
     actor = _actor(current_user)
     role = req.role if req.role in {"member", "moderator"} else "member"
+    if get_account_mode() == "personal" and (role != "member" or member_count() >= 1):
+        raise HTTPException(409, "Personal installations allow one Library member; change the setup to Shared first")
     if role == "moderator" and actor["role"] != "owner": raise HTTPException(403, "Only the owner can create moderators")
     username = req.username.strip().lower()
     if len(username) < 2: raise HTTPException(400, "Username must be at least 2 characters")

@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+umask 077
 
 INSTALL_DIR="${NODECAST_INSTALL_DIR:-$(pwd)}"
 MODE="${NODECAST_MODE:-docker}"
 APP_PORT="${NODECAST_APP_PORT:-5000}"
 STATE_DIR="${HOME}/.nodecast"
 mkdir -p "$STATE_DIR"
+chmod 700 "$STATE_DIR"
 printf 'INSTALL_DIR=%q\nMODE=%q\nAPP_PORT=%q\n' "$INSTALL_DIR" "$MODE" "$APP_PORT" > "$STATE_DIR/config"
 cp "$INSTALL_DIR/scripts/update-nodecast.sh" "$STATE_DIR/update.sh"
 chmod 700 "$STATE_DIR/update.sh"
@@ -36,10 +38,12 @@ EOF
   systemctl --user enable --now nodecast-update.timer
 elif [[ "$(uname -s)" == "Darwin" ]]; then
   PLIST="$HOME/Library/LaunchAgents/dev.nodecast.update.plist"; mkdir -p "$(dirname "$PLIST")"
+  ESCAPED_UPDATE="${STATE_DIR}/update.sh"
+  ESCAPED_UPDATE="${ESCAPED_UPDATE//&/&amp;}"; ESCAPED_UPDATE="${ESCAPED_UPDATE//</&lt;}"; ESCAPED_UPDATE="${ESCAPED_UPDATE//>/&gt;}"; ESCAPED_UPDATE="${ESCAPED_UPDATE//\"/&quot;}"
   cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict><key>Label</key><string>dev.nodecast.update</string><key>ProgramArguments</key><array><string>${STATE_DIR}/update.sh</string></array><key>StartInterval</key><integer>1800</integer><key>RunAtLoad</key><true/></dict></plist>
+<plist version="1.0"><dict><key>Label</key><string>dev.nodecast.update</string><key>ProgramArguments</key><array><string>${ESCAPED_UPDATE}</string></array><key>StartInterval</key><integer>1800</integer><key>RunAtLoad</key><true/></dict></plist>
 EOF
   launchctl bootout "gui/$(id -u)" "$PLIST" >/dev/null 2>&1 || true
   launchctl bootstrap "gui/$(id -u)" "$PLIST"

@@ -8,8 +8,8 @@ New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
 @("INSTALL_DIR=$InstallDir", "MODE=$Mode", "APP_PORT=$AppPort") | Set-Content (Join-Path $StateDir "config") -Encoding utf8
 Copy-Item (Join-Path $InstallDir "scripts\update-nodecast.ps1") (Join-Path $StateDir "update.ps1") -Force
 
-$pwsh = (Get-Command pwsh).Source
-$action = New-ScheduledTaskAction -Execute $pwsh -Argument "-NoProfile -File `"$(Join-Path $StateDir 'update.ps1')`""
+$powershell = (Get-Process -Id $PID).Path
+$action = New-ScheduledTaskAction -Execute $powershell -Argument "-NoProfile -File `"$(Join-Path $StateDir 'update.ps1')`""
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) -RepetitionInterval (New-TimeSpan -Minutes 30)
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 Register-ScheduledTask -TaskName "NodecastUpdate" -Action $action -Trigger $trigger -Settings $settings -Force | Out-Null

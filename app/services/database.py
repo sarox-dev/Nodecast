@@ -480,6 +480,22 @@ def set_global_setting(key,value):
     c=get_users_db()
     try: c.execute("INSERT INTO global_settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(key,value)); c.commit()
     finally: c.close()
+
+
+def get_account_mode():
+    """Return the deployment account policy selected by the installer."""
+    # Legacy installations predate this setting and may already have multiple
+    # members, so absence must preserve their shared behavior.
+    value = os.getenv("NODECAST_ACCOUNT_MODE", "shared").strip().lower()
+    return value if value in {"personal", "shared"} else "shared"
+
+
+def member_count():
+    c = get_users_db()
+    try:
+        return c.execute("SELECT COUNT(*) c FROM users WHERE role='member'").fetchone()["c"]
+    finally:
+        c.close()
 def count_active_sessions(timeout_minutes=5): return 0
 
 

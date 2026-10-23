@@ -31,7 +31,12 @@ app = FastAPI()
 def startup():
     # Auto-migrate existing data to per-user structure
     init_db()
-    from app.services.database import get_global_setting, set_global_setting
+    from app.services.database import get_account_mode, get_global_setting, member_count, set_global_setting
+    if get_account_mode() == "personal" and member_count() > 1:
+        raise RuntimeError(
+            "NODECAST_ACCOUNT_MODE=personal cannot start with more than one Library member; "
+            "remove extra members before switching from shared mode"
+        )
     if get_global_setting("auto_update", "") == "":
         enabled = os.getenv("AUTO_UPDATE_DEFAULT", "false").lower() == "true"
         set_global_setting("auto_update", "true" if enabled else "false")
@@ -240,10 +245,13 @@ def server_health():
 
 @app.get("/api/server/settings")
 def get_server_settings(_admin: dict = Depends(require_admin)):
-    from app.services.database import get_global_setting
+    from app.services.database import get_account_mode, get_global_setting
     return {
         "auto_update": get_global_setting("auto_update", "false") == "true",
         "installation_mode": os.getenv("NODECAST_INSTALL_MODE", "docker"),
+        "account_mode": get_account_mode(),
+        "network_access": "lan" if os.getenv("NODECAST_BIND_HOST", "127.0.0.1") == "0.0.0.0" else "local",
+        "public_origin": os.getenv("NODECAST_PUBLIC_ORIGIN", ""),
     }
 
 

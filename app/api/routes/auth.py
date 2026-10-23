@@ -13,7 +13,7 @@ from app.services.database import (
     create_user_in_db, get_user_by_username, get_user_by_id,
     get_all_users, update_password, update_username,
     delete_user, clear_user_data,
-    user_count, get_registration_setting, set_registration_setting,
+    user_count, get_registration_setting, set_registration_setting, get_account_mode, member_count,
     list_web_session_accounts, switch_web_session_account, remove_web_session_account,
     get_web_session_user, web_session_binding,
     get_users_db,
@@ -121,6 +121,10 @@ def register(req: RegisterRequest, response: Response, request: Request):
     if user_exists(username):
         raise HTTPException(409, "Username already exists")
 
+    # Personal installations have one Library member in addition to the
+    # installation-control owner identity.
+    if not is_admin and get_account_mode() == "personal" and member_count() >= 1:
+        raise HTTPException(403, "This personal installation already has its Library account")
     # Check if registration is open
     if not is_admin and not get_registration_setting():
         raise HTTPException(403, "Registration is closed. Contact your admin.")
