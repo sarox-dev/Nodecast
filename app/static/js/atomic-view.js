@@ -196,7 +196,7 @@ async function doSearch(query, page) {
     try {
         if (page === 1) {
             try {
-                if (await doStreamingSearch(query)) return;
+                if (await doEvidenceFirstSearch(query)) return;
             } catch (streamError) {
                 // A proxy or provider can interrupt a streamed response. Preserve
                 // the normal local-result path rather than leaving the Library empty.
@@ -205,7 +205,7 @@ async function doSearch(query, page) {
         }
         const resp = await fetch('/api/memory/query', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query, limit: 8, token_budget: 700, stream_version: 2, synthesize: false }),
+            body: JSON.stringify({ query, limit: 8, token_budget: 700, mode: 'fast', synthesize: false }),
         });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
@@ -235,12 +235,12 @@ async function doSearch(query, page) {
     }
 }
 
-async function doStreamingSearch(query) {
+async function doEvidenceFirstSearch(query) {
     // Local recall never waits for an AI provider. It is the reliable baseline
     // and stays visible even if the stream or provider fails later.
     const localResponse = await fetch('/api/memory/query', {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ query, limit: 8, token_budget: 700, synthesize: false }),
+        body: JSON.stringify({ query, limit: 8, token_budget: 700, mode: 'fast', synthesize: false }),
     });
     if (!localResponse.ok) throw new Error(`HTTP ${localResponse.status}`);
     const local = await localResponse.json();
@@ -252,38 +252,35 @@ async function doStreamingSearch(query) {
     renderMemoryView(local);
     if (!allResults.length) return true;
 
+    const pending = {
+        ...local,
+        synthesis_status: 'streaming',
+        synthesis: { status: 'streaming' },
+    };
+    window.currentMemoryViewModel = pending;
+    renderStreamingMemoryView(pending);
+
     let resp;
     try {
-        resp = await fetch('/api/memory/query/stream', {
-            method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/x-ndjson' },
-            body: JSON.stringify({ query, limit: 8, token_budget: 700, stream_version: 2, synthesize: false }),
+        resp = await fetch('/api/memory/query', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ query, limit: 8, token_budget: 700, mode: 'auto', response_language: 'auto', synthesize: true }),
         });
     } catch (error) {
         renderStreamFallback(local, error);
         return true;
     }
-    // Allows an older Core instance to keep working with a newer cached frontend.
-    if (resp.status === 404 || !resp.body) return false;
     if (!resp.ok) {
         renderStreamFallback(local, new Error(`HTTP ${resp.status}`));
         return true;
     }
-
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    while (true) {
-        const { value, done } = await reader.read();
-        buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
-        let newline;
-        while ((newline = buffer.indexOf('\n')) >= 0) {
-            const line = buffer.slice(0, newline).trim();
-            buffer = buffer.slice(newline + 1);
-            if (!line) continue;
-            handleMemoryStreamEvent(JSON.parse(line));
-        }
-        if (done) break;
-    }
+    const enriched = await resp.json();
+    allResults = enriched.items || [];
+    window.currentMemoryViewModel = enriched;
+    hasMore = Boolean(enriched.page?.has_more);
+    currentPage = 1;
+    showLoading(false, 1);
+    renderMemoryView(enriched);
     return true;
 }
 

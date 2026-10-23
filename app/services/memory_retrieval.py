@@ -73,7 +73,15 @@ def _diverse(items: list[dict], limit: int) -> list[dict]:
     return chosen
 
 
-def _ai_synthesis(user_id: str, query: str, intent: str, evidence: list[dict]) -> dict | None:
+def _response_language_instruction(query: str, response_language: str = "auto") -> str:
+    plan = build_query_plan(query, response_language=response_language)
+    language = plan.get("response_language") or "auto"
+    if language in {"auto", "und"}:
+        return "Write the answer in the language used by the user's query. Keep quoted evidence in its original language."
+    return f"Write the answer in BCP-47 language {language}. Keep quoted evidence in its original language."
+
+
+def _ai_synthesis(user_id: str, query: str, intent: str, evidence: list[dict], response_language: str = "auto") -> dict | None:
     """Create a cited answer from a small, already-retrieved evidence packet.
 
     Recall has its own assignment: a capture-enrichment model must never become a
@@ -83,10 +91,11 @@ def _ai_synthesis(user_id: str, query: str, intent: str, evidence: list[dict]) -
     provider = get_ai_provider(user_id, assignment["provider_id"]) if assignment else None
     if not provider or not evidence: return None
     compact = [{"id": a["id"], "type": a.get("type"), "text": (a.get("content") or "")[:650], "source": a.get("source_title") or a.get("source_url")} for a in evidence[:12]]
-    prompt = """Answer only from the supplied saved evidence. Return JSON with keys view, title, summary, sections.
-view must be list, focus, compare, or problem. sections is an array of {title,content,evidence_ids}.
+    prompt = f"""Answer only from the supplied saved evidence. Return JSON with keys view, title, summary, sections.
+view must be list, focus, compare, or problem. sections is an array of {{title,content,evidence_ids}}.
 Every section MUST cite one or more supplied evidence_ids. Do not make claims that lack a citation.
-For compare, use shared dimensions as section titles and never invent missing values. For problem, organize exact problem, causes, solutions and outcomes. Keep the answer concise."""
+For compare, use shared dimensions as section titles and never invent missing values. For problem, organize exact problem, causes, solutions and outcomes. Keep the answer concise.
+{_response_language_instruction(query, response_language)}"""
     try:
         result = call_provider_model(user_id, provider, assignment["model"], [
             {"role":"system","content":prompt},
@@ -134,8 +143,8 @@ def _candidate_search(user_id: str, query: str, limit: int = 30, embedding_ident
     return reciprocal_rank_fusion(lexical, semantic, limit), {"lexical": True, "cross_language": True, "semantic_reason": "available"}
 
 
-def _memory_context(user_id: str, query: str, limit: int, token_budget: int, requested_view: str, embedding_identity: tuple[str, str] | None = None) -> tuple[dict, list[dict], str]:
-    query_plan = build_query_plan(query)
+def _memory_context(user_id: str, query: str, limit: int, token_budget: int, requested_view: str, embedding_identity: tuple[str, str] | None = None, response_language: str = "auto") -> tuple[dict, list[dict], str]:
+    query_plan = build_query_plan(query, response_language=response_language)
     intent = {"troubleshoot":"problem","lookup":"focus" if 0 < len(query.split()) <= 3 else "list"}.get(query_plan["intent"],query_plan["intent"])
     if embedding_identity is None:
         configured_provider = get_user_setting(user_id, "multilingual_embedding_provider", "")
@@ -188,12 +197,12 @@ def _with_synthesis(result: dict, synthesis: dict | None, requested_view: str) -
     return response
 
 
-def query_memory(user_id: str, query: str, limit: int = 8, token_budget: int = 700, requested_view: str = "auto", synthesize: bool = True) -> dict:
-    result, packet, intent = _memory_context(user_id, query, limit, token_budget, requested_view)
+def query_memory(user_id: str, query: str, limit: int = 8, token_budget: int = 700, requested_view: str = "auto", synthesize: bool = True, response_language: str = "auto") -> dict:
+    result, packet, intent = _memory_context(user_id, query, limit, token_budget, requested_view, response_language=response_language)
     if not synthesize:
         return result
     # The model may cite only evidence the UI can open directly in this packet.
-    return _with_synthesis(result, _ai_synthesis(user_id, query, intent, packet), requested_view)
+    return _with_synthesis(result, _ai_synthesis(user_id, query, intent, packet, response_language), requested_view)
 
 
 def memory_constellation(user_id: str, limit: int = 48) -> dict:
@@ -370,9 +379,9 @@ def _parse_streamed_synthesis(raw: str, valid_ids: set[str], model: str) -> dict
     return data
 
 
-def stream_memory_query(user_id: str, query: str, limit: int = 8, token_budget: int = 700, requested_view: str = "auto"):
+def stream_memory_query(user_id: str, query: str, limit: int = 8, token_budget: int = 700, requested_view: str = "auto", response_language: str = "auto"):
     """Yield JSON-serializable stream events for an evidence-cited recall answer."""
-    result, packet, intent = _memory_context(user_id, query, limit, token_budget, requested_view)
+    result, packet, intent = _memory_context(user_id, query, limit, token_budget, requested_view, response_language=response_language)
     assignment = get_ai_assignment_for_feature(user_id, FEATURE_RECALL_SYNTHESIS)
     provider = get_ai_provider(user_id, assignment["provider_id"]) if assignment else None
     if not provider or not packet:
@@ -384,7 +393,8 @@ def stream_memory_query(user_id: str, query: str, limit: int = 8, token_budget: 
     streaming["synthesis"] = {"status": "streaming", "model": assignment["model"]}
     yield {"event": "meta", "data": streaming}
     compact = [{"id": a["id"], "type": a.get("type"), "text": (a.get("content") or "")[:650], "source": a.get("source_title") or a.get("source_url")} for a in packet[:12]]
-    prompt = """Answer only from the supplied saved evidence. Use exactly these one-line fields: VIEW, TITLE, SUMMARY, SECTION, CONTENT, EVIDENCE. Each SECTION must be followed by one CONTENT line and one comma-separated EVIDENCE line containing only supplied evidence IDs. Never use newlines inside values. Every section must cite at least one evidence ID. Keep the answer concise and do not add markdown or other fields."""
+    prompt = f"""Answer only from the supplied saved evidence. Use exactly these one-line fields: VIEW, TITLE, SUMMARY, SECTION, CONTENT, EVIDENCE. Each SECTION must be followed by one CONTENT line and one comma-separated EVIDENCE line containing only supplied evidence IDs. Never use newlines inside values. Every section must cite at least one evidence ID. Keep the answer concise and do not add markdown or other fields.
+{_response_language_instruction(query, response_language)}"""
     raw, display = [], _StreamingDisplayParser()
     try:
         for delta in stream_provider_model(user_id, provider, assignment["model"], [
@@ -410,7 +420,7 @@ def stream_memory_query(user_id: str, query: str, limit: int = 8, token_budget: 
 
 def stream_memory_query_v2(user_id: str, query: str, limit: int = 8, token_budget: int = 700,
                            requested_view: str = "auto", request_id: str = "", cancel_check=None,
-                           synthesize: bool = True):
+                           synthesize: bool = True, response_language: str = "auto"):
     """Translate the stable recall pipeline into a typed, ordered NDJSON contract."""
     request_id = request_id or uuid.uuid4().hex
     seq = 0
@@ -424,7 +434,7 @@ def stream_memory_query_v2(user_id: str, query: str, limit: int = 8, token_budge
         }
 
     yield event("request.started", {"mode": "auto"})
-    plan = build_query_plan(query)
+    plan = build_query_plan(query, response_language=response_language)
     yield event("query.analyzed", {
         "intent": plan["intent"], "query_language": plan["query_language"],
         "response_language": plan["response_language"], "dimensions": plan["dimensions"],
@@ -434,13 +444,13 @@ def stream_memory_query_v2(user_id: str, query: str, limit: int = 8, token_budge
         yield event("request.cancelled", {"reason": "client_cancelled"})
         return
     if not synthesize:
-        result, _packet, _intent = _memory_context(user_id, query, limit, token_budget, requested_view)
+        result, _packet, _intent = _memory_context(user_id, query, limit, token_budget, requested_view, response_language=response_language)
         yield event("search.completed", {"count": len(result.get("items", [])), "retrieval": result.get("retrieval", {})})
         yield event("evidence.selected", {"result": result})
         yield event("usage", {"token_estimate": result.get("token_estimate", 0), "budget": token_budget})
         yield event("request.completed", {"result": result})
         return
-    legacy = stream_memory_query(user_id, query, limit, token_budget, requested_view)
+    legacy = stream_memory_query(user_id, query, limit, token_budget, requested_view, response_language)
     evidence_emitted = False
     for item in legacy:
         if cancel_check and cancel_check():

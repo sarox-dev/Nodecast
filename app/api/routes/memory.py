@@ -42,7 +42,7 @@ def search(body:MemoryQuery,user=Depends(get_member_user)):
     if body.response_language != "auto" and not re.fullmatch(r"[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*", body.response_language):
         raise HTTPException(422,"Invalid response language")
     request_id = body.request_id or uuid.uuid4().hex
-    result = query_memory(user["user_id"],body.query,body.limit,body.token_budget,body.view,body.synthesize)
+    result = query_memory(user["user_id"],body.query,body.limit,body.token_budget,body.view,body.synthesize,body.response_language)
     result["request_id"] = request_id
     result["mode"] = body.mode
     result["response_language"] = body.response_language
@@ -61,7 +61,7 @@ def search_stream(body:MemoryQuery,user=Depends(get_member_user)):
         raise HTTPException(422,"Invalid memory view")
 
     def events():
-        stream = stream_memory_query(user["user_id"], body.query, body.limit, body.token_budget, body.view) if body.stream_version == 1 else stream_memory_query_v2(user["user_id"], body.query, body.limit, body.token_budget, body.view, body.request_id or "", synthesize=body.synthesize)
+        stream = stream_memory_query(user["user_id"], body.query, body.limit, body.token_budget, body.view, body.response_language) if body.stream_version == 1 else stream_memory_query_v2(user["user_id"], body.query, body.limit, body.token_budget, body.view, body.request_id or "", synthesize=body.synthesize, response_language=body.response_language)
         for event in stream:
             yield json.dumps(event, ensure_ascii=False) + "\n"
 

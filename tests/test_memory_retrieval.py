@@ -173,6 +173,26 @@ def test_streamed_recall_emits_early_evidence_and_validated_result(tmp_path, mon
     assert events[-1]["data"]["answer"]["sections"][0]["evidence_ids"] == [atomic_id]
 
 
+def test_streamed_recall_requests_configured_response_language(tmp_path, monkeypatch):
+    user_id = _user_db(tmp_path, monkeypatch)
+    database.insert_capture_ref(user_id, "cap-a", "snippet", "https://example.com", "Docker guide", "example.com", "", "", [], "", "")
+    atomic_id = database.insert_atomic(user_id, "definition", "Docker packages applications into containers.", source_id="cap-a")
+    captured = {}
+    monkeypatch.setattr(memory_retrieval, "get_ai_assignment_for_feature", lambda *_: {"provider_id":"provider-a", "model":"recall-model"})
+    monkeypatch.setattr(memory_retrieval, "get_ai_provider", lambda *_: {"id":"provider-a"})
+
+    def fake_stream(_user_id, _provider, _model, messages, **_kwargs):
+        captured["instructions"] = messages[0]["content"]
+        return iter([f"VIEW: focus\nTITLE: Docker\nSUMMARY: Kopsavilkums.\nSECTION: Definīcija\nCONTENT: Docker apraksts.\nEVIDENCE: {atomic_id}\n"])
+
+    monkeypatch.setattr(memory_retrieval, "stream_provider_model", fake_stream)
+    events = list(stream_memory_query_v2(user_id, "Ko es saglabāju par Docker?", response_language="lv"))
+
+    assert "BCP-47 language lv" in captured["instructions"]
+    assert next(item for item in events if item["event"] == "query.analyzed")["data"]["response_language"] == "lv"
+    assert events[-1]["data"]["result"]["synthesis_status"] == "success"
+
+
 def test_v2_stream_has_ordered_typed_events_without_chain_of_thought(tmp_path, monkeypatch):
     user_id = _user_db(tmp_path, monkeypatch)
     database.insert_capture_ref(user_id, "cap", "snippet", "https://example.com", "Docker", "example.com", "", "", [], "", "")
