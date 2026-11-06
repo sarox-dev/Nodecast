@@ -212,6 +212,9 @@ CREATE TABLE IF NOT EXISTS pending_ai_jobs(id TEXT PRIMARY KEY,capture_id TEXT N
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON pending_ai_jobs(status);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_idempotency ON pending_ai_jobs(idempotency_key) WHERE idempotency_key!='';
 CREATE TABLE IF NOT EXISTS user_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS recall_cache_revision(id INTEGER PRIMARY KEY CHECK(id=1),revision INTEGER NOT NULL DEFAULT 0);
+INSERT OR IGNORE INTO recall_cache_revision(id,revision) VALUES(1,0);
+CREATE TABLE IF NOT EXISTS recall_answer_cache(cache_key TEXT PRIMARY KEY,answer TEXT NOT NULL,created_at TEXT NOT NULL);
 """
 def _add_missing_columns(c, table, columns):
     existing = {row[1] for row in c.execute(f"PRAGMA table_info({table})")}
@@ -283,6 +286,17 @@ def init_user_db(uid):
                 "error_code": "TEXT DEFAULT ''",
             })
         c.executescript(SCHEMA)
+        for table in ("captures", "atomics", "atomic_relations", "user_settings", "ai_feature_assignments", "ai_providers"):
+            for action in ("INSERT", "UPDATE", "DELETE"):
+                c.execute(f"CREATE TRIGGER IF NOT EXISTS recall_revision_{table}_{action.lower()} AFTER {action} ON {table} BEGIN UPDATE recall_cache_revision SET revision=revision+1 WHERE id=1; END")
+        _add_missing_columns(c, "captures", {
+            "save_reason": "TEXT NOT NULL DEFAULT ''",
+            "save_reason_status": "TEXT NOT NULL DEFAULT 'unknown'",
+            "save_reason_updated_at": "TEXT NOT NULL DEFAULT ''",
+            "save_reason_suggestion": "TEXT NOT NULL DEFAULT ''",
+            "save_reason_category": "TEXT NOT NULL DEFAULT ''",
+            "save_reason_inferred_at": "TEXT NOT NULL DEFAULT ''",
+        })
         _add_missing_columns(c, "atomic_lexical_documents", {
             "language_tag": "TEXT NOT NULL DEFAULT 'und'",
             "language_confidence": "REAL NOT NULL DEFAULT 0.0",
@@ -315,9 +329,9 @@ def init_db():
     for uid in user_ids: init_user_db(uid)
 
 
-def insert_capture_ref(user_id,capture_id,capture_type,source_url,source_title,source_site_name,captured_at,saved_at,tags,project,raw_path):
+def insert_capture_ref(user_id,capture_id,capture_type,source_url,source_title,source_site_name,captured_at,saved_at,tags,project,raw_path,save_reason=""):
     c=get_db(user_id)
-    try: c.execute("INSERT INTO captures VALUES (?,?,?,?,?,?,?,?,?,?)",(capture_id,capture_type,source_url,source_title,source_site_name,captured_at,saved_at,json.dumps(tags),project,raw_path)); c.commit()
+    try: c.execute("INSERT INTO captures (id,capture_type,source_url,source_title,source_site_name,captured_at,saved_at,tags,project,raw_path,save_reason,save_reason_status,save_reason_updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",(capture_id,capture_type,source_url,source_title,source_site_name,captured_at,saved_at,json.dumps(tags),project,raw_path,save_reason,"confirmed" if save_reason else "unknown",_now() if save_reason else "")); c.commit()
     finally: c.close()
 def _capture(r):
     d=dict(r)
@@ -328,6 +342,12 @@ def get_capture_ref(uid,cid):
     c=get_db(uid)
     try:
         r=c.execute("SELECT * FROM captures WHERE id=?",(cid,)).fetchone(); return _capture(r) if r else None
+    finally: c.close()
+def set_capture_save_reason(uid, cid, reason, status):
+    c=get_db(uid)
+    try:
+        cur=c.execute("UPDATE captures SET save_reason=?,save_reason_status=?,save_reason_updated_at=?,save_reason_suggestion='',save_reason_category='' WHERE id=?", (reason,status,_now(),cid))
+        c.commit(); return cur.rowcount > 0
     finally: c.close()
 def list_captures(uid,limit=50,offset=0):
     c=get_db(uid)

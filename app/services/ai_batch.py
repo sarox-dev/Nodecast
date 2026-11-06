@@ -38,7 +38,13 @@ def process_batch(user_id: str, operation: str = "atomic_extraction") -> dict:
             current = job.get("source_title") or job["capture_id"]
             _update_progress(user_id, **result, current=current)
             try:
-                response = extract_atomics_for_capture(user_id, job["capture_id"])
+                if job["feature"] == FEATURE_ATOMIC_EXTRACTION:
+                    response = extract_atomics_for_capture(user_id, job["capture_id"])
+                elif job["feature"] == "save_reason_inference":
+                    from app.services.save_reason import infer_save_reason
+                    response = infer_save_reason(user_id, job["capture_id"])
+                else:
+                    response = {"status": "error", "message": "Unknown processing feature"}
                 if response.get("status") == "success":
                     mark_ai_job_done(user_id, job["id"]); result["processed"] += 1
                 elif response.get("status") == "skipped":

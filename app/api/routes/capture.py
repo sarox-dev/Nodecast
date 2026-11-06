@@ -13,6 +13,8 @@ from app.services.database import (
     list_captures,
     delete_capture_ref,
     search_captures,
+    set_capture_save_reason,
+    get_user_setting, set_user_setting, add_ai_job, get_db, get_ai_assignment_for_feature, get_ai_provider,
 )
 from app.services.raw_storage import (
     save_raw_capture,
@@ -27,6 +29,71 @@ from app.services.database import delete_atomics_by_source
 from app.services.auth import get_capture_user, get_member_user
 
 router = APIRouter()
+
+
+class CaptureReasonUpdate(BaseModel):
+    reason: str = ""
+    status: str = "confirmed"
+
+class CaptureReasonSettings(BaseModel):
+    ai_enabled: bool = False
+    review_enabled: bool = True
+
+
+@router.get("/capture-reason/settings")
+def get_reason_settings(current_user: dict = Depends(get_member_user)):
+    uid = current_user["user_id"]
+    return {"ai_enabled": get_user_setting(uid, "save_reason_ai_enabled", "true") == "true", "review_enabled": get_user_setting(uid, "save_reason_review_enabled", "true") == "true"}
+
+
+@router.put("/capture-reason/settings")
+def update_reason_settings(body: CaptureReasonSettings, current_user: dict = Depends(get_member_user)):
+    uid = current_user["user_id"]
+    was_enabled = get_user_setting(uid, "save_reason_ai_enabled", "true") == "true"
+    if body.ai_enabled and not was_enabled:
+        assignment = get_ai_assignment_for_feature(uid, "save_reason_inference")
+        if not assignment or not get_ai_provider(uid, assignment["provider_id"]):
+            raise HTTPException(422, "Configure a Save reason suggestions provider in AI settings first.")
+    set_user_setting(uid, "save_reason_ai_enabled", str(body.ai_enabled).lower())
+    set_user_setting(uid, "save_reason_review_enabled", str(body.review_enabled).lower())
+    if body.ai_enabled and not was_enabled:
+        c = get_db(uid)
+        try:
+            ids = [row["id"] for row in c.execute("SELECT id FROM captures WHERE save_reason_status='unknown' AND save_reason_inferred_at='' ORDER BY saved_at DESC")]
+        finally:
+            c.close()
+        for capture_id in ids:
+            add_ai_job(uid, capture_id, "save_reason_inference")
+        if ids:
+            from app.services.ai_batch import start_background_batch
+            start_background_batch(uid, "save_reason_inference")
+    return {"success": True, **body.model_dump()}
+
+
+@router.get("/capture-reason/review")
+def list_reason_review(current_user: dict = Depends(get_member_user)):
+    uid = current_user["user_id"]
+    if get_user_setting(uid, "save_reason_review_enabled", "true") != "true":
+        return {"items": []}
+    c = get_db(uid)
+    try:
+        rows = c.execute("""SELECT id,source_title,source_url,saved_at,save_reason_suggestion,save_reason_category FROM captures
+          WHERE save_reason_status='unknown' AND julianday(saved_at)>=julianday('now','-7 days')
+          AND save_reason_inferred_at!='' ORDER BY saved_at DESC LIMIT 20""").fetchall()
+        return {"items": [dict(row) for row in rows]}
+    finally:
+        c.close()
+
+
+@router.get("/capture-reason/suggestions")
+def recent_reason_suggestions(current_user: dict = Depends(get_capture_user)):
+    c = get_db(current_user["user_id"])
+    try:
+        rows = c.execute("""SELECT save_reason, COUNT(*) AS uses FROM captures WHERE save_reason_status='confirmed' AND save_reason!=''
+          GROUP BY save_reason ORDER BY uses DESC, MAX(save_reason_updated_at) DESC LIMIT 4""").fetchall()
+        return {"suggestions": [row["save_reason"] for row in rows]}
+    finally:
+        c.close()
 
 
 # ─── Helper: add Content-Type for JSON responses ──────────────────
@@ -47,6 +114,10 @@ def capture_item(
 
     # Extract page_html from body (optional), remove before validation
     page_html = body.pop("page_html", None)
+    reason = body.pop("save_reason", "")
+    if not isinstance(reason, str) or len(reason) > 500:
+        raise HTTPException(422, "Save reason must be text of at most 500 characters")
+    reason = reason.strip()
 
     # Validate as CapturePackage
     try:
@@ -77,6 +148,7 @@ def capture_item(
         tags=package.tags,
         project=package.project,
         raw_path=str(raw_path),
+        save_reason=reason,
     )
 
     has_anchor = bool(package.anchor and package.anchor.selected_text)
@@ -84,6 +156,11 @@ def capture_item(
 
     if page_html:
         add_pending_jobs_on_save(user_id, package.capture_id)
+    assignment = get_ai_assignment_for_feature(user_id, "save_reason_inference") if not reason and get_user_setting(user_id, "save_reason_ai_enabled", "true") == "true" else None
+    if assignment and get_ai_provider(user_id, assignment["provider_id"]):
+        from app.services.ai_batch import start_background_batch
+        add_ai_job(user_id, package.capture_id, "save_reason_inference")
+        start_background_batch(user_id, "save_reason_inference")
 
     if has_anchor:
         msg = "Saved with highlight — atomic extraction queued"
@@ -102,6 +179,26 @@ def capture_item(
 # ─── GET /api/capture/{capture_id} ────────────────────────────────
 # Returns the full CapturePackage (from raw filesystem)
 
+@router.put("/capture/{capture_id}/reason")
+def update_capture_reason(capture_id: str, body: CaptureReasonUpdate, current_user: dict = Depends(get_capture_user)):
+    reason = body.reason.strip()
+    if body.status not in {"confirmed", "unknown", "declined"}:
+        raise HTTPException(422, "Invalid reason status")
+    if len(reason) > 500 or (body.status == "confirmed") != bool(reason):
+        raise HTTPException(422, "A confirmed reason must contain 1–500 characters; other statuses require an empty reason")
+    if not set_capture_save_reason(current_user["user_id"], capture_id, reason, body.status):
+        raise HTTPException(404, "Capture not found")
+    return {"success": True, "reason": reason, "status": body.status}
+
+
+@router.get("/capture/{capture_id}/reason")
+def get_capture_reason(capture_id: str, current_user: dict = Depends(get_member_user)):
+    ref = get_capture_ref(current_user["user_id"], capture_id)
+    if not ref:
+        raise HTTPException(404, "Capture not found")
+    return {"reason": ref.get("save_reason", ""), "status": ref.get("save_reason_status", "unknown"),
+            "suggestion": ref.get("save_reason_suggestion", ""), "category": ref.get("save_reason_category", "")}
+
 @router.get("/capture/{capture_id}")
 def get_capture(capture_id: str, current_user: dict = Depends(get_member_user)):
     user_id = current_user["user_id"]
@@ -116,6 +213,7 @@ def get_capture(capture_id: str, current_user: dict = Depends(get_member_user)):
     return {
         "success": True,
         "capture": raw.model_dump(exclude_none=True, mode="json"),
+        "reason": {"text": ref.get("save_reason", ""), "status": ref.get("save_reason_status", "unknown")},
         "has_html": (Path(ref["raw_path"]) / "page.html").exists(),
     }
 

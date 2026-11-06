@@ -38,12 +38,30 @@ Output ONLY a JSON array like:
 
 
 def split_evidence(text: str, source_title: str = "") -> list[dict]:
-    """Deterministically preserve source text as small, ordered evidence blocks."""
+    """Keep paragraphs together; split long selections without dropping text."""
+    max_chars = 600
+    chunks = []
+    # Single newlines can be part of a definition, table, or list; a blank
+    # line is a stronger boundary between independently selected paragraphs.
+    for paragraph in re.split(r"\n[\t \r]*\n+", text):
+        remaining = paragraph.strip()
+        while len(remaining) > max_chars:
+            window = remaining[:max_chars + 1]
+            boundaries = list(re.finditer(r"[.!?。！？](?:[\"'’”)]*)\s+|\n+|\s+", window))
+            sentences = [m for m in boundaries if re.match(r"[.!?。！？]", m.group()) and m.start() >= max_chars // 2]
+            usable = [m for m in boundaries if m.start() > 0]
+            boundary = (sentences or usable)[-1] if (sentences or usable) else None
+            cut = boundary.end() if boundary and boundary.end() <= max_chars else (boundary.start() if boundary else max_chars)
+            if cut <= 0:
+                cut = max_chars
+            chunk = remaining[:cut].strip()
+            if chunk:
+                chunks.append(chunk)
+            remaining = remaining[cut:].strip()
+        if remaining:
+            chunks.append(remaining)
     blocks = []
-    chunks = [chunk.strip() for chunk in re.split(r"\n\s*\n|(?<!\d\.)(?<=\.)\s+(?=[A-Z0-9])", text) if chunk.strip()]
-    if len(chunks) == 1:
-        chunks = [line.strip() for line in text.splitlines() if line.strip()]
-    for chunk in chunks[:50]:
+    for chunk in chunks:
         lower = chunk.lower()
         if re.search(r"(^|\n)(error|exception|traceback|failed)\b", lower) or re.search(r"\b[A-Z][A-Za-z]+Error\b", chunk):
             kind = "problem"
@@ -61,14 +79,13 @@ def split_evidence(text: str, source_title: str = "") -> list[dict]:
             kind = "definition"
         else:
             kind = "text"
-        blocks.append({"type": kind, "content": chunk[:4000], "context_header": source_title, "position": len(blocks)})
+        blocks.append({"type": kind, "content": chunk, "context_header": source_title, "position": len(blocks)})
     return blocks
 
 
 def extract_atomics_from_text(user_id: str, capture_id: str, cleaned_text: str) -> list[dict]:
     """
-    Extract atomics from cleaned text using AI. Creates atomics + source relations.
-    If no AI configured, creates a single 'text' atomic with the full cleaned text.
+    Create deterministic source-bound evidence, optionally enriched by AI.
     Returns list of created atomics.
     """
     capture = get_capture_ref(user_id, capture_id) or {}
