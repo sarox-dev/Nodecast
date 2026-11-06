@@ -50,10 +50,13 @@
 
     async function runDetection() {
         publish({ checking: true });
-        let result = await request('NODECAST_EXTENSION_PING', {}, 900);
+        // Core validates the stored extension token during status detection.
+        // Give a reachable local Core enough time, while retaining a bounded
+        // fallback if it is offline.
+        let result = await request('NODECAST_EXTENSION_PING', {}, 4_000);
         if (!result) {
             await new Promise(resolve => setTimeout(resolve, 250));
-            result = await request('NODECAST_EXTENSION_PING', {}, 1200);
+            result = await request('NODECAST_EXTENSION_PING', {}, 6_000);
         }
         if (result) publish({ checked: true, checking: false, detected: true, ...result });
         else publish({ checked: true, checking: false, detected: false, connected: false, version: '', username: '', capabilities: [] });
@@ -85,8 +88,25 @@
 
     async function disconnect() {
         const result = await request('NODECAST_EXTENSION_DISCONNECT', {}, 2500);
-        if (result?.success) publish({ detected: true, connected: false, username: '' });
+        if (result?.success) {
+            sessionStorage.removeItem('nodecast-restore-extension');
+            publish({ detected: true, connected: false, username: '' });
+        }
         return result;
+    }
+
+    async function rememberConnection() {
+        const current = await detect(true);
+        if (current.connected) sessionStorage.setItem('nodecast-restore-extension', '1');
+        return current;
+    }
+
+    async function restoreConnection() {
+        if (sessionStorage.getItem('nodecast-restore-extension') !== '1') return;
+        const current = await detect(true);
+        if (!current.detected) throw new Error('Extension is unavailable. Reconnect it in Extension settings.');
+        await pair();
+        sessionStorage.removeItem('nodecast-restore-extension');
     }
 
     window.nodecastExtension = {
@@ -95,6 +115,8 @@
         pair,
         syncSettings,
         disconnect,
+        rememberConnection,
+        restoreConnection,
         getStatus: () => ({ ...status }),
     };
     window.addEventListener('DOMContentLoaded', () => setTimeout(() => detect(false), 100), { once: true });

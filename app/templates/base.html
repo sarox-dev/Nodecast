@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="/static/css/theme-light.css?v=20261021-2" />
     <link rel="stylesheet" href="/static/css/settings.css?v=20261021-7" />
     <link rel="stylesheet" href="/static/css/modal.css?v=20260926-1" />
-    <link rel="stylesheet" href="/static/css/workspace.css?v=20261021-3" />
+    <link rel="stylesheet" href="/static/css/workspace.css?v=20261106-11" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -54,16 +54,18 @@
           <button id="workspace-results-close" class="workspace-results-close" type="button" aria-label="Close results">×</button>
           <div class="workspace-view-header" id="workspace-view-header">
             <div class="workspace-view-copy">
-              <span class="workspace-view-eyebrow" id="workspace-view-eyebrow">Personal recall</span>
               <h1 id="workspace-view-title">Ask your library</h1>
-              <p id="workspace-view-description">Ask naturally. Every answer stays linked to your saved evidence.</p>
+              <form id="workspace-results-query-form" class="workspace-results-query" role="search" hidden>
+                <label class="sr-only" for="workspace-results-query">Ask your library</label>
+                <input id="workspace-results-query" type="search" maxlength="1000" autocomplete="off" aria-label="Ask your library">
+                <button type="submit" aria-label="Ask this question">Ask</button>
+              </form>
             </div>
             <div class="workspace-view-actions">
               <button id="workspace-save-view" class="workspace-secondary-action" type="button" hidden>Save view</button>
               <div class="workspace-view-switcher" id="workspace-view-switcher" aria-label="Result view">
-                <button type="button" data-projection="list" aria-pressed="true">List</button>
-                <button type="button" data-projection="focus" aria-pressed="false">Focus</button>
-                <button type="button" data-projection="sources" aria-pressed="false">Sources</button>
+                <button type="button" data-projection="grid" aria-pressed="true">Grid</button>
+                <button type="button" data-projection="list" aria-pressed="false">List</button>
               </div>
             </div>
           </div>
@@ -74,6 +76,8 @@
           </div>
 
           <div id="filter-bar" class="filter-bar" hidden></div>
+          <div id="ask-diagnostics" class="memory-fallback-note" role="status" hidden></div>
+          <div id="ask-search-activity" class="ask-search-activity" aria-live="polite" hidden></div>
 
           <div id="status-bar" class="status-bar" hidden>
             <span class="status-left">
@@ -319,15 +323,15 @@
 
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <script src="/static/js/ui-utils.js?v=20260926-2"></script>
-    <script src="/static/js/extension-bridge.js?v=20261021-1"></script>
-    <script src="/static/js/settings.js?v=20261021-11"></script>
-    <script src="/static/js/atomic-view.js?v=20261023-6"></script>
+    <script src="/static/js/extension-bridge.js?v=20261106-1"></script>
+    <script src="/static/js/settings.js?v=20261106-9"></script>
+    <script src="/static/js/atomic-view.js?v=20261106-12"></script>
     <script src="/static/js/entity-view.js?v=20260926-2"></script>
     <script src="/static/js/graph-view.js?v=20261021-1"></script>
     <script src="/static/js/constellation-view.js?v=20261021-6"></script>
     <script src="/static/js/web-search.js?v=20261021-3"></script>
     <script src="/static/js/app.js?v=20261023-1"></script>
     <script src="/static/js/workspace-store.js?v=20261021-1"></script>
-    <script src="/static/js/workspace-controller.js?v=20261021-3"></script>
+    <script src="/static/js/workspace-controller.js?v=20261106-7"></script>
   </body>
 </html>

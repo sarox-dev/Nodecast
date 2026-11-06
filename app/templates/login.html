@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="nodecast-core" content="workspace" />
     <title>Nodecast — Login</title>
     <link rel="stylesheet" href="/static/css/base.css" />
     <link rel="stylesheet" href="/static/css/theme-default.css" />
@@ -42,6 +43,11 @@
       .auth-link { text-align: center; margin-top: 1.2rem; font-size: 0.82rem; color: var(--text-dim); }
       .auth-link a { color: var(--accent); text-decoration: none; }
       .auth-link a:hover { text-decoration: underline; }
+      .auth-accounts { display:grid; gap:8px; margin-bottom:20px; }
+      .auth-accounts[hidden] { display:none; }
+      .auth-accounts p { color:var(--text-dim); font-size:.82rem; margin:0; }
+      .auth-account { padding:10px; text-align:left; color:var(--text); background:var(--bg); border:1px solid var(--border); border-radius:8px; cursor:pointer; }
+      .auth-account:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
     </style>
   </head>
   <body>
@@ -52,6 +58,7 @@
           <h1>Nodecast</h1>
           <p>Sign in to your workspace</p>
         </div>
+        <div class="auth-accounts" id="auth-accounts" hidden><p>Signed in on this browser</p><div id="auth-account-list" class="auth-accounts"></div></div>
         <form class="auth-form" id="login-form">
           <div class="auth-field">
             <label for="username">Username</label>
@@ -72,7 +79,36 @@
         </div>
       </div>
     </div>
+    <script src="/static/js/extension-bridge.js?v=20261106-1"></script>
     <script>
+      async function loadAccounts() {
+        const response = await fetch('/auth/accounts');
+        if (!response.ok) return;
+        const data = await response.json();
+        const container = document.getElementById('auth-accounts');
+        const list = document.getElementById('auth-account-list');
+        for (const account of data.accounts || []) {
+          const button = document.createElement('button');
+          button.type = 'button'; button.className = 'auth-account';
+          button.textContent = account.username + (account.active ? ' · Current' : '');
+          button.addEventListener('click', async () => {
+            button.disabled = true;
+            try {
+              if (!account.active) {
+                const result = await fetch('/auth/switch-account', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({user_id:account.id}) });
+                if (!result.ok) throw new Error('Could not switch account.');
+                if (account.role === 'member') { try { await window.nodecastExtension?.restoreConnection?.(); } catch {} }
+              }
+              window.location.href = '/';
+            } catch (error) {
+              const output = document.getElementById('auth-error'); output.textContent = error.message; output.style.display = 'block'; button.disabled = false;
+            }
+          });
+          list.appendChild(button);
+        }
+        container.hidden = !list.children.length;
+      }
+      loadAccounts().catch(() => {});
       document.getElementById('login-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         const username = document.getElementById('username').value.trim();

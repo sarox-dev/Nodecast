@@ -83,8 +83,9 @@ const settingsSchema = [
     },
     {
         category: 'Search',
-        description: 'Choose where Web Search redirects and which provider supplies suggestions before Enter.',
+        description: 'Configure Web Search and Ask diagnostics.',
         items: [
+            { key: 'askSearchDiagnostics', label: 'Show Ask search diagnostics', description: 'Show planner status and candidate counts for Ask. Search phrases are shown temporarily and are not stored as diagnostics.', type: 'toggle', default: false },
             { key: 'preferredEngine', label: 'Redirect Web Search to',
               type: 'select',
               options: [
@@ -498,9 +499,11 @@ async function renderSettingsOverview() {
 
 async function renderExtensionSettings() {
     settingsList.innerHTML = '<div class="extension-settings-loading">Checking extension connection…</div>';
-    const [status, remote] = await Promise.all([
+    const [status, remote, reasonSettings, reasonReview] = await Promise.all([
         getExtensionStatus(),
         fetchSettingsJson('/api/extension/settings'),
+        fetchSettingsJson('/api/capture-reason/settings', {ai_enabled:true, review_enabled:true}),
+        fetchSettingsJson('/api/capture-reason/review', {items:[]}),
     ]);
     if (activeSettingsCategory !== 'Extension' || settingsSearchInput?.value.trim()) return;
 
@@ -531,17 +534,52 @@ async function renderExtensionSettings() {
           </div>
           <div class="extension-action-status" aria-live="polite"></div>
         </section>
-        <section class="extension-preferences" ${status.connected ? '' : 'aria-disabled="true"'}>
+        <section class="extension-preferences" ${status.connected ? '' : 'hidden aria-disabled="true"'}>
           <div class="settings-module-heading"><h4>Capture behavior${infoTip('The floating button saves immediately. Keyboard shortcut and right-click remain available as fallback methods.')}</h4></div>
           <label class="settings-field toggle-field"><span>Show floating Save button</span><span class="settings-control-slot"><input type="checkbox" data-key="floating_button_enabled" ${settings.floating_button_enabled ? 'checked' : ''} ${status.connected ? '' : 'disabled'} /><button type="button" class="settings-reset" data-extension-reset="floating_button_enabled" ${settings.floating_button_enabled === true ? 'disabled' : ''} aria-label="Reset floating Save button"><svg viewBox="0 0 24 24"><path d="M4 4v6h6M5.5 15a7 7 0 1 0 .8-7.8L4 10"/></svg></button></span></label>
           <label class="settings-field"><span>Minimum selection length${infoTip('The floating Save control appears only after at least this many characters are selected.')}</span><span class="settings-control-slot"><input type="number" data-key="min_selection_length" min="1" max="500" value="${Number(settings.min_selection_length) || 10}" ${status.connected ? '' : 'disabled'} /><button type="button" class="settings-reset" data-extension-reset="min_selection_length" ${Number(settings.min_selection_length) === 10 ? 'disabled' : ''} aria-label="Reset minimum selection length"><svg viewBox="0 0 24 24"><path d="M4 4v6h6M5.5 15a7 7 0 1 0 .8-7.8L4 10"/></svg></button></span></label>
           <label class="settings-field"><span>Save notification position</span><span class="settings-control-slot"><select data-key="notification_position" ${status.connected ? '' : 'disabled'}>${['top-left','top-center','top-right','bottom-left','bottom-center','bottom-right'].map(value => `<option value="${value}" ${settings.notification_position === value ? 'selected' : ''}>${value.replace('-', ' ')}</option>`).join('')}</select><button type="button" class="settings-reset" data-extension-reset="notification_position" ${settings.notification_position === 'top-center' ? 'disabled' : ''} aria-label="Reset notification position"><svg viewBox="0 0 24 24"><path d="M4 4v6h6M5.5 15a7 7 0 1 0 .8-7.8L4 10"/></svg></button></span></label>
           <label class="settings-field"><span>Default project</span><span class="settings-control-slot"><input type="text" data-key="default_project" maxlength="200" value="${escapeHtml(settings.default_project || '')}" placeholder="No project" ${status.connected ? '' : 'disabled'} /><button type="button" class="settings-reset" data-extension-reset="default_project" ${!settings.default_project ? 'disabled' : ''} aria-label="Reset default project"><svg viewBox="0 0 24 24"><path d="M4 4v6h6M5.5 15a7 7 0 1 0 .8-7.8L4 10"/></svg></button></span></label>
         </section>
+        <section class="settings-module" ${status.connected ? '' : 'hidden'}>
+          <div class="settings-module-heading"><h4>Save reasons</h4></div>
+          <label><input type="checkbox" id="reason-ai-enabled" ${reasonSettings.ai_enabled ? 'checked' : ''}> Suggest reasons with AI</label>
+          <p>On by default for new saves when a Save reason suggestions provider is assigned. The provider receives the page title and selected text; external providers send this data outside Nodecast. Suggestions may be wrong.</p>
+          <label><input type="checkbox" id="reason-review-enabled" ${reasonSettings.review_enabled ? 'checked' : ''}> Show recent items whose reason is unclear</label>
+          <div id="reason-settings-status" aria-live="polite"></div>
+          <div id="reason-review-list">${(reasonReview.items || []).map(item => `<div class="settings-module" data-reason-item="${escapeHtml(item.id)}"><strong>${escapeHtml(item.source_title || 'Saved item')}</strong><p>${item.save_reason_suggestion ? `AI suggestion (may be wrong): ${escapeHtml(item.save_reason_suggestion)}` : 'Why did you save this?'}</p><input type="text" maxlength="500" value="${escapeHtml(item.save_reason_suggestion || '')}" aria-label="Reason for ${escapeHtml(item.source_title || 'saved item')}"><button type="button" data-reason-save>Save reason</button><button type="button" data-reason-dismiss>Don't ask again</button><span class="reason-status" aria-live="polite"></span></div>`).join('')}</div>
+        </section>
       </div>`;
 
     _tabSnapshot = { ...settings };
     _clearDirty();
+
+    const reasonAi = document.getElementById('reason-ai-enabled');
+    const reasonReviewEnabled = document.getElementById('reason-review-enabled');
+    async function saveReasonSettings() {
+        const output = document.getElementById('reason-settings-status');
+        try {
+            const response = await fetch('/api/capture-reason/settings', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ai_enabled:reasonAi.checked, review_enabled:reasonReviewEnabled.checked})});
+            if (!response.ok) { const data = await response.json().catch(() => ({})); throw new Error(data.detail || 'Could not save settings.'); }
+            await renderExtensionSettings();
+        } catch (error) { reasonAi.checked = reasonSettings.ai_enabled; reasonReviewEnabled.checked = reasonSettings.review_enabled; output.textContent = error.message; }
+    }
+    reasonAi?.addEventListener('change', saveReasonSettings);
+    reasonReviewEnabled?.addEventListener('change', saveReasonSettings);
+    settingsList.querySelectorAll('[data-reason-item]').forEach(row => {
+        async function updateReason(status) {
+            const output = row.querySelector('.reason-status');
+            const reason = status === 'confirmed' ? row.querySelector('input').value.trim() : '';
+            if (status === 'confirmed' && !reason) { output.textContent = 'Enter a reason.'; return; }
+            try {
+                const response = await fetch(`/api/capture/${encodeURIComponent(row.dataset.reasonItem)}/reason`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({reason,status})});
+                if (!response.ok) throw new Error('Could not update this reason.');
+                row.remove();
+            } catch (error) { output.textContent = error.message; }
+        }
+        row.querySelector('[data-reason-save]').onclick = () => updateReason('confirmed');
+        row.querySelector('[data-reason-dismiss]').onclick = () => updateReason('declined');
+    });
 
     settingsList.querySelectorAll('[data-extension-action]').forEach(button => {
         button.addEventListener('click', async () => {
@@ -552,9 +590,12 @@ async function renderExtensionSettings() {
                 if (button.dataset.extensionAction === 'connect') {
                     output.textContent = 'Connecting…';
                     await window.nodecastExtension.pair();
-                    output.textContent = 'Connected.';
+                    output.textContent = 'Checking connection…';
+                    const refreshed = await window.nodecastExtension.refresh();
+                    if (!refreshed?.connected) throw new Error('Connected, but the connection could not be verified. Try checking again.');
                 } else if (button.dataset.extensionAction === 'disconnect') {
                     await window.nodecastExtension.disconnect();
+                    await window.nodecastExtension.refresh();
                 } else if (button.dataset.extensionAction === 'check') {
                     output.textContent = 'Checking…';
                     const refreshed = await window.nodecastExtension.refresh();
@@ -563,7 +604,12 @@ async function renderExtensionSettings() {
                         if (!result?.success) throw new Error(result?.message || 'Connection check failed');
                     }
                 }
+                const action = button.dataset.extensionAction;
                 await renderExtensionSettings();
+                if (action === 'check') {
+                    const updated = settingsList.querySelector('.extension-action-status');
+                    if (updated) updated.textContent = window.nodecastExtension.getStatus().connected ? 'Connection check succeeded.' : 'Extension is not connected.';
+                }
             } catch (error) {
                 output.textContent = error.message;
                 output.classList.add('error');
@@ -685,24 +731,28 @@ async function renderAccountSettings() {
         renderAccountSettings();
     });
 
-    async function syncExtensionAccount() {
-        const extension = await window.nodecastExtension?.refresh?.();
-        if (extension?.detected && extension?.connected) await window.nodecastExtension.pair();
-    }
     document.querySelectorAll('[data-switch-account]').forEach(button => button.addEventListener('click', async () => {
         const status = document.getElementById('account-switch-status');
         status.hidden = false; status.textContent = 'Switching account…';
+        try { await window.nodecastExtension?.rememberConnection?.(); } catch { /* switching still invalidates the old token */ }
         const response = await fetch('/auth/switch-account', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({user_id: button.dataset.switchAccount}) });
         if (!response.ok) { status.textContent = (await response.json()).detail || 'Could not switch account'; return; }
-        try { await syncExtensionAccount(); } catch { /* old bound token is invalid after the Core switch */ }
+        const result = await response.json();
+        if (result.user?.role === 'member') {
+            try { await window.nodecastExtension?.restoreConnection?.(); } catch { /* reconnect from Extension settings */ }
+        }
         window.location.reload();
     }));
     document.getElementById('account-add-button')?.addEventListener('click', async () => {
         const status = document.getElementById('account-switch-status');
         status.hidden = false; status.textContent = 'Authenticating account…';
+        try { await window.nodecastExtension?.rememberConnection?.(); } catch { /* account login remains available */ }
         const response = await fetch('/auth/login', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({username: document.getElementById('account-add-username').value.trim(), password: document.getElementById('account-add-password').value}) });
         if (!response.ok) { status.textContent = (await response.json()).detail || 'Could not add account'; return; }
-        try { await syncExtensionAccount(); } catch { /* extension can be reconnected from its settings */ }
+        const result = await response.json();
+        if (result.user?.role === 'member') {
+            try { await window.nodecastExtension?.restoreConnection?.(); } catch { /* reconnect from Extension settings */ }
+        }
         window.location.reload();
     });
 
@@ -917,9 +967,10 @@ async function renderAISettings() {
 
     // Provider configuration is local. Do not let an unreachable external
     // model catalog block this view from rendering.
-    const [providerData, assignmentData] = await Promise.all([
+    const [providerData, assignmentData, recallCache] = await Promise.all([
         fetchSettingsJson('/api/ai/providers', { providers: [] }),
         fetchSettingsJson('/api/ai/assignments', { assignments: [] }),
+        fetchSettingsJson('/api/memory-cache/settings'),
     ]);
     aiProviders = providerData?.providers || [];
     aiAssignments = assignmentData?.assignments || [];
@@ -930,6 +981,7 @@ async function renderAISettings() {
     aiProviders.forEach(queueProviderModelCatalog);
 
     let html = '<div class="settings-field-group">';
+    html += '<p>Ask may send your question to the selected Recall AI provider to plan searches, then sends selected saved evidence to generate an answer. External providers receive this information outside Nodecast. Local search remains available without AI.</p>';
 
     // Fetch saved interval from server
     const autoProcessSettings = await fetchSettingsJson('/api/ai/auto-process-settings');
@@ -1021,6 +1073,7 @@ async function renderAISettings() {
     html += '</div>';
 
     // ─── AI Processing section ───────────────────────────────
+    if (recallCache) html += `<div class="settings-module"><div class="settings-module-heading"><h4>Ask answer cache</h4></div><label><input type="checkbox" id="recall-cache-enabled" ${recallCache.enabled ? 'checked' : ''}> Reuse valid saved answers</label><p>Answers are stored locally and can be reused for up to seven days. Library changes invalidate earlier answers.</p><button type="button" id="recall-cache-clear">Clear saved answers</button><span id="recall-cache-status" aria-live="polite"></span></div>`;
     html += `<div class="settings-module-heading"><h4>AI processing${infoTip('Process new captures or rebuild all derived AI data. Raw captures remain the immutable source.')}</h4></div>`;
     html += '<div class="settings-list" style="gap:0.4rem">';
     html += `<div class="ai-processing-actions"><button id="ai-process-unprocessed" class="modal-btn modal-btn-primary settings-action-button" type="button"><span aria-hidden="true">▶</span> Process unprocessed</button>`;
@@ -1051,6 +1104,22 @@ async function renderAISettings() {
 
     html += '</div>';
     settingsList.innerHTML = html;
+    const cacheToggle = document.getElementById('recall-cache-enabled');
+    const cacheStatus = document.getElementById('recall-cache-status');
+    cacheToggle?.addEventListener('change', async () => {
+        try {
+            const response = await fetch('/api/memory-cache/settings', {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:cacheToggle.checked})});
+            if (!response.ok) throw new Error('Could not update cache settings.');
+            cacheStatus.textContent = 'Saved.';
+        } catch (error) { cacheToggle.checked = !cacheToggle.checked; cacheStatus.textContent = error.message; }
+    });
+    document.getElementById('recall-cache-clear')?.addEventListener('click', async () => {
+        try {
+            const response = await fetch('/api/memory-cache', {method:'DELETE'});
+            if (!response.ok) throw new Error('Could not clear saved answers.');
+            cacheStatus.textContent = 'Saved answers cleared.';
+        } catch (error) { cacheStatus.textContent = error.message; }
+    });
     attachAIHandlers();
 }
 

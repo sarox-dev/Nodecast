@@ -12,18 +12,19 @@
         const content = document.getElementById('content-view');
         const stage = document.getElementById('constellation-stage');
         const title = document.getElementById('workspace-view-title');
-        const eyebrow = document.getElementById('workspace-view-eyebrow');
-        const description = document.getElementById('workspace-view-description');
+        const resultsQueryForm = document.getElementById('workspace-results-query-form');
+        const resultsQuery = document.getElementById('workspace-results-query');
         const results = document.getElementById('results-container');
         const projectionButtons = [...document.querySelectorAll('[data-projection]')];
 
-        function openResults(label = 'Recent memory') {
+        function openResults(label = 'Recent memory', editableQuery = '') {
             content.hidden = false;
             stage.classList.add('constellation-stage-muted');
             shell.classList.add('results-open');
-            eyebrow.textContent = 'Personal recall';
             title.textContent = label;
-            description.textContent = 'Answers and evidence from information you intentionally saved.';
+            title.hidden = Boolean(editableQuery);
+            resultsQueryForm.hidden = !editableQuery;
+            if (editableQuery) resultsQuery.value = editableQuery;
         }
 
         function closeResults() {
@@ -36,21 +37,31 @@
         }
 
         function applyProjection(projection) {
-            results?.classList.toggle('workspace-projection-focus', projection === 'focus');
-            results?.classList.toggle('workspace-projection-sources', projection === 'sources');
+            projection = projection === 'list' ? 'list' : 'grid';
+            results?.classList.toggle('workspace-layout-list', projection === 'list');
             projectionButtons.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.projection === projection)));
             store?.set({ projection });
+            try { localStorage.setItem('nodecast.resultLayout', projection); } catch {}
         }
 
         projectionButtons.forEach(button => button.addEventListener('click', () => applyProjection(button.dataset.projection)));
+        let initialLayout = 'grid';
+        try { initialLayout = localStorage.getItem('nodecast.resultLayout') || 'grid'; } catch {}
+        applyProjection(initialLayout);
         document.getElementById('workspace-results-close')?.addEventListener('click', closeResults);
         form?.addEventListener('submit', () => {
             if (window.webMode) return;
             const value = query.value.trim();
             if (!value) return;
-            openResults(value.replace(/^\/\w+\s*/, '') || 'Library results');
-            store?.set({ query: value, section: 'library', projection: 'list' });
-            applyProjection('list');
+            openResults(value.replace(/^\/\w+\s*/, '') || 'Library results', value);
+            store?.set({ query: value, section: 'library' });
+        });
+        resultsQueryForm?.addEventListener('submit', event => {
+            event.preventDefault();
+            const value = resultsQuery.value.trim();
+            if (!value) { resultsQuery.focus(); return; }
+            query.value = value;
+            form.requestSubmit();
         });
         results?.addEventListener('click', event => {
             if (event.target.closest('a, button, input, select, textarea')) return;

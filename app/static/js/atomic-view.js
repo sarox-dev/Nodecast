@@ -1,6 +1,8 @@
 // ─── Atomic View — standalone module from app.js ────────────────
 // State variables are declared in app.js (allResults, currentQuery, etc.)
 // This module only assigns to them, does NOT redeclare with let.
+let memorySearchGeneration = 0;
+let memorySearchController = null;
 
 // ─── Init: bind DOM refs and observer ──────────────────────────
 function initAtomicView() {
@@ -30,17 +32,41 @@ function initAtomicView() {
         if (!loading && hasMore && currentQuery) doSearch(currentQuery, currentPage + 1);
     });
 
+    resultsContainer?.addEventListener('pointerover', showEvidencePopover);
+    resultsContainer?.addEventListener('pointerout', hideEvidencePopover);
+    resultsContainer?.addEventListener('focusin', showEvidencePopover);
+    resultsContainer?.addEventListener('focusout', hideEvidencePopover);
     resultsContainer?.addEventListener('click', event => {
+        if (event.target.closest('[data-refresh-recall]')) { doSearch(currentQuery, 1, true); return; }
+        const reasonButton = event.target.closest('[data-edit-reason]');
+        if (reasonButton) { editCaptureReason(reasonButton); return; }
         const citation = event.target.closest('[data-evidence-id]');
         if (!citation) return;
+        const target = [...resultsContainer.querySelectorAll('[data-evidence-targets]')].find(node => {
+            try { return JSON.parse(node.dataset.evidenceTargets).includes(citation.dataset.evidenceId); } catch { return false; }
+        });
+        if (target) {
+            const details = target.closest('details'); if (details) details.open = true;
+            const fullText = target.querySelector('.memory-fragment-text'); if (fullText) fullText.open = true;
+            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            target.focus({ preventScroll: true });
+            return;
+        }
         const card = resultsContainer.querySelector(`.result-card[data-id="${CSS.escape(citation.dataset.evidenceId)}"]`);
-        card?.click();
+        if (card) {
+            card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            card.focus({ preventScroll: true });
+        }
     });
 
     form?.addEventListener('submit', async (e) => {
         e.preventDefault();
         const query = queryInput.value.trim();
-        if (!query) return;
+        if (!query) {
+            queryInput.focus();
+            if (typeof showNotification === 'function') showNotification({ title: 'Enter a question', message: 'Type a question or search term to continue.', type: 'error', key: 'memory-empty-query' });
+            return;
+        }
         currentQuery = query;
         currentPage = 1;
         hasMore = true;
@@ -50,6 +76,35 @@ function initAtomicView() {
         await routeQuery(query);
         queryInput.blur();
     });
+}
+
+async function editCaptureReason(button) {
+    const captureId = button.dataset.editReason;
+    button.disabled = true;
+    try {
+        const response = await fetch(`/api/capture/${encodeURIComponent(captureId)}/reason`);
+        if (!response.ok) throw new Error('Could not load the reason.');
+        const data = await response.json();
+        const form = document.createElement('form');
+        form.className = 'memory-reason-form';
+        const input = document.createElement('input');
+        input.type = 'text'; input.maxLength = 500; input.value = data.reason || '';
+        input.setAttribute('aria-label', 'Why did you save this?');
+        const save = document.createElement('button'); save.type = 'submit'; save.textContent = 'Save reason';
+        const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = 'Cancel';
+        const status = document.createElement('span'); status.setAttribute('aria-live', 'polite');
+        form.append(input, save, cancel, status); button.after(form); input.focus();
+        cancel.onclick = () => { form.remove(); button.disabled = false; button.focus(); };
+        form.onsubmit = async event => {
+            event.preventDefault(); save.disabled = true;
+            try {
+                const reason = input.value.trim();
+                const result = await fetch(`/api/capture/${encodeURIComponent(captureId)}/reason`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({reason,status:reason ? 'confirmed' : 'unknown'})});
+                if (!result.ok) throw new Error('Could not save reason.');
+                form.remove(); button.disabled = false; button.textContent = reason ? 'Edit save reason' : 'Add save reason'; button.focus();
+            } catch (error) { status.textContent = error.message; save.disabled = false; }
+        };
+    } catch (error) { button.disabled = false; if (typeof showNotification === 'function') showNotification({title:'Save reason',message:error.message,type:'error'}); }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────
@@ -156,8 +211,51 @@ function createCard(item) {
           <div class="card-title-row"><span class="card-title">${escapeHtml(item.title || shortContent)}</span></div>
           ${item.title && item.title !== shortContent ? `<p class="memory-card-summary">${escapeHtml(shortContent)}</p>` : ''}
           ${item.match_reason ? `<div class="memory-card-footer"><span>${escapeHtml(item.match_reason)}</span><span>${Number(item.source_count || 0)} source${Number(item.source_count || 0) === 1 ? '' : 's'}</span></div>` : ''}
+          ${item.source_id ? `<button type="button" data-edit-reason="${escapeHtml(item.source_id)}">Edit save reason</button>` : ''}
         </div>
       </article>`;
+}
+
+function groupEvidenceBySource(items) {
+    const groups = new Map();
+    for (const item of items) {
+        const key = item.source_id ? `source:${item.source_id}` : `evidence:${item.id}`;
+        if (!groups.has(key)) groups.set(key, { id:item.source_id || '', title:item.source_title || item.title || 'Saved source', url:item.source_url || '', site:item.source_site_name || '', fragments:[] });
+        const group = groups.get(key);
+        const text = (item.excerpt || item.content || '').trim();
+        const existing = item.excerpt_hash ? group.fragments.find(fragment => fragment.hash === item.excerpt_hash) : null;
+        if (existing) existing.ids.push(String(item.id));
+        else group.fragments.push({ text, hash:item.excerpt_hash || '', ids:[String(item.id)] });
+    }
+    return [...groups.values()];
+}
+
+function renderSourceGroups(items) {
+    const groups = groupEvidenceBySource(items);
+    if (!groups.length) return '';
+    const fragmentCount = items.length;
+    const card = group => {
+        const renderFragment = fragment => {
+            const text = fragment.text || 'No source excerpt available.';
+            const body = text.length > 320 ? `<details class="memory-fragment-text"><summary>${escapeHtml(text.slice(0, 320))}… <span>Show full excerpt</span></summary><p>${escapeHtml(text)}</p></details>` : escapeHtml(text);
+            return `<div class="memory-fragment" tabindex="-1" data-evidence-targets="${escapeHtml(JSON.stringify(fragment.ids))}">${body}</div>`;
+        };
+        const fragments = group.fragments;
+        const extra = fragments.length > 1 ? `<details class="memory-fragments"><summary>${fragments.length - 1} more fragment${fragments.length === 2 ? '' : 's'}</summary>${fragments.slice(1).map(renderFragment).join('')}</details>` : '';
+        const source = /^https?:\/\//i.test(group.url) ? `<a class="memory-source-link" href="${escapeHtml(group.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(group.site || 'Open source')} <span aria-hidden="true">↗</span></a>` : `<span class="memory-source-site">${escapeHtml(group.site || 'Saved source')}</span>`;
+        return `<article class="result-card memory-source-card" data-source-id="${escapeHtml(group.id)}"><div class="memory-source-header"><div><h3>${escapeHtml(group.title)}</h3>${source}</div>${group.id ? `<details class="memory-card-menu"><summary aria-label="Source actions" title="Source actions">⋯</summary><div class="memory-card-menu-content"><button type="button" data-edit-reason="${escapeHtml(group.id)}">Edit save reason</button></div></details>` : ''}</div>${fragments.length ? renderFragment(fragments[0]) : ''}${extra}<div class="memory-source-count">${fragments.length} fragment${fragments.length === 1 ? '' : 's'}</div></article>`;
+    };
+    return `<section class="memory-sources"><div class="memory-sources-heading"><h2>Sources</h2><span>${groups.length} source${groups.length === 1 ? '' : 's'} · ${fragmentCount} evidence item${fragmentCount === 1 ? '' : 's'}</span></div><div class="memory-source-grid">${groups.map(card).join('')}</div></section>`;
+}
+
+function replaceMemoryResults(html) {
+    const scrollPositions = [resultsContainer.closest('.results-area'), resultsContainer.closest('#content-view')].filter(Boolean).map(element => [element, element.scrollTop]);
+    const openSources = new Set([...resultsContainer.querySelectorAll('.memory-source-card')].filter(card => card.querySelector('.memory-fragments[open]')).map(card => card.dataset.sourceId));
+    resultsContainer.innerHTML = html;
+    resultsContainer.querySelectorAll('.memory-source-card').forEach(card => {
+        if (openSources.has(card.dataset.sourceId)) { const details = card.querySelector('.memory-fragments'); if (details) details.open = true; }
+    });
+    scrollPositions.forEach(([element, top]) => { element.scrollTop = top; });
 }
 
 function renderResults(append = false) {
@@ -189,15 +287,21 @@ function renderResults(append = false) {
     updatePaginationControls();
 }
 
-async function doSearch(query, page) {
-    if (loading) return;
+async function doSearch(query, page, forceRefresh = false) {
+    // Memory query returns one bounded packet and does not support paging.
+    if (loading || page !== 1) return;
+    memorySearchController?.abort();
+    const controller = new AbortController();
+    memorySearchController = controller;
+    const generation = ++memorySearchGeneration;
     loading = true;
     showLoading(true, page);
     try {
         if (page === 1) {
             try {
-                if (await doEvidenceFirstSearch(query)) return;
+                if (await doEvidenceFirstSearch(query, forceRefresh, controller.signal, generation)) return;
             } catch (streamError) {
+                if (controller.signal.aborted || generation !== memorySearchGeneration) return;
                 // A proxy or provider can interrupt a streamed response. Preserve
                 // the normal local-result path rather than leaving the Library empty.
                 console.warn('Streaming recall unavailable; using standard query.', streamError);
@@ -205,10 +309,12 @@ async function doSearch(query, page) {
         }
         const resp = await fetch('/api/memory/query', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
             body: JSON.stringify({ query, limit: 8, token_budget: 700, mode: 'fast', synthesize: false }),
         });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
+        if (generation !== memorySearchGeneration) return;
         const fetched = data.items || [];
         window.currentMemoryViewModel = data;
         if (page === 1) {
@@ -220,38 +326,46 @@ async function doSearch(query, page) {
             showLoading(false, page);
             renderResults(true);
         }
-        hasMore = Boolean(data.page?.has_more);
+        hasMore = false;
         currentPage = page;
         if (!hasMore && allResults.length > 0) endOfResults.hidden = false;
     } catch (err) {
+        if (controller.signal.aborted || generation !== memorySearchGeneration) return;
         console.error('Search failed:', err);
         showLoading(false, page);
         resultsContainer.innerHTML = '<div class="message error">Search request failed.</div>';
         if (typeof showNotification === 'function') showNotification({ title: 'Search failed', message: err.message || 'The search request could not be completed.', type: 'error', key: 'memory-search' });
         hasMore = false;
     } finally {
-        loading = false;
-        updatePaginationControls();
+        if (generation === memorySearchGeneration) {
+            loading = false;
+            updatePaginationControls();
+        }
     }
 }
 
-async function doEvidenceFirstSearch(query) {
+async function doEvidenceFirstSearch(query, forceRefresh = false, signal, generation) {
     // Local recall never waits for an AI provider. It is the reliable baseline
     // and stays visible even if the stream or provider fails later.
+    const diagnosticView = document.getElementById('ask-diagnostics');
+    const diagnostics = settingsState.askSearchDiagnostics === true;
+    const searchActivity = document.getElementById('ask-search-activity');
+    if (searchActivity) { searchActivity.replaceChildren(); searchActivity.hidden = true; }
+    if (diagnosticView) { diagnosticView.hidden = true; diagnosticView.textContent = ''; }
     const localResponse = await fetch('/api/memory/query', {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        signal,
         body: JSON.stringify({ query, limit: 8, token_budget: 700, mode: 'fast', synthesize: false }),
     });
     if (!localResponse.ok) throw new Error(`HTTP ${localResponse.status}`);
     const local = await localResponse.json();
+    if (signal.aborted || generation !== memorySearchGeneration) return true;
     allResults = local.items || [];
     window.currentMemoryViewModel = local;
-    hasMore = Boolean(local.page?.has_more);
+    hasMore = false;
     currentPage = 1;
     showLoading(false, 1);
     renderMemoryView(local);
-    if (!allResults.length) return true;
-
     const pending = {
         ...local,
         synthesis_status: 'streaming',
@@ -262,11 +376,18 @@ async function doEvidenceFirstSearch(query) {
 
     let resp;
     try {
-        resp = await fetch('/api/memory/query', {
-            method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-            body: JSON.stringify({ query, limit: 8, token_budget: 700, mode: 'auto', response_language: 'auto', synthesize: true }),
+        resp = await fetch('/api/memory/query/stream', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/x-ndjson' },
+            signal,
+            body: JSON.stringify({
+                query, limit: 8, token_budget: 700, mode: 'auto', response_language: 'auto',
+                synthesize: true, stream_version: 2, force_refresh: forceRefresh,
+                diagnostics,
+                request_id: globalThis.crypto?.randomUUID?.() || `memory-${Date.now()}`,
+            }),
         });
     } catch (error) {
+        if (signal.aborted || generation !== memorySearchGeneration) return true;
         renderStreamFallback(local, error);
         return true;
     }
@@ -274,14 +395,95 @@ async function doEvidenceFirstSearch(query) {
         renderStreamFallback(local, new Error(`HTTP ${resp.status}`));
         return true;
     }
-    const enriched = await resp.json();
-    allResults = enriched.items || [];
-    window.currentMemoryViewModel = enriched;
-    hasMore = Boolean(enriched.page?.has_more);
-    currentPage = 1;
-    showLoading(false, 1);
-    renderMemoryView(enriched);
+    if (!resp.body) {
+        renderStreamFallback(local, new Error('Streaming response body is unavailable'));
+        return true;
+    }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let completed = false;
+    try {
+        while (true) {
+            const { value, done } = await reader.read();
+            if (signal.aborted || generation !== memorySearchGeneration) return true;
+            buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            for (const line of lines) {
+                if (line.trim()) completed = handleMemoryStreamEvent(JSON.parse(line)) || completed;
+            }
+            if (done) break;
+        }
+        if (buffer.trim()) completed = handleMemoryStreamEvent(JSON.parse(buffer)) || completed;
+        if (!completed) throw new Error('AI stream ended before request.completed');
+    } catch (error) {
+        if (signal.aborted || generation !== memorySearchGeneration) return true;
+        renderStreamFallback(window.currentMemoryViewModel || local, error);
+    } finally {
+        reader.releaseLock();
+    }
     return true;
+}
+
+function evidenceById(id) {
+    const model = window.currentMemoryViewModel || {};
+    return [...(model.evidence || []), ...(model.items || [])].find(item => String(item.id) === String(id));
+}
+
+function evidencePopover() {
+    let popover = document.getElementById('memory-evidence-popover');
+    if (!popover) {
+        popover = document.createElement('aside');
+        popover.id = 'memory-evidence-popover';
+        popover.className = 'memory-evidence-popover';
+        popover.setAttribute('role', 'tooltip');
+        popover.hidden = true;
+        document.body.appendChild(popover);
+    }
+    return popover;
+}
+
+function showEvidencePopover(event) {
+    const citation = event.target.closest?.('[data-evidence-id]');
+    if (!citation || (event.type === 'pointerover' && event.relatedTarget && citation.contains(event.relatedTarget))) return;
+    const evidence = evidenceById(citation.dataset.evidenceId);
+    if (!evidence) return;
+    const popover = evidencePopover();
+    const title = evidence.title || evidence.source_title || 'Saved evidence';
+    const text = evidence.excerpt || evidence.content || '';
+    const source = evidence.source_site_name || evidence.source_title || evidence.source_url || '';
+    popover.replaceChildren();
+    const heading = document.createElement('strong');
+    heading.textContent = title;
+    const body = document.createElement('p');
+    body.textContent = text.length > 420 ? `${text.slice(0, 420)}…` : text;
+    popover.append(heading, body);
+    if (source && source !== title) {
+        const meta = document.createElement('span');
+        meta.textContent = source;
+        popover.append(meta);
+    }
+    popover.hidden = false;
+    citation.setAttribute('aria-describedby', popover.id);
+    const rect = citation.getBoundingClientRect();
+    const width = Math.min(360, window.innerWidth - 24);
+    popover.style.width = `${width}px`;
+    const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12));
+    const top = rect.bottom + 8 + popover.offsetHeight <= window.innerHeight
+        ? rect.bottom + 8
+        : Math.max(12, rect.top - popover.offsetHeight - 8);
+    popover.style.left = `${left}px`;
+    popover.style.top = `${top}px`;
+}
+
+function hideEvidencePopover(event) {
+    const citation = event.target.closest?.('[data-evidence-id]');
+    if (!citation) return;
+    if (event.relatedTarget && citation.contains(event.relatedTarget)) return;
+    citation.removeAttribute('aria-describedby');
+    const popover = document.getElementById('memory-evidence-popover');
+    if (popover) popover.hidden = true;
 }
 
 function renderStreamFallback(local, error) {
@@ -302,49 +504,136 @@ function renderStreamFallback(local, error) {
 function handleMemoryStreamEvent(event) {
     // v2 is typed and ordered; legacy meta/delta/done remains accepted during rollout.
     if (event.version === '2.0') {
+        if (event.event === 'query.analyzed') {
+            updateMemoryStreamStatus('Understanding your question');
+            return false;
+        }
+        if (event.event === 'search.started') {
+            updateMemoryStreamStatus('Finding saved evidence');
+            return false;
+        }
+        if (event.event === 'search.completed') {
+            updateMemoryStreamStatus('Reviewing saved evidence');
+            return false;
+        }
+        if (event.event === 'search.performed') {
+            const activity = document.getElementById('ask-search-activity');
+            if (activity && typeof event.data?.query === 'string') {
+                const line = document.createElement('div');
+                line.textContent = `Searched: ${event.data.query}`;
+                activity.appendChild(line);
+                activity.hidden = false;
+            }
+            return false;
+        }
+        if (event.event === 'answer.block') {
+            const {section, block} = event.data || {};
+            if (Number.isInteger(section) && section >= 0 && section < 100 && block) {
+                (window.currentMemoryBlocks[section] ||= []).push(block);
+                renderStreamingDraft(window.currentMemoryDraft || '');
+            }
+            return false;
+        }
         if (event.event === 'evidence.selected') event = { event: 'meta', data: event.data?.result };
         else if (event.event === 'answer.delta') event = { event: 'delta', text: event.data?.text };
         else if (event.event === 'request.completed') event = { event: 'done', data: event.data?.result };
         else if (event.event === 'request.error' || event.event === 'request.cancelled') {
             const current = window.currentMemoryViewModel || { items: [] };
             renderStreamFallback(current, new Error(event.data?.message || event.event));
-            return;
-        } else return;
+            return true;
+        } else return false;
     }
     if (event.event === 'meta') {
         const data = event.data;
         allResults = data.items || [];
         window.currentMemoryViewModel = data;
-        hasMore = Boolean(data.page?.has_more);
+        hasMore = false;
         currentPage = 1;
         showLoading(false, 1);
         renderStreamingMemoryView(data);
-        return;
+        updateMemoryStreamStatus(`Reading ${allResults.length} evidence item${allResults.length === 1 ? '' : 's'}`);
+        return false;
     }
     if (event.event === 'delta') {
-        const draft = resultsContainer.querySelector('[data-streaming-draft]');
-        if (draft) draft.textContent += event.text || '';
-        return;
+        updateMemoryStreamStatus('Writing evidence-backed answer');
+        window.currentMemoryDraft = (window.currentMemoryDraft || '') + (event.text || '');
+        renderStreamingDraft(window.currentMemoryDraft);
+        return false;
     }
     if (event.event === 'done') {
         const data = event.data;
+        const diagnosticView = document.getElementById('ask-diagnostics');
+        if (diagnosticView && data.diagnostics) {
+            const d = data.diagnostics;
+            diagnosticView.textContent = `Search diagnostics — planner: ${d.planner_status}; original candidates: ${d.original_candidates}; additional searches: ${d.alternative_queries}; results per additional search: ${(d.alternative_candidate_counts || []).map(n => n === null ? 'error' : n).join(', ') || 'none'}; merged candidates: ${d.merged_candidates}; selected evidence: ${d.selected_evidence}.`;
+            diagnosticView.hidden = false;
+        }
         allResults = data.items || [];
         window.currentMemoryViewModel = data;
-        hasMore = Boolean(data.page?.has_more);
+        hasMore = false;
         currentPage = 1;
         showLoading(false, 1);
         renderMemoryView(data);
+        return true;
     }
+    return false;
+}
+
+function updateMemoryStreamStatus(message) {
+    const label = resultsContainer.querySelector('[data-streaming-status]');
+    if (label) label.textContent = message;
+}
+
+function renderStreamingDraft(text) {
+    const draft = resultsContainer.querySelector('[data-streaming-draft]');
+    if (!draft) return;
+    const blocks = text.trimStart().split(/\n\n+/);
+    const summary = blocks.shift() || '';
+    draft.innerHTML = `<p class="memory-synthesis-summary">${escapeHtml(summary)}</p>` + blocks.map((block, index) => {
+        const [heading, ...content] = block.split('\n');
+        const structured = window.currentMemoryBlocks?.[index] || [];
+        return `<section class="memory-synthesis-section memory-synthesis-section-live">
+            <h3>${escapeHtml(heading)}</h3>
+            ${structured.length ? structured.map(renderSynthesisBlock).join('') : `<p>${escapeHtml(content.join('\n'))}</p>`}
+        </section>`;
+    }).join('');
 }
 
 function renderStreamingMemoryView(viewModel) {
-    resultsContainer.innerHTML = `<section class="memory-synthesis memory-synthesis-streaming" aria-live="polite">
-        <div class="memory-synthesis-label">AI synthesis · writing</div>
+    window.currentMemoryDraft = '';
+    window.currentMemoryBlocks = [];
+    replaceMemoryResults(`<section class="memory-synthesis memory-synthesis-streaming" aria-live="polite">
+        <div class="memory-synthesis-label memory-stream-status" data-streaming-status>Finding saved evidence</div>
         <h2>${escapeHtml(currentQuery)}</h2>
-        <p class="memory-synthesis-draft" data-streaming-draft></p>
-    </section>` + allResults.map(createCard).join('');
+        <div class="memory-synthesis-draft" data-streaming-draft><p class="memory-synthesis-summary"></p></div>
+    </section>` + renderSourceGroups(allResults));
     emptyState.hidden = true;
     updatePaginationControls();
+}
+
+function renderCitationParts(parts, fallbackText, fallbackIds = []) {
+    const entries = Array.isArray(parts) ? parts : [{text: fallbackText || ''}];
+    let hasCitation = false;
+    const button = id => {
+        const index = allResults.findIndex(item => String(item.id) === String(id));
+        if (index < 0) return '';
+        hasCitation = true;
+        return `<button type="button" class="memory-inline-citation" data-evidence-id="${escapeHtml(id)}" aria-label="Open supporting evidence ${index + 1}">${index + 1}</button>`;
+    };
+    const content = entries.map(part => part.evidence_id ? button(part.evidence_id) : escapeHtml(part.text || '')).join('');
+    return content + (hasCitation ? '' : fallbackIds.map(button).join(''));
+}
+
+function renderSynthesisBlock(block) {
+    const cell = item => item?.missing ? '<span class="memory-synthesis-missing">Not found in saved sources</span>' : renderCitationParts(item?.parts, '');
+    if ((block.type === 'bullets' || block.type === 'numbered') && Array.isArray(block.items)) {
+        const tag = block.type === 'numbered' ? 'ol' : 'ul';
+        return `<${tag} class="memory-synthesis-list">${block.items.map(item => `<li>${cell(item)}</li>`).join('')}</${tag}>`;
+    }
+    if (block.type === 'table' && Array.isArray(block.columns) && Array.isArray(block.rows)) {
+        return `<div class="memory-synthesis-table-scroll" tabindex="0" role="region" aria-label="Comparison table"><table><thead><tr>${block.columns.map(column => `<th scope="col">${escapeHtml(column)}</th>`).join('')}</tr></thead><tbody>${block.rows.map(row => `<tr>${row.map(item => `<td>${cell(item)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    }
+    return '';
 }
 
 function renderMemoryView(viewModel) {
@@ -366,13 +655,25 @@ function renderMemoryView(viewModel) {
         <p>Highlight text on any webpage and press Save. Nodecast keeps the original source locally, then makes it available when you ask in your own words.</p>
     </section>` : hasSynthesis ? `<section class="memory-synthesis memory-synthesis-${escapeHtml(viewModel.view || 'list')}">
         <div class="memory-synthesis-label">AI synthesis</div>
+        ${viewModel.cache?.hit ? `<div class="memory-cache-note">Saved answer · ${escapeHtml(formatTimeLong(viewModel.cache.created_at))} <button type="button" data-refresh-recall>Generate again</button></div>` : ''}
         <h2>${escapeHtml(synthesis.title || currentQuery)}</h2>
-        <p>${escapeHtml(synthesis.summary)}</p>
-        ${(synthesis.sections || []).map(section => `<div class="memory-synthesis-section"><h3>${escapeHtml(section.title)}</h3><p>${escapeHtml(section.content)}</p><div class="memory-synthesis-citations">${(section.evidence_ids || []).map((id, index) => `<button type="button" data-evidence-id="${escapeHtml(id)}" aria-label="Open supporting evidence ${index + 1}">Evidence ${index + 1}</button>`).join('')}</div></div>`).join('')}
-    </section>` : `<div class="memory-fallback-note">Local evidence only · ${viewModel.synthesis_status === 'error' ? 'AI synthesis failed.' : 'Connect a Recall synthesis model in Settings → AI for an evidence-cited answer.'}</div>`;
-    resultsContainer.innerHTML = synthesisHtml + allResults.map(createCard).join('');
+        <p>${renderCitationParts(synthesis.summary_parts, synthesis.summary)}</p>
+        ${(synthesis.sections || []).map(section => `<div class="memory-synthesis-section"><h3>${escapeHtml(section.title)}</h3>${section.blocks?.length ? section.blocks.map(renderSynthesisBlock).join('') : `<p>${renderCitationParts(section.content_parts, section.content, section.evidence_ids || [])}</p>`}</div>`).join('')}
+    </section>` : `<div class="memory-fallback-note">${escapeHtml(memoryFallbackMessage(synthesis))}</div>`;
+    replaceMemoryResults(synthesisHtml + renderSourceGroups(allResults));
     emptyState.hidden = true;
     updatePaginationControls();
+}
+
+function memoryFallbackMessage(synthesis) {
+    if (synthesis.status === 'error') return 'AI synthesis failed. Saved evidence remains available below.';
+    switch (synthesis.code) {
+        case 'no_saved_sources': return 'No saved sources yet. Save a source before asking for an evidence-backed answer.';
+        case 'no_indexed_evidence': return 'Sources are saved, but no searchable evidence is available yet. AI cannot answer from saved evidence until it is indexed.';
+        case 'no_matching_evidence': return 'No matching evidence was found for this question. AI cannot answer from saved evidence; try different wording.';
+        case 'provider_unavailable': return 'Saved evidence is available, but no Recall synthesis model is configured. Connect one in Settings → AI.';
+        default: return 'Showing saved evidence without an AI-generated answer.';
+    }
 }
 
 async function loadAggregateChildren(aggId) {
@@ -407,7 +708,7 @@ function updatePaginationControls() {
     const autoLoad = settingsState.autoLoad !== false;
     const showLoadMore = !autoLoad && hasMore && !!currentQuery;
     const showSentinel = autoLoad && hasMore && !!currentQuery;
-    const showEndMessage = !hasMore && !!currentQuery && allResults.length > 0;
+    const showEndMessage = false;
     sentinel.hidden = !showSentinel;
     loadMoreButton.hidden = !showLoadMore;
     bottomLoading.hidden = true;
