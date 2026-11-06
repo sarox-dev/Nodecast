@@ -1,3 +1,11 @@
+## v1.7.0 (2026-11-06)
+
+- fix: harden capture and provider security boundaries (4970629)
+- feat: improve Ask workspace and account switching (ab7d29e)
+- feat: add AI-assisted Ask search and cached recall (d4a8e91)
+- feat: add optional capture reasons and AI follow-up (ac78e8a)
+
+
 ## v1.6.0 (2026-10-23)
 
 - feat: add cross-platform installation profiles (98dc3a0)
