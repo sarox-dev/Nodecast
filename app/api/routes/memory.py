@@ -7,6 +7,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.services.auth import get_member_user
+from app.services.database import set_user_setting
+from app.services import recall_cache
 from app.services.agentic_ask import run_bounded_tool_loop
 from app.services.topic_views import get_topic_view, refresh_topic_view
 from app.services.memory_retrieval import focused_graph, memory_constellation, memory_detail, memory_feedback, memory_sources, query_memory, recent_memory, relation_feedback, stream_memory_query, stream_memory_query_v2
@@ -25,6 +27,7 @@ class MemoryQuery(BaseModel):
     diagnostics: bool = False
     request_id: str | None = Field(default=None, max_length=128)
     stream_version: int = Field(default=1, ge=1, le=2)
+    force_refresh: bool = False
 
 class RelationFeedback(BaseModel): action: str
 class MemoryFeedback(BaseModel): feedback: str; outcome: str = ""
@@ -32,6 +35,22 @@ class TopicRefresh(BaseModel):
     title: str = Field(min_length=1,max_length=200)
     queries: list[str] = Field(min_length=1,max_length=8)
     force: bool = False
+
+class RecallCacheSettings(BaseModel):
+    enabled: bool
+
+@router.get("/memory-cache/settings")
+def cache_settings(user=Depends(get_member_user)):
+    return {"enabled": recall_cache.enabled(user["user_id"])}
+
+@router.put("/memory-cache/settings")
+def update_cache_settings(body: RecallCacheSettings, user=Depends(get_member_user)):
+    set_user_setting(user["user_id"], "recall_cache_enabled", str(body.enabled).lower())
+    return {"enabled": body.enabled}
+
+@router.delete("/memory-cache")
+def clear_cache(user=Depends(get_member_user)):
+    return {"removed": recall_cache.clear(user["user_id"])}
 
 @router.post("/memory/query")
 def search(body:MemoryQuery,user=Depends(get_member_user)):
@@ -61,11 +80,16 @@ def search_stream(body:MemoryQuery,user=Depends(get_member_user)):
         raise HTTPException(422,"Invalid memory view")
 
     def events():
-        stream = stream_memory_query(user["user_id"], body.query, body.limit, body.token_budget, body.view, body.response_language) if body.stream_version == 1 else stream_memory_query_v2(user["user_id"], body.query, body.limit, body.token_budget, body.view, body.request_id or "", synthesize=body.synthesize, response_language=body.response_language)
+        stream = stream_memory_query(user["user_id"], body.query, body.limit, body.token_budget, body.view, body.response_language, body.force_refresh) if body.stream_version == 1 else stream_memory_query_v2(user["user_id"], body.query, body.limit, body.token_budget, body.view, body.request_id or "", synthesize=body.synthesize, response_language=body.response_language, force_refresh=body.force_refresh, diagnostics=body.diagnostics)
         for event in stream:
             yield json.dumps(event, ensure_ascii=False) + "\n"
 
-    return StreamingResponse(events(), media_type="application/x-ndjson", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+    return StreamingResponse(events(), media_type="application/x-ndjson", headers={
+        "Cache-Control": "no-store, no-transform",
+        "Content-Encoding": "identity",
+        "X-Accel-Buffering": "no",
+        "X-Content-Type-Options": "nosniff",
+    })
 
 @router.get("/memory")
 def recent(limit:int=Query(8,ge=1,le=8),user=Depends(get_member_user)):

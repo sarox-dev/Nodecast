@@ -1,0 +1,22 @@
+{
+  "version": "synthetic-ask-eval-v1",
+  "captures": [
+    {"id":"notes", "title":"Obsidian alternatives with sync", "evidence":[["joplin","Joplin offers synchronization through WebDAV."],["logseq","Logseq uses file synchronization."],["community","r/foss"]]},
+    {"id":"vram", "title":"Local LLM memory", "evidence":[["context","KV cache grows with context length and batch size."]]},
+    {"id":"ollama", "title":"Ollama", "evidence":[["ollama","Ollama runs language models locally."]]},
+    {"id":"llama", "title":"llama.cpp", "evidence":[["llama","llama.cpp is a local model inference library."]]},
+    {"id":"benchmark", "title":"LAG-MMLU", "evidence":[["latvian","The benchmark evaluates models in Latvian and Giriama."]]},
+    {"id":"exact", "title":"Docker troubleshooting", "evidence":[["error","PermissionError: Docker socket denied."]]},
+    {"id":"cloud", "title":"Cloud storage", "evidence":[["cloud","This tool stores notes on a cloud server."]]}
+  ],
+  "queries": [
+    {"id":"notes_sync", "query":"Obsidian alternatives sync", "expected":["joplin","logseq"], "irrelevant":["community"]},
+    {"id":"context_lv", "query":"Kāpēc ilgāks konteksta logs palielina atmiņas prasības?", "expected":["context"], "irrelevant":[]},
+    {"id":"compare", "query":"Ollama vs llama.cpp", "expected":["ollama","llama"], "irrelevant":[]},
+    {"id":"latvian", "query":"Latvian model benchmark", "expected":["latvian"], "irrelevant":[]},
+    {"id":"error", "query":"PermissionError Docker socket", "expected":["error"], "irrelevant":[]},
+    {"id":"personal_reason", "query":"Why did I save llama.cpp?", "expected":["llama"], "irrelevant":[], "answer_policy":"personal_intent_unconfirmed"},
+    {"id":"negative", "query":"notes without cloud", "expected":[], "irrelevant":["cloud"], "answer_policy":"do_not_invent"},
+    {"id":"missing", "query":"unknown aardvark orbital antenna", "expected":[], "irrelevant":[], "answer_policy":"do_not_invent"}
+  ]
+}

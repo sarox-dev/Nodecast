@@ -22,6 +22,43 @@ def test_deterministic_evidence_preserves_order_and_problem_identity():
     assert "PermissionError" in evidence[1]["content"]
 
 
+def test_evidence_selection_preserves_exact_short_results_and_diversity():
+    select = memory_retrieval._select_evidence_candidates
+    items = [
+        {"id":"nav", "source_id":"a", "content":"r/foss"},
+        {"id":"one", "source_id":"a", "content":"Joplin supports WebDAV."},
+        {"id":"two", "source_id":"a", "content":"Logseq supports file sync."},
+        {"id":"short", "source_id":"b", "content":"Metal — Apple Silicon"},
+        {"id":"three", "source_id":"a", "content":"Third useful item."},
+    ]
+    assert [i['id'] for i in select(items, 'Obsidian sync', 5)] == ['one','two','short','three','nav']
+    assert select(items, 'r/foss', 1)[0]['id'] == 'nav'
+    assert select([items[3]], 'Metal', 1)[0]['id'] == 'short'
+
+
+def test_evidence_keeps_short_selection_and_multiline_context_together():
+    text = "Brave means courage. It describes someone facing danger.\nExample: a brave soldier."
+    assert [item["content"] for item in split_evidence(text)] == [text]
+    table = "Backend\tDevice\nCUDA\tNvidia GPU\nMetal\tApple Silicon"
+    assert [item["content"] for item in split_evidence(table)] == [table]
+
+
+def test_long_evidence_is_bounded_ordered_and_not_truncated():
+    text = "\n\n".join(f"Paragraph {i}: " + "meaningful text " * 75 for i in range(60))
+    blocks = split_evidence(text)
+    assert len(blocks) > 50
+    assert max(len(item["content"]) for item in blocks) <= 600
+    assert [item["position"] for item in blocks] == list(range(len(blocks)))
+    assert " ".join(text.split()) == " ".join(" ".join(item["content"] for item in blocks).split())
+
+
+def test_long_unbroken_text_is_not_lost():
+    text = "x" * 1500
+    blocks = split_evidence(text)
+    assert [len(item["content"]) for item in blocks] == [600, 600, 300]
+    assert "".join(item["content"] for item in blocks) == text
+
+
 def test_exact_error_query_returns_traceable_local_fallback(tmp_path, monkeypatch):
     user_id = _user_db(tmp_path, monkeypatch)
     database.insert_capture_ref(user_id, "cap-a", "snippet", "https://docs.example/error", "Socket guide", "docs.example", "", "", [], "", "")
@@ -32,6 +69,21 @@ def test_exact_error_query_returns_traceable_local_fallback(tmp_path, monkeypatc
     assert result["items"][0]["source_url"] == "https://docs.example/error"
     assert result["synthesis"]["status"] == "local_only"
     assert result["synthesis_status"] == "local_only"
+    assert result["synthesis"]["code"] == "provider_unavailable"
+
+
+def test_empty_search_reports_distinct_reasons_without_calling_ai(tmp_path, monkeypatch):
+    user_id = _user_db(tmp_path, monkeypatch)
+    monkeypatch.setattr(memory_retrieval, "_ai_synthesis", lambda *_: (_ for _ in ()).throw(AssertionError("AI must not run without evidence")))
+    def check(code):
+        assert query_memory(user_id, "unrelated query")["synthesis"]["code"] == code
+        assert list(stream_memory_query(user_id, "unrelated query"))[-1]["data"]["synthesis"]["code"] == code
+        assert list(stream_memory_query_v2(user_id, "unrelated query"))[-1]["data"]["result"]["synthesis"]["code"] == code
+    check("no_saved_sources")
+    database.insert_capture_ref(user_id, "cap-a", "snippet", "https://example.com", "Example", "example.com", "", "", [], "", "")
+    check("no_indexed_evidence")
+    database.insert_atomic(user_id, "text", "Docker containers", source_id="cap-a")
+    check("no_matching_evidence")
 
 
 def test_domain_does_not_create_relation_and_rejection_is_persisted(tmp_path, monkeypatch):
@@ -77,6 +129,18 @@ def test_recent_memory_is_not_filled_by_one_long_capture(tmp_path, monkeypatch):
     result = recent_memory(user_id, limit=8)
     assert len(result["items"]) == 8
     assert len({item["source_id"] for item in result["items"]}) == 4
+    assert result["page"] == {"cursor": None, "has_more": False}
+
+
+def test_bounded_query_does_not_advertise_unavailable_next_page(tmp_path, monkeypatch):
+    user_id = _user_db(tmp_path, monkeypatch)
+    for index in range(12):
+        capture_id = f"page-{index}"
+        database.insert_capture_ref(user_id, capture_id, "snippet", f"https://example.com/{index}", "Design", "example.com", "", "", [], "", "")
+        database.insert_atomic(user_id, "text", f"Nodecast design evidence {index}", source_id=capture_id)
+    result = query_memory(user_id, "Nodecast design", limit=8, synthesize=False)
+    assert len(result["items"]) == 8
+    assert result["page"] == {"cursor": None, "has_more": False}
 
 
 def test_focused_graph_hides_precedes_and_candidates_by_default(tmp_path, monkeypatch):
@@ -173,6 +237,40 @@ def test_streamed_recall_emits_early_evidence_and_validated_result(tmp_path, mon
     assert events[-1]["data"]["answer"]["sections"][0]["evidence_ids"] == [atomic_id]
 
 
+def test_stream_hides_inline_evidence_id_even_when_split_between_deltas(tmp_path, monkeypatch):
+    user_id = _user_db(tmp_path, monkeypatch)
+    database.insert_capture_ref(user_id, "cap-id", "snippet", "https://example.com", "Google", "example.com", "", "", [], "", "")
+    atomic_id = database.insert_atomic(user_id, "text", "Founders information", source_id="cap-id")
+    monkeypatch.setattr(memory_retrieval, "get_ai_assignment_for_feature", lambda *_: {"provider_id":"p", "model":"m"})
+    monkeypatch.setattr(memory_retrieval, "get_ai_provider", lambda *_: {"id":"p"})
+    raw = f"VIEW: focus\nTITLE: Google\nSUMMARY: Founders [{atomic_id}] [ordinary text].\nSECTION: People\nCONTENT: Two founders [{atomic_id}].\nEVIDENCE: {atomic_id}\n"
+    monkeypatch.setattr(memory_retrieval, "stream_provider_model", lambda *_args, **_kwargs: iter(raw))
+    events = list(stream_memory_query(user_id, "founders"))
+    displayed = ''.join(event.get("text", "") for event in events if event["event"] == "delta")
+    answer = events[-1]["data"]["answer"]
+    assert atomic_id not in displayed
+    assert "[ordinary text]" in displayed
+    assert atomic_id not in answer["summary"]
+    assert atomic_id not in answer["sections"][0]["content"]
+    assert answer["sections"][0]["evidence_ids"] == [atomic_id]
+
+
+def test_inline_citations_preserve_positions_and_reject_unknown_ids(tmp_path, monkeypatch):
+    user_id = _user_db(tmp_path, monkeypatch)
+    database.insert_capture_ref(user_id, "cap-inline", "snippet", "https://example.com", "Search", "example.com", "", "", [], "", "")
+    aid = database.insert_atomic(user_id, "text", "Search engine example", source_id="cap-inline")
+    monkeypatch.setattr(memory_retrieval, "get_ai_assignment_for_feature", lambda *_: {"provider_id":"p", "model":"m"})
+    monkeypatch.setattr(memory_retrieval, "get_ai_provider", lambda *_: {"id":"p"})
+    raw = f"VIEW: focus\nTITLE: Search\nSUMMARY: First claim. [EVIDENCE: {aid}] Next. [EVIDENCE: unknown]\nSECTION: Example\nCONTENT: Example claim. [EVIDENCE: {aid}]\nEVIDENCE: {aid}\n"
+    monkeypatch.setattr(memory_retrieval, "stream_provider_model", lambda *_args, **_kwargs: iter(raw))
+    events = list(stream_memory_query(user_id, "search"))
+    displayed = ''.join(event.get("text", "") for event in events if event["event"] == "delta")
+    assert aid not in displayed and "EVIDENCE:" not in displayed
+    answer = events[-1]["data"]["answer"]
+    assert answer["summary_parts"] == [{"text":"First claim. "}, {"evidence_id":aid}, {"text":" Next. "}]
+    assert answer["sections"][0]["content_parts"] == [{"text":"Example claim. "}, {"evidence_id":aid}]
+
+
 def test_streamed_recall_requests_configured_response_language(tmp_path, monkeypatch):
     user_id = _user_db(tmp_path, monkeypatch)
     database.insert_capture_ref(user_id, "cap-a", "snippet", "https://example.com", "Docker guide", "example.com", "", "", [], "", "")
@@ -180,6 +278,7 @@ def test_streamed_recall_requests_configured_response_language(tmp_path, monkeyp
     captured = {}
     monkeypatch.setattr(memory_retrieval, "get_ai_assignment_for_feature", lambda *_: {"provider_id":"provider-a", "model":"recall-model"})
     monkeypatch.setattr(memory_retrieval, "get_ai_provider", lambda *_: {"id":"provider-a"})
+    monkeypatch.setattr(memory_retrieval, "provider_search_queries", lambda _u, _p, _m, q: [q])
 
     def fake_stream(_user_id, _provider, _model, messages, **_kwargs):
         captured["instructions"] = messages[0]["content"]
@@ -191,6 +290,77 @@ def test_streamed_recall_requests_configured_response_language(tmp_path, monkeyp
     assert "BCP-47 language lv" in captured["instructions"]
     assert next(item for item in events if item["event"] == "query.analyzed")["data"]["response_language"] == "lv"
     assert events[-1]["data"]["result"]["synthesis_status"] == "success"
+
+
+def test_expanded_search_recovers_evidence_after_empty_local_query_and_is_user_scoped(tmp_path, monkeypatch):
+    user_id = _user_db(tmp_path, monkeypatch)
+    database.insert_capture_ref(user_id, "cap-a", "snippet", "https://example.com", "Saved notes", "example.com", "", "", [], "", "")
+    aid = database.insert_atomic(user_id, "text", "LAG MMLU Latvian benchmark", source_id="cap-a")
+    other = database.create_user_in_db("other-user", "hash")
+    database.insert_capture_ref(other, "cap-b", "snippet", "https://example.com/private", "Private", "example.com", "", "", [], "", "")
+    database.insert_atomic(other, "text", "LAG MMLU Latvian benchmark", source_id="cap-b")
+    monkeypatch.setattr(memory_retrieval, "get_ai_assignment_for_feature", lambda *_: {"provider_id":"p", "model":"m"})
+    monkeypatch.setattr(memory_retrieval, "get_ai_provider", lambda *_: {"id":"p"})
+    monkeypatch.setattr(memory_retrieval, "provider_search_queries", lambda _u, _p, _m, q: [q, "LAG MMLU Latvian benchmark"])
+    monkeypatch.setattr(memory_retrieval, "stream_provider_model", lambda *_args, **_kwargs: iter([f"VIEW: focus\nTITLE: Benchmark\nSUMMARY: Saved benchmark.\nSECTION: Evidence\nCONTENT: Latvian benchmark.\nEVIDENCE: {aid}\n"]))
+    events = list(stream_memory_query_v2(user_id, "meklējamais vārds"))
+    searches = [event["data"]["query"] for event in events if event["event"] == "search.performed"]
+    assert searches == ["LAG MMLU Latvian benchmark"]
+    selected = [event["data"]["result"] for event in events if event["event"] == "evidence.selected"]
+    assert selected[0]["items"] == []
+    result = events[-1]["data"]["result"]
+    assert [item["id"] for item in result["items"]] == [aid]
+    assert result["answer"]["sections"][0]["evidence_ids"] == [aid]
+
+
+def test_expansion_failure_preserves_original_results(tmp_path, monkeypatch):
+    user_id = _user_db(tmp_path, monkeypatch)
+    database.insert_capture_ref(user_id, "cap-a", "snippet", "https://example.com", "Docker", "example.com", "", "", [], "", "")
+    aid = database.insert_atomic(user_id, "text", "Docker container evidence", source_id="cap-a")
+    monkeypatch.setattr(memory_retrieval, "get_ai_assignment_for_feature", lambda *_: {"provider_id":"p", "model":"m"})
+    monkeypatch.setattr(memory_retrieval, "get_ai_provider", lambda *_: {"id":"p"})
+    monkeypatch.setattr(memory_retrieval, "provider_search_queries", lambda *_: (_ for _ in ()).throw(RuntimeError("planner failed")))
+    monkeypatch.setattr(memory_retrieval, "stream_provider_model", lambda *_args, **_kwargs: iter([f"VIEW: focus\nTITLE: Docker\nSUMMARY: Saved.\nSECTION: Evidence\nCONTENT: Docker.\nEVIDENCE: {aid}\n"]))
+    result = list(stream_memory_query_v2(user_id, "Docker"))[-1]["data"]["result"]
+    assert result["items"][0]["id"] == aid
+    assert result["synthesis_status"] == "success"
+
+
+def test_expanded_stream_cache_uses_selected_evidence(tmp_path, monkeypatch):
+    user_id = _user_db(tmp_path, monkeypatch)
+    database.insert_capture_ref(user_id, "cap-a", "snippet", "https://example.com", "Notes", "example.com", "", "", [], "", "")
+    aid = database.insert_atomic(user_id, "text", "Joplin synchronization", source_id="cap-a")
+    monkeypatch.setattr(memory_retrieval, "get_ai_assignment_for_feature", lambda *_: {"provider_id":"p", "model":"m"})
+    monkeypatch.setattr(memory_retrieval, "get_ai_provider", lambda *_: {"id":"p"})
+    monkeypatch.setattr(memory_retrieval, "provider_search_queries", lambda _u, _p, _m, q: [q, "Joplin synchronization"])
+    calls = []
+    def model(*_args, **_kwargs):
+        calls.append(1)
+        return iter([f"VIEW: focus\nTITLE: Notes\nSUMMARY: Saved.\nSECTION: Evidence\nCONTENT: Sync.\nEVIDENCE: {aid}\n"])
+    monkeypatch.setattr(memory_retrieval, "stream_provider_model", model)
+    first = list(stream_memory_query_v2(user_id, "piezīmes"))[-1]["data"]["result"]
+    second = list(stream_memory_query_v2(user_id, "piezīmes"))[-1]["data"]["result"]
+    assert first["cache"]["hit"] is False and second["cache"]["hit"] is True
+    assert second["items"][0]["id"] == aid and len(calls) == 1
+
+
+def test_diagnostics_are_opt_in_and_contain_only_status_and_counts(tmp_path, monkeypatch):
+    user_id = _user_db(tmp_path, monkeypatch)
+    database.insert_capture_ref(user_id, "cap", "snippet", "https://example.com", "Sensitive title", "example.com", "", "", [], "", "")
+    aid = database.insert_atomic(user_id, "text", "Docker private evidence", source_id="cap")
+    monkeypatch.setattr(memory_retrieval, "get_ai_assignment_for_feature", lambda *_: {"provider_id":"p", "model":"m"})
+    monkeypatch.setattr(memory_retrieval, "get_ai_provider", lambda *_: {"id":"p"})
+    def planner(_u, _p, _m, q, diagnostics=None):
+        if diagnostics is not None: diagnostics['planner_status'] = 'success'
+        return [q, 'Docker']
+    monkeypatch.setattr(memory_retrieval, "provider_search_queries", planner)
+    monkeypatch.setattr(memory_retrieval, "stream_provider_model", lambda *_args, **_kwargs: iter([f"VIEW: focus\nTITLE: Docker\nSUMMARY: Saved.\nSECTION: Evidence\nCONTENT: Docker.\nEVIDENCE: {aid}\n"]))
+    normal = list(stream_memory_query_v2(user_id, "secret query"))[-1]['data']['result']
+    assert 'diagnostics' not in normal
+    result = list(stream_memory_query_v2(user_id, "secret query", diagnostics=True))[-1]['data']['result']
+    trace = result['diagnostics']
+    assert trace == {'planner_status':'success', 'alternative_queries':1, 'original_candidates':0, 'alternative_candidate_counts':[1], 'merged_candidates':1, 'selected_evidence':1}
+    assert 'secret' not in str(trace) and 'private' not in str(trace) and aid not in str(trace)
 
 
 def test_v2_stream_has_ordered_typed_events_without_chain_of_thought(tmp_path, monkeypatch):

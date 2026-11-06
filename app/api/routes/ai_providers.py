@@ -47,12 +47,17 @@ PROVIDER_PRESETS = [
 ]
 
 
-def _normalize_model_catalog(payload: dict, chatgpt_plan: bool = False) -> list[dict]:
+def _normalize_model_catalog(payload: dict, chatgpt_plan: bool = False, api_style: str = "openai") -> list[dict]:
     if chatgpt_plan:
         return [
             {"id": model["slug"], "name": model.get("display_name") or model["slug"], "object": "model"}
             for model in payload.get("models", [])
             if model.get("slug") and model.get("visibility") == "list"
+        ]
+    if api_style == "gemini":
+        return [
+            {"id": model["name"].removeprefix("models/"), "name": model.get("displayName") or model["name"], "object": "model"}
+            for model in payload.get("models", []) if model.get("name")
         ]
     return [
         {"id": model["id"], "name": model.get("display_name") or model["id"], "object": model.get("object", "model")}
@@ -70,6 +75,16 @@ def _validated_provider_url(url: str, provider_key: str, user: dict) -> str:
         )
     except UnsafeProviderURL as exc:
         raise HTTPException(422, str(exc)) from exc
+
+
+def _provider_headers(api_key: str, api_style: str) -> dict:
+    if not api_key:
+        return {}
+    if api_style == "anthropic":
+        return {"x-api-key": api_key, "anthropic-version": "2023-06-01"}
+    if api_style == "gemini":
+        return {"x-goog-api-key": api_key}
+    return {"Authorization": f"Bearer {api_key}"}
 
 
 def _assert_provider_write_allowed(user: dict) -> None:
@@ -132,7 +147,7 @@ def chatgpt_oauth_callback(
 def test_connection(body: ProviderCreate, user=Depends(get_current_user)):
     base_url = _validated_provider_url(body.base_url, body.provider_key, user)
     try:
-        headers={"Authorization":f"Bearer {body.api_key}"} if body.api_key else {}
+        headers = _provider_headers(body.api_key, body.api_style)
         r=httpx.get(f"{base_url}/models",headers=headers,timeout=10,follow_redirects=False)
         return {"status":"ok","message":"Connected."} if r.is_success else {"status":"error","message":f"HTTP {r.status_code}"}
     except httpx.HTTPError: return {"status":"error","message":"Cannot connect to provider."}
@@ -189,16 +204,17 @@ def models(provider_id:str,user=Depends(get_current_user)):
         )
     except UnsafeProviderURL:
         return {"models":[],"error":"unsafe_provider_url"}
-    headers={"Authorization":f"Bearer {decrypt_api_key(row['api_key_encrypted'])}"} if row["api_key_encrypted"] else {}
+    headers = _provider_headers(decrypt_api_key(row["api_key_encrypted"]), row.get("api_style", "openai"))
     try:
         r=httpx.get(f"{base_url}/models",headers=headers,timeout=5,follow_redirects=False); r.raise_for_status()
-        return {"models":_normalize_model_catalog(r.json())}
+        return {"models":_normalize_model_catalog(r.json(), api_style=row.get("api_style", "openai"))}
     except (httpx.HTTPError,KeyError,ValueError): return {"models":[],"error":"offline"}
 
 @router.get("/features")
 def features():
     return {"features":[
         {"id":"atomic_extraction","name":"Atomic extraction","description":"Extract structured atomics from highlighted captures."},
+        {"id":"save_reason_inference","name":"Save reason suggestions","description":"Optionally suggest a purpose using only the saved item's title and selected text."},
         {"id":"recall_synthesis","name":"Recall synthesis","description":"Answer questions from retrieved saved evidence with citations."},
         {"id":"entity_extraction","name":"Entity extraction","description":"Reuse and connect entity atomics."},
         {"id":"aggregate_creation","name":"Aggregate creation","description":"Name related atomic clusters."},
