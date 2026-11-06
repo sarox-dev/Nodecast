@@ -1,5 +1,6 @@
 import asyncio
 import socket
+import sqlite3
 
 import pytest
 from fastapi import HTTPException
@@ -38,6 +39,42 @@ def test_snapshot_requires_owned_capture_and_is_sandboxed(monkeypatch):
     with pytest.raises(HTTPException) as error:
         capture.get_capture_html("capture_001", {"user_id": "user-b"})
     assert error.value.status_code == 404
+
+
+def test_capture_reason_is_user_scoped_and_does_not_change_capture(tmp_path, monkeypatch):
+    monkeypatch.setattr(database, "USERS_DB_PATH", tmp_path / "users.db")
+    monkeypatch.setattr(database, "USERS_DATA_DIR", tmp_path / "users")
+    first = database.create_user_in_db("reason-a", "hash")
+    second = database.create_user_in_db("reason-b", "hash")
+    capture_id = "reason_test_001"
+    database.insert_capture_ref(first, capture_id, "page", "https://example.com", "Source", "example.com", "", "", [], "", "original-path")
+    result = capture.update_capture_reason(capture_id, capture.CaptureReasonUpdate(reason=" Compare tools "), {"user_id": first})
+    assert result["reason"] == "Compare tools"
+    assert database.get_capture_ref(first, capture_id)["raw_path"] == "original-path"
+    with pytest.raises(HTTPException) as missing:
+        capture.update_capture_reason(capture_id, capture.CaptureReasonUpdate(reason="Other"), {"user_id": second})
+    assert missing.value.status_code == 404
+    with pytest.raises(HTTPException):
+        capture.update_capture_reason(capture_id, capture.CaptureReasonUpdate(reason="", status="confirmed"), {"user_id": first})
+    capture.update_capture_reason(capture_id, capture.CaptureReasonUpdate(status="declined"), {"user_id": first})
+    assert database.get_capture_ref(first, capture_id)["save_reason_status"] == "declined"
+
+
+def test_reason_migration_preserves_existing_capture(tmp_path, monkeypatch):
+    monkeypatch.setattr(database, "USERS_DATA_DIR", tmp_path / "users")
+    path = database.get_user_db_path("legacy")
+    connection = sqlite3.connect(path)
+    connection.execute("CREATE TABLE captures(id TEXT PRIMARY KEY,capture_type TEXT,source_url TEXT,source_title TEXT,source_site_name TEXT,captured_at TEXT,saved_at TEXT,tags TEXT,project TEXT,raw_path TEXT)")
+    connection.execute("INSERT INTO captures VALUES (?,?,?,?,?,?,?,?,?,?)", ("legacy_capture", "page", "url", "title", "site", "", "", "[]", "", "raw"))
+    connection.commit()
+    connection.close()
+    database.init_user_db("legacy")
+    record = database.get_capture_ref("legacy", "legacy_capture")
+    assert record["source_title"] == "title"
+    assert record["save_reason"] == ""
+    assert record["save_reason_status"] == "unknown"
+    database.init_user_db("legacy")
+    assert database.get_capture_ref("legacy", "legacy_capture")["raw_path"] == "raw"
 
 
 def test_provider_url_blocks_private_network_and_credentials(monkeypatch):
@@ -95,6 +132,13 @@ def test_web_session_switches_only_between_authenticated_accounts(tmp_path, monk
     assert database.switch_web_session_account("secret", first)
     assert database.web_session_binding_matches(database.web_session_binding("secret"), first)
     assert not database.web_session_binding_matches(database.web_session_binding("secret"), second)
+    assert database.switch_web_session_account("secret", second)
+    assert database.web_session_binding_matches(database.web_session_binding("secret"), second)
+    assert not database.web_session_binding_matches(database.web_session_binding("secret"), first)
+    assert database.remove_web_session_account("secret", second) == first
+    assert database.get_web_session_user("secret")["id"] == first
+    assert database.remove_web_session_account("secret", first) is None
+    assert database.get_web_session_user("secret") is None
 
 
 def test_request_middleware_rejects_cross_origin_cookie_and_large_body(monkeypatch):
@@ -177,7 +221,7 @@ def test_request_middleware_allows_extension_pairing_exchange_only(monkeypatch):
         await send({"type": "http.response.start", "status": 204, "headers": []})
         await send({"type": "http.response.body", "body": b""})
 
-    async def run(path, *, bearer=False):
+    async def run(path, *, bearer=False, method="POST", origin=b"moz-extension://nodecast-test"):
         sent = []
 
         async def receive():
@@ -188,7 +232,7 @@ def test_request_middleware_allows_extension_pairing_exchange_only(monkeypatch):
 
         headers = [
             (b"host", b"localhost:5000"),
-            (b"origin", b"moz-extension://nodecast-test"),
+            (b"origin", origin),
             (b"cookie", b"nodecast_token=secret"),
         ]
         if bearer:
@@ -197,7 +241,7 @@ def test_request_middleware_allows_extension_pairing_exchange_only(monkeypatch):
         await RequestSecurityMiddleware(app)(
             {
                 "type": "http",
-                "method": "POST",
+                "method": method,
                 "scheme": "http",
                 "path": path,
                 "headers": headers,
@@ -210,6 +254,12 @@ def test_request_middleware_allows_extension_pairing_exchange_only(monkeypatch):
     assert asyncio.run(run("/api/extension/exchange")) == 204
     assert asyncio.run(run("/api/capture")) == 403
     assert asyncio.run(run("/api/capture", bearer=True)) == 204
+    reason_path = "/api/capture/test_capture_001/reason"
+    assert asyncio.run(run(reason_path, bearer=True, method="PUT")) == 204
+    assert asyncio.run(run(reason_path, method="PUT")) == 403
+    assert asyncio.run(run(reason_path, bearer=True, method="POST")) == 403
+    assert asyncio.run(run("/api/capture/test_capture_001/delete", bearer=True, method="PUT")) == 403
+    assert asyncio.run(run(reason_path, bearer=True, method="PUT", origin=b"https://evil.example")) == 403
 
 
 def test_request_middleware_does_not_read_get_body(monkeypatch):
@@ -238,6 +288,42 @@ def test_request_middleware_does_not_read_get_body(monkeypatch):
 
     assert asyncio.run(run()) == 204
     assert called == [True]
+
+
+def test_request_middleware_replays_body_then_forwards_disconnect():
+    received = []
+
+    async def app(_scope, receive, send):
+        received.append(await receive())
+        received.append(await receive())
+        await send({"type": "http.response.start", "status": 204, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    async def run():
+        sent = []
+        messages = iter([
+            {"type": "http.request", "body": b"query", "more_body": False},
+            {"type": "http.disconnect"},
+        ])
+
+        async def receive():
+            return next(messages)
+
+        async def send(message):
+            sent.append(message)
+
+        await RequestSecurityMiddleware(app)(
+            {"type": "http", "method": "POST", "scheme": "http", "headers": [(b"host", b"localhost:5000")]},
+            receive,
+            send,
+        )
+        return sent[0]["status"]
+
+    assert asyncio.run(run()) == 204
+    assert received == [
+        {"type": "http.request", "body": b"query", "more_body": False},
+        {"type": "http.disconnect"},
+    ]
 
 
 def test_auth_rate_limit_prunes_expired_keys(monkeypatch):

@@ -3,8 +3,8 @@ from app.services import ai_batch
 
 def test_process_batch_drains_jobs_added_while_running(monkeypatch):
     queued = [
-        [{"id": "job-1", "capture_id": "capture-1"}],
-        [{"id": "job-2", "capture_id": "capture-2"}],
+        [{"id": "job-1", "capture_id": "capture-1", "feature": "atomic_extraction"}],
+        [{"id": "job-2", "capture_id": "capture-2", "feature": "atomic_extraction"}],
         [],
     ]
     processed = []

@@ -1,5 +1,6 @@
 """Small ASGI security boundaries shared by every API route."""
 import os
+import re
 from urllib.parse import urlsplit
 
 from starlette.datastructures import Headers
@@ -49,8 +50,10 @@ class RequestSecurityMiddleware:
                 if configured:
                     allowed_origins.add(configured)
                 is_pairing_exchange = scope.get("path") == "/api/extension/exchange"
+                path = scope.get("path", "")
                 is_extension_capture = (
-                    scope.get("path") == "/api/capture"
+                    ((method == "POST" and path == "/api/capture") or
+                     (method == "PUT" and re.fullmatch(r"/api/capture/[A-Za-z0-9_-]{12,64}/reason", path)))
                     and headers.get("authorization", "").lower().startswith("bearer ")
                 )
                 # Browser extensions exchange a short-lived, one-time pairing
@@ -94,9 +97,13 @@ class RequestSecurityMiddleware:
 
         async def replay_receive():
             nonlocal replayed
-            if replayed:
-                return {"type": "http.request", "body": b"", "more_body": False}
-            replayed = True
-            return {"type": "http.request", "body": b"".join(chunks), "more_body": False}
+            if not replayed:
+                replayed = True
+                return {"type": "http.request", "body": b"".join(chunks), "more_body": False}
+            # StreamingResponse listens on receive() for http.disconnect after
+            # the request body has been consumed. Returning an immediate empty
+            # http.request here creates a tight loop that starves the event
+            # loop, stalls the stream, and blocks unrelated API requests.
+            return await receive()
 
         await self.app(scope, replay_receive, send)
