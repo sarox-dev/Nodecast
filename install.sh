@@ -58,8 +58,8 @@ safe_install_target() {
 
 public_origin_for() {
   local existing="$1" host_name="$2" app_port="$3" authority previous_host
-  if [[ "$existing" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?/?$ ]]; then
-    authority="${existing#https://}"
+  if [[ "$existing" =~ ^[Hh][Tt][Tt][Pp][Ss]://[A-Za-z0-9.-]+(:[0-9]+)?/?$ ]]; then
+    authority="${existing#*://}"
     previous_host="${authority%%:*}"
     previous_host="${previous_host%/}"
     if [[ "$(printf '%s' "$previous_host" | tr '[:upper:]' '[:lower:]')" == "$(printf '%s' "$host_name" | tr '[:upper:]' '[:lower:]')" ]]; then

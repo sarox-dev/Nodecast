@@ -16,6 +16,7 @@ $cases = @(
     @("", "localhost", 5000, "http://localhost:5000"),
     @("http://192.168.8.116:5000", "192.168.8.116", 5000, "http://192.168.8.116:5000"),
     @("https://nodecast.lan:8443", "nodecast.lan", 5000, "https://nodecast.lan:8443"),
+    @("HTTPS://nodecast.lan:8443", "nodecast.lan", 5000, "https://nodecast.lan:8443"),
     @("https://nodecast.lan/", "nodecast.lan", 5000, "https://nodecast.lan"),
     @("https://Nodecast.LAN:8443", "nodecast.lan", 5000, "https://nodecast.lan:8443"),
     @("https://old.lan:8443", "new.lan", 5000, "http://new.lan:5000"),
@@ -28,4 +29,4 @@ foreach ($case in $cases) {
     $actual = Resolve-PublicOrigin $case[0] $case[1] $case[2]
     if ($actual -ne $case[3]) { throw "Public origin regression for $($case[0])" }
 }
-Write-Output "10 PowerShell public origin checks passed"
+Write-Output "11 PowerShell public origin checks passed"
