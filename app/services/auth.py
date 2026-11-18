@@ -80,12 +80,8 @@ def set_session_cookie(response, token: str) -> None:
 
 def start_web_session(response, user_id: str, existing_secret: str = "", user_agent: str = "") -> str:
     ttl = JWT_EXPIRY_HOURS * 3600
-    if existing_secret and add_web_session_account(existing_secret, user_id, ttl):
-        secret = secrets.token_urlsafe(48)
-        if not rotate_web_session(existing_secret, secret):
-            create_web_session(secret, user_id, ttl, user_agent)
-    else:
-        secret = secrets.token_urlsafe(48)
+    secret = secrets.token_urlsafe(48)
+    if not existing_secret or not rotate_web_session(existing_secret, secret, user_id, ttl, user_agent):
         create_web_session(secret, user_id, ttl, user_agent)
     set_session_cookie(response, secret)
     return secret

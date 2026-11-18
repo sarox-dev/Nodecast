@@ -113,3 +113,33 @@ def test_snapshot_rejects_non_text_before_writing(accounts, monkeypatch):
     monkeypatch.setattr(raw_storage, "CONTENTS_DIR", accounts)
     with pytest.raises(ValueError, match="must be text"):
         raw_storage.save_raw_capture("member", CapturePackage(), html={"not": "html"})
+
+def test_login_never_commits_new_identity_under_previous_secret(accounts, monkeypatch):
+    from fastapi import Response
+    owner = database.create_user_in_db("owner", "hash", role="owner")
+    member = database.create_user_in_db("member", "hash")
+    database.create_web_session("previous", owner, 3600)
+    connect = database.get_users_db
+    observations = []
+
+    def traced_connection():
+        connection = connect()
+        def observe(statement):
+            if statement.startswith("DELETE FROM web_sessions WHERE id_hash="):
+                import sqlite3
+                observer = sqlite3.connect(database.USERS_DB_PATH)
+                try:
+                    visible = observer.execute("SELECT active_user_id FROM web_sessions WHERE id_hash=?",
+                                               (database.web_session_binding("previous"),)).fetchone()
+                    observations.append(visible[0] if visible else None)
+                finally:
+                    observer.close()
+        connection.set_trace_callback(observe)
+        return connection
+
+    monkeypatch.setattr(database, "get_users_db", traced_connection)
+    secret = auth.start_web_session(Response(), member, "previous")
+    assert observations and set(observations) == {owner}
+    assert database.get_web_session_user("previous") is None
+    assert database.get_web_session_user(secret)["id"] == member
+    assert {row["id"] for row in database.list_web_session_accounts(secret)} == {owner, member}

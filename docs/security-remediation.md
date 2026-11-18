@@ -28,7 +28,7 @@ The compatibility goal is to retain local and Trusted LAN access, account switch
 | 9. Snapshot remote resources | Open. Removing images/fonts would change existing snapshot rendering. |
 | 10. Provider transport/SSRF | Public HTTP rejected, local configured providers retain HTTP. DNS validation-to-connect binding remains open for custom providers. |
 | 11. Recovery interference | Fresh anonymous request no longer supersedes a recently approved request. Administrators still need to verify the requester through a trusted channel. |
-| 12. Session fixation | New secret replaces the old one atomically while preserving authenticated account membership. Existing single-session revoke SQL also corrected. |
+| 12. Session fixation | New secret and newly authenticated membership replace the old session in one write transaction. A separate SQLite reader verifies that the new account is never committed under the old secret. Existing single-session revoke SQL also corrected. |
 | 13. Resource/cost limits | Open. Existing request and raw-storage caps retained. Snapshot type and serialized-size accounting corrected. Instance-wide quotas, concurrency budgets and atomic raw-storage reservation remain work. |
 | 14. PyJWT | Updated to 2.15.1. Oversized and recursive malformed tokens rejected. |
 | 15. Local file permissions | Unix installer uses private umask, generated JWT secret is created privately. Windows installation root/updater ACL and existing data/backup permissions require platform validation. |
@@ -41,8 +41,8 @@ The compatibility goal is to retain local and Trusted LAN access, account switch
 
 ## Validation
 
-- 207 pytest checks passed, including real Chromium attribute-injection regression, LAN IP/hostname/localhost login/logout, initial setup, concurrent registration, session rotation, approved recovery preservation and renderer inputs.
-- Four existing Core JavaScript scripts passed. Extension metadata and security scripts passed with browser API mocks.
+- 208 pytest checks passed, including real Chromium attribute-injection regression, LAN IP/hostname/localhost login/logout, initial setup, concurrent registration, session rotation, approved recovery preservation and renderer inputs.
+- Four existing Core JavaScript scripts passed. Extension metadata and security scripts passed with browser API mocks. Real Chromium also verified Enter-to-save in the closed-shadow floating control after rejecting synthetic interaction.
 - Docker image built using declared dependencies. Read-only, non-root container with dropped capabilities started. Setup denial/approval and authenticated API/logout checks passed.
 - Bash syntax checks passed. Git diff whitespace check passed.
 - Added CI matrix for Python/JavaScript checks on Linux, Windows and macOS, plus Windows PowerShell parsing and Linux Chromium.

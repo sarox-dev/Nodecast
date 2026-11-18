@@ -158,7 +158,7 @@ def add_web_session_account(secret, uid, ttl_seconds):
         c.execute("INSERT INTO web_session_accounts VALUES (?,?,?) ON CONFLICT(session_id_hash,user_id) DO UPDATE SET authenticated_at=excluded.authenticated_at",(sid,uid,now))
         c.execute("UPDATE web_sessions SET active_user_id=?,expires_at=? WHERE id_hash=?",(uid,now+ttl_seconds,sid)); c.commit(); return True
     finally: c.close()
-def rotate_web_session(secret, new_secret):
+def rotate_web_session(secret, new_secret, user_id=None, ttl_seconds=None, user_agent=""):
     """Move all authenticated accounts to a fresh session and revoke the old one."""
     now = int(time.time())
     old_id, new_id = _session_hash(secret), _session_hash(new_secret)
@@ -169,8 +169,11 @@ def rotate_web_session(secret, new_secret):
         if not row:
             return False
         db.execute("INSERT INTO web_sessions(id_hash,active_user_id,created_at,expires_at,last_seen_at,user_agent) VALUES (?,?,?,?,?,?)",
-                   (new_id, row["active_user_id"], now, row["expires_at"], now, row["user_agent"]))
+                   (new_id, user_id or row["active_user_id"], now, now + ttl_seconds if ttl_seconds else row["expires_at"], now, user_agent or row["user_agent"]))
         db.execute("INSERT INTO web_session_accounts SELECT ?,user_id,authenticated_at FROM web_session_accounts WHERE session_id_hash=?", (new_id, old_id))
+        if user_id:
+            db.execute("INSERT INTO web_session_accounts VALUES (?,?,?) ON CONFLICT(session_id_hash,user_id) DO UPDATE SET authenticated_at=excluded.authenticated_at",
+                       (new_id, user_id, now))
         db.execute("DELETE FROM web_sessions WHERE id_hash=?", (old_id,))
         db.commit()
         return True
