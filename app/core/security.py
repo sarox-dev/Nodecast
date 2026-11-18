@@ -18,7 +18,8 @@ if not JWT_SECRET:
     else:
         JWT_SECRET = secrets.token_hex(32)
         _secret_path.parent.mkdir(parents=True, exist_ok=True)
-        _secret_path.write_text(JWT_SECRET)
+        with open(_secret_path, "x", opener=lambda path, flags: os.open(path, flags, 0o600)) as secret_file:
+            secret_file.write(JWT_SECRET)
 
 # Paths
 CONTENTS_DIR = Path(__file__).resolve().parent.parent.parent / "contents"

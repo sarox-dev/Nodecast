@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+umask 077
 
 REPO="sarox-dev/Nodecast"
 TOTAL_STEPS=8
@@ -253,6 +254,11 @@ if ! wait_for_health; then
   fail "Nodecast did not become healthy on port $APP_PORT."
 fi
 ok "Health check passed on http://127.0.0.1:$APP_PORT"
+if [[ -f "$INSTALL_DIR/contents/.setup_token" ]]; then
+  note "First-owner setup code (also in contents/.setup_token):"
+  cat "$INSTALL_DIR/contents/.setup_token"
+  printf '\n'
+fi
 
 step "Configuring update checks"
 NODECAST_INSTALL_DIR="$INSTALL_DIR" NODECAST_MODE="$MODE" NODECAST_APP_PORT="$APP_PORT" bash "$INSTALL_DIR/scripts/install-updater.sh"

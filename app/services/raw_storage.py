@@ -47,8 +47,11 @@ def save_raw_capture(
     Atgriež ceļu līdz raw direktorijai.
     """
     raw_path = _raw_dir(user_id, package.capture_id)
+    if html is not None and not isinstance(html, str):
+        raise ValueError("Page snapshot must be text")
     html_size = len(html.encode("utf-8")) if html else 0
-    package_size = len(package.model_dump_json(exclude_none=True).encode("utf-8"))
+    serialized = json.dumps(package.model_dump(exclude_none=True, mode="json"), indent=2, ensure_ascii=False)
+    package_size = len(serialized.encode("utf-8"))
     if html_size > MAX_SNAPSHOT_BYTES:
         raise ValueError("Page snapshot is too large")
     if _user_raw_size(user_id) + html_size + package_size > MAX_USER_STORAGE_BYTES:
@@ -59,18 +62,13 @@ def save_raw_capture(
             "Raw Capture is immutable, cannot overwrite."
         )
 
-    os.makedirs(str(raw_path), exist_ok=True)
+    os.makedirs(str(raw_path), mode=0o700, exist_ok=False)
 
     # capture.json
     capture_path = raw_path / "capture.json"
     with open(str(capture_path), "w", encoding="utf-8") as f:
         # Use model_dump with exclude_none to keep JSON clean
-        json.dump(
-            package.model_dump(exclude_none=True, mode="json"),
-            f,
-            indent=2,
-            ensure_ascii=False,
-        )
+        f.write(serialized)
 
     # page.html
     if html:

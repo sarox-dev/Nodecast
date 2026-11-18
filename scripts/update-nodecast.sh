@@ -17,7 +17,7 @@ CAN_UPDATE="$(printf '%s' "$HEALTH" | python3 -c 'import json,sys; print(str(jso
 
 CURRENT="$(printf '%s' "$HEALTH" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version","0.0.0"))')"
 LATEST="$(curl -fsSL https://api.github.com/repos/sarox-dev/Nodecast/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin).get("tag_name","").lstrip("v"))')"
-[[ -n "$LATEST" ]] || exit 0
+[[ "$LATEST" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || exit 0
 NEWER="$(python3 - "$CURRENT" "$LATEST" <<'PY'
 import re,sys
 def v(s): return tuple(int(x) for x in re.findall(r'\d+',s)[:3])
@@ -30,12 +30,6 @@ BACKUP="$STATE_DIR/backups/$CURRENT-$(date +%Y%m%d%H%M%S)"
 mkdir -p "$BACKUP"
 cp -a "$INSTALL_DIR/.env" "$INSTALL_DIR/contents" "$BACKUP/"
 
-if [[ "$MODE" == "docker" ]]; then
-  (cd "$INSTALL_DIR" && docker compose down)
-else
-  if [[ "$(uname -s)" == "Darwin" ]]; then launchctl bootout "gui/$(id -u)" "$HOME/Library/LaunchAgents/dev.nodecast.app.plist" 2>/dev/null || true
-  else systemctl --user stop nodecast.service; fi
-fi
 
 UPDATE_TMP="$(mktemp -d)"
 trap 'rm -rf "$UPDATE_TMP"; rmdir "$LOCK" 2>/dev/null || true' EXIT
@@ -50,6 +44,13 @@ else
   ACTUAL="$(shasum -a 256 "$UPDATE_TMP/install.sh" | awk '{ print $1 }')"
 fi
 [[ "$ACTUAL" == "$EXPECTED" ]] || { echo "Installer checksum verification failed." >&2; exit 1; }
+if [[ "$MODE" == "docker" ]]; then
+  (cd "$INSTALL_DIR" && docker compose down)
+else
+  if [[ "$(uname -s)" == "Darwin" ]]; then launchctl bootout "gui/$(id -u)" "$HOME/Library/LaunchAgents/dev.nodecast.app.plist" 2>/dev/null || true
+  else systemctl --user stop nodecast.service; fi
+fi
+
 ACCOUNT_MODE="$(sed -n 's/^NODECAST_ACCOUNT_MODE=//p' "$INSTALL_DIR/.env" | tail -1)"
 BIND_HOST="$(sed -n 's/^NODECAST_BIND_HOST=//p' "$INSTALL_DIR/.env" | tail -1)"
 PUBLIC_ORIGIN="$(sed -n 's/^NODECAST_PUBLIC_ORIGIN=//p' "$INSTALL_DIR/.env" | tail -1)"

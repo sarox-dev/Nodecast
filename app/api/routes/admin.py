@@ -108,7 +108,11 @@ def create_account(req: CreateAccountRequest, current_user: dict = Depends(get_c
     try:
         if db.execute("SELECT 1 FROM users WHERE LOWER(username)=LOWER(?)", (username,)).fetchone(): raise HTTPException(409, "Username already exists")
     finally: db.close()
-    uid = create_user_in_db(username, hash_password(req.password), role=role); init_user_db(uid)
+    try:
+        uid = create_user_in_db(username, hash_password(req.password), role=role, enforce_profile=True)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    init_user_db(uid)
     audit("account_created", actor["id"], uid, {"role": role})
     return {"success": True, "user_id": uid}
 

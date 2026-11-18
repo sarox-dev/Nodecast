@@ -13,6 +13,7 @@ try {
     if (-not $health.can_update) { exit 0 }
     $release = Invoke-RestMethod "https://api.github.com/repos/sarox-dev/Nodecast/releases/latest"
     $latest = $release.tag_name.TrimStart('v')
+    if ($latest -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid release version' }
     if ([version]$latest -le [version]$health.version) { exit 0 }
 
     $backup = Join-Path $StateDir ("backups\{0}-{1}" -f $health.version, (Get-Date -Format 'yyyyMMddHHmmss'))
@@ -20,11 +21,6 @@ try {
     Copy-Item (Join-Path $InstallDir ".env") $backup -Force
     Copy-Item (Join-Path $InstallDir "contents") $backup -Recurse -Force
 
-    if ($Mode -eq "docker") {
-        Push-Location $InstallDir; try { docker compose down } finally { Pop-Location }
-    } else {
-        Stop-ScheduledTask -TaskName "Nodecast" -ErrorAction SilentlyContinue
-    }
     $temp = Join-Path ([IO.Path]::GetTempPath()) ("nodecast-update-" + [guid]::NewGuid())
     New-Item -ItemType Directory -Path $temp | Out-Null
     $installer = Join-Path $temp "install.ps1"
@@ -37,6 +33,11 @@ try {
     $expected = ($checksumLine -split '\s+')[0].ToLowerInvariant()
     $actual = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLowerInvariant()
     if ($actual -ne $expected) { throw "Installer checksum verification failed." }
+    if ($Mode -eq "docker") {
+        Push-Location $InstallDir; try { docker compose down } finally { Pop-Location }
+    } else {
+        Stop-ScheduledTask -TaskName "Nodecast" -ErrorAction SilentlyContinue
+    }
     $installEnv = @{}
     Get-Content (Join-Path $InstallDir ".env") | ForEach-Object { if ($_ -match '^([^=]+)=(.*)$') { $installEnv[$matches[1]] = $matches[2] } }
     $env:NODECAST_INSTALL_DIR = $InstallDir; $env:NODECAST_MODE = $Mode; $env:NODECAST_AUTO_UPDATE = "true"

@@ -289,6 +289,11 @@ if (-not (Wait-Nodecast $AppPort)) {
     Fail "Nodecast did not become healthy on port $AppPort."
 }
 Done "Health check passed on http://127.0.0.1:$AppPort"
+$setupCodePath = Join-Path $InstallDir "contents\.setup_token"
+if (Test-Path $setupCodePath) {
+    Note "First-owner setup code (also in contents/.setup_token):"
+    Get-Content $setupCodePath
+}
 
 Step "Configuring update checks"
 $env:NODECAST_INSTALL_DIR = $InstallDir

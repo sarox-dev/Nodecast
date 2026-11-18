@@ -23,6 +23,21 @@ class RequestSecurityMiddleware:
             await self.app(scope, receive, send)
             return
 
+        original_send = send
+        async def secure_send(message):
+            if message["type"] == "http.response.start":
+                response_headers = list(message.get("headers", []))
+                existing = {key.lower() for key, _ in response_headers}
+                for key, value in [
+                    (b"x-content-type-options", b"nosniff"),
+                    (b"x-frame-options", b"DENY"),
+                    (b"referrer-policy", b"same-origin"),
+                ]:
+                    if key not in existing:
+                        response_headers.append((key, value))
+                message = {**message, "headers": response_headers}
+            await original_send(message)
+        send = secure_send
         headers = Headers(scope=scope)
         content_length = headers.get("content-length")
         if content_length:

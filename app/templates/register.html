@@ -54,6 +54,13 @@
             <label for="password">Password</label>
             <input id="password" type="password" placeholder="Minimum {{ 16 if no_users else 12 }} characters" minlength="{{ 16 if no_users else 12 }}" autocomplete="new-password" required />
           </div>
+          {% if no_users %}
+          <div class="auth-field">
+            <label for="setup-token">Installation setup code</label>
+            <input id="setup-token" type="password" autocomplete="off" required />
+            <p>Use the code printed by the installer or stored in contents/.setup_token on your server.</p>
+          </div>
+          {% endif %}
           <div id="auth-error" class="auth-error"></div>
           <button type="submit" class="auth-submit">Create account</button>
         </form>
@@ -77,7 +84,7 @@
           const res = await fetch('/auth/register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password }),
+            body: JSON.stringify({ username, password, setup_token: document.getElementById('setup-token')?.value || '' }),
           });
           const data = await res.json();
           if (data.success) {

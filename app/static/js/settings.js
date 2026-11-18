@@ -1931,10 +1931,8 @@ function openAIProviderModal(existing, preset) {
     });
 }
 
-function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, character => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[character]));
 }
 
 function filterSettings(query) {
