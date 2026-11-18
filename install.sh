@@ -56,6 +56,20 @@ safe_install_target() {
   fi
 }
 
+public_origin_for() {
+  local existing="$1" host_name="$2" app_port="$3" authority previous_host
+  if [[ "$existing" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?/?$ ]]; then
+    authority="${existing#https://}"
+    previous_host="${authority%%:*}"
+    previous_host="${previous_host%/}"
+    if [[ "$(printf '%s' "$previous_host" | tr '[:upper:]' '[:lower:]')" == "$(printf '%s' "$host_name" | tr '[:upper:]' '[:lower:]')" ]]; then
+      printf '%s' "${existing%/}"
+      return
+    fi
+  fi
+  printf 'http://%s:%s' "$host_name" "$app_port"
+}
+
 archive_is_safe() {
   tar -tzf "$1" | awk '/^\// { bad=1 } /(^|\/)\.\.($|\/)/ { bad=1 } END { exit bad }'
 }
@@ -198,7 +212,9 @@ fi
 if grep -q '^AUTO_UPDATE_DEFAULT=' "$INSTALL_DIR/.env"; then sed -i.bak "s/^AUTO_UPDATE_DEFAULT=.*/AUTO_UPDATE_DEFAULT=$AUTO_UPDATE/" "$INSTALL_DIR/.env" && rm -f "$INSTALL_DIR/.env.bak"; else printf '\nAUTO_UPDATE_DEFAULT=%s\n' "$AUTO_UPDATE" >> "$INSTALL_DIR/.env"; fi
 APP_PORT="$(sed -n 's/^APP_PORT=//p' "$INSTALL_DIR/.env" | tail -1)"; APP_PORT="${APP_PORT:-5000}"
 [[ "$APP_PORT" =~ ^[0-9]+$ ]] && (( APP_PORT >= 1 && APP_PORT <= 65535 )) || fail "APP_PORT in .env must be between 1 and 65535."
-for pair in "NODECAST_ACCOUNT_MODE=$ACCOUNT_MODE" "NODECAST_BIND_HOST=$([[ "$NETWORK_ACCESS" == "lan" ]] && printf '0.0.0.0' || printf '127.0.0.1')" "NODECAST_PUBLIC_ORIGIN=http://$([[ "$NETWORK_ACCESS" == "lan" ]] && printf '%s' "$LAN_HOST" || printf 'localhost'):$APP_PORT"; do
+ORIGIN_HOST="localhost"; [[ "$NETWORK_ACCESS" == "lan" ]] && ORIGIN_HOST="$LAN_HOST"
+PUBLIC_ORIGIN="$(public_origin_for "$current_origin" "$ORIGIN_HOST" "$APP_PORT")"
+for pair in "NODECAST_ACCOUNT_MODE=$ACCOUNT_MODE" "NODECAST_BIND_HOST=$([[ "$NETWORK_ACCESS" == "lan" ]] && printf '0.0.0.0' || printf '127.0.0.1')" "NODECAST_PUBLIC_ORIGIN=$PUBLIC_ORIGIN"; do
   key="${pair%%=*}"; value="${pair#*=}"
   if grep -q "^${key}=" "$INSTALL_DIR/.env"; then sed -i.bak "s|^${key}=.*|${key}=${value}|" "$INSTALL_DIR/.env" && rm -f "$INSTALL_DIR/.env.bak"; else printf '%s=%s\n' "$key" "$value" >> "$INSTALL_DIR/.env"; fi
 done

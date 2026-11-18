@@ -9,9 +9,9 @@ $InstallDir = $cfg.INSTALL_DIR; $Mode = $cfg.MODE; $AppPort = if ($cfg.APP_PORT)
 $Lock = Join-Path $StateDir "update.lock"
 try { New-Item -ItemType Directory -Path $Lock -ErrorAction Stop | Out-Null } catch { exit 0 }
 try {
-    try { $health = Invoke-RestMethod "http://localhost:$AppPort/api/server/health" } catch { exit 0 }
+    try { $health = Invoke-RestMethod "http://localhost:$AppPort/api/server/health" -TimeoutSec 5 } catch { exit 0 }
     if (-not $health.can_update) { exit 0 }
-    $release = Invoke-RestMethod "https://api.github.com/repos/sarox-dev/Nodecast/releases/latest"
+    $release = Invoke-RestMethod "https://api.github.com/repos/sarox-dev/Nodecast/releases/latest" -TimeoutSec 30
     $latest = $release.tag_name.TrimStart('v')
     if ($latest -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid release version' }
     if ([version]$latest -le [version]$health.version) { exit 0 }
@@ -26,8 +26,8 @@ try {
     $installer = Join-Path $temp "install.ps1"
     $checksums = Join-Path $temp "SHA256SUMS"
     $assetRoot = "https://github.com/sarox-dev/Nodecast/releases/download/v$latest"
-    Invoke-WebRequest "$assetRoot/install.ps1" -OutFile $installer
-    Invoke-WebRequest "$assetRoot/SHA256SUMS" -OutFile $checksums
+    Invoke-WebRequest "$assetRoot/install.ps1" -OutFile $installer -TimeoutSec 120
+    Invoke-WebRequest "$assetRoot/SHA256SUMS" -OutFile $checksums -TimeoutSec 120
     $checksumLine = Get-Content $checksums | Where-Object { $_ -match '^[0-9a-fA-F]{64}\s+\*?install\.ps1$' } | Select-Object -First 1
     if (-not $checksumLine) { throw "Installer checksum is missing or invalid." }
     $expected = ($checksumLine -split '\s+')[0].ToLowerInvariant()
@@ -52,7 +52,7 @@ try {
     1..30 | ForEach-Object {
         if (-not $healthy) {
             Start-Sleep -Seconds 2
-            try { Invoke-RestMethod "http://localhost:$AppPort/api/version" | Out-Null; $healthy = $true } catch {}
+            try { Invoke-RestMethod "http://localhost:$AppPort/api/version" -TimeoutSec 5 | Out-Null; $healthy = $true } catch {}
         }
     }
     if (-not $healthy) { throw "Update completed but health check failed. Backup: $backup" }

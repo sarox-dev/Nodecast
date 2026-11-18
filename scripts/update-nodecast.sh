@@ -10,13 +10,13 @@ LOCK="$STATE_DIR/update.lock"
 mkdir "$LOCK" 2>/dev/null || exit 0
 trap 'rmdir "$LOCK"' EXIT
 
-HEALTH="$(curl -fsSL "http://localhost:${APP_PORT:-5000}/api/server/health" 2>/dev/null || true)"
+HEALTH="$(curl --connect-timeout 2 --max-time 5 -fsSL "http://localhost:${APP_PORT:-5000}/api/server/health" 2>/dev/null || true)"
 [[ -n "$HEALTH" ]] || exit 0
 CAN_UPDATE="$(printf '%s' "$HEALTH" | python3 -c 'import json,sys; print(str(json.load(sys.stdin).get("can_update",False)).lower())' 2>/dev/null || true)"
 [[ "$CAN_UPDATE" == "true" ]] || exit 0
 
 CURRENT="$(printf '%s' "$HEALTH" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version","0.0.0"))')"
-LATEST="$(curl -fsSL https://api.github.com/repos/sarox-dev/Nodecast/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin).get("tag_name","").lstrip("v"))')"
+LATEST="$(curl --connect-timeout 10 --max-time 30 -fsSL https://api.github.com/repos/sarox-dev/Nodecast/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin).get("tag_name","").lstrip("v"))')"
 [[ "$LATEST" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || exit 0
 NEWER="$(python3 - "$CURRENT" "$LATEST" <<'PY'
 import re,sys
@@ -34,8 +34,8 @@ cp -a "$INSTALL_DIR/.env" "$INSTALL_DIR/contents" "$BACKUP/"
 UPDATE_TMP="$(mktemp -d)"
 trap 'rm -rf "$UPDATE_TMP"; rmdir "$LOCK" 2>/dev/null || true' EXIT
 ASSET_ROOT="https://github.com/sarox-dev/Nodecast/releases/download/v${LATEST}"
-curl -fsSL "$ASSET_ROOT/install.sh" -o "$UPDATE_TMP/install.sh"
-curl -fsSL "$ASSET_ROOT/SHA256SUMS" -o "$UPDATE_TMP/SHA256SUMS"
+curl --connect-timeout 15 --max-time 120 -fsSL "$ASSET_ROOT/install.sh" -o "$UPDATE_TMP/install.sh"
+curl --connect-timeout 15 --max-time 120 -fsSL "$ASSET_ROOT/SHA256SUMS" -o "$UPDATE_TMP/SHA256SUMS"
 EXPECTED="$(awk '$2 == "install.sh" { print $1 }' "$UPDATE_TMP/SHA256SUMS")"
 [[ "$EXPECTED" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "Installer checksum is missing or invalid." >&2; exit 1; }
 if command -v sha256sum >/dev/null; then
@@ -61,7 +61,7 @@ fi
 NODECAST_INSTALL_DIR="$INSTALL_DIR" NODECAST_MODE="$MODE" NODECAST_AUTO_UPDATE=true NODECAST_ACCOUNT_MODE="${ACCOUNT_MODE:-shared}" NODECAST_NETWORK_ACCESS="$NETWORK_ACCESS" NODECAST_LAN_HOST="$LAN_HOST" bash "$UPDATE_TMP/install.sh"
 
 for _ in $(seq 1 30); do
-  curl -fsSL "http://localhost:${APP_PORT:-5000}/api/version" >/dev/null 2>&1 && exit 0
+  curl --connect-timeout 2 --max-time 5 -fsSL "http://localhost:${APP_PORT:-5000}/api/version" >/dev/null 2>&1 && exit 0
   sleep 2
 done
 echo "Nodecast update completed but the health check failed. Backup: $BACKUP" >&2

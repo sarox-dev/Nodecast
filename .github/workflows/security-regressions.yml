@@ -44,3 +44,5 @@ jobs:
             [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD $file), [ref]$tokens, [ref]$errors) | Out-Null
             if ($errors.Count) { throw ($errors | Out-String) }
           }
+
+          & ./tests/test_installer_public_origin.ps1

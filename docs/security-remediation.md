@@ -29,10 +29,10 @@ The compatibility goal is to retain local and Trusted LAN access, account switch
 | 10. Provider transport/SSRF | Public HTTP rejected, local configured providers retain HTTP. DNS validation-to-connect binding remains open for custom providers. |
 | 11. Recovery interference | Fresh anonymous request no longer supersedes a recently approved request. Administrators still need to verify the requester through a trusted channel. |
 | 12. Session fixation | New secret and newly authenticated membership replace the old session in one write transaction. A separate SQLite reader verifies that the new account is never committed under the old secret. Existing single-session revoke SQL also corrected. |
-| 13. Resource/cost limits | Open. Existing request and raw-storage caps retained. Snapshot type and serialized-size accounting corrected. Instance-wide quotas, concurrency budgets and atomic raw-storage reservation remain work. |
+| 13. Resource/cost limits | Open. Existing request and raw-storage caps retained. Snapshot type and serialized-size accounting corrected. Raw quota checks, writes and deletes now share a per-user SQLite write lock across processes, and failed writes clean up their own partial capture. Instance-wide quotas and AI concurrency/cost budgets remain work. |
 | 14. PyJWT | Updated to 2.15.1. Oversized and recursive malformed tokens rejected. |
 | 15. Local file permissions | Unix installer uses private umask, generated JWT secret is created privately. Windows installation root/updater ACL and existing data/backup permissions require platform validation. |
-| 16. Updater availability | Installer is downloaded and verified before stopping the service. Active session count now uses recent session activity. Full archive staging, consistent SQLite backup and automatic rollback remain open. |
+| 16. Updater availability | Installer is downloaded and verified before stopping the service. Active session count now uses recent session activity. Host updater network requests have finite connect/response timeouts. Full archive staging, consistent SQLite backup and automatic rollback remain open. |
 | 17. Third-party script | D3 7.9.0 and its license are shipped with the application. |
 | 18. Browser/network policy | Default nosniff, same-origin referrer policy and DENY framing headers added. TrustedHost/reverse-proxy and Origin policy tightening remain open to preserve existing LAN aliases pending deployment verification. |
 | 19. Health metadata | Open. Existing host updater health contract retained. |
@@ -48,5 +48,13 @@ The compatibility goal is to retain local and Trusted LAN access, account switch
 - Added CI matrix for Python/JavaScript checks on Linux, Windows and macOS, plus Windows PowerShell parsing and Linux Chromium.
 - Real Windows Task Scheduler/macOS launchd installation, live browser-extension installation and multi-device LAN operation are pending. API tests exercise LAN origins, not a second physical machine.
 - Existing FastAPI/Starlette deprecation warnings remain.
+
+## Follow-up fixes
+
+- Repeated installation preserves a valid HTTPS public origin for the same LAN hostname, including a reverse-proxy port differing from the application port. Changing network profiles or hostnames still computes the corresponding default address.
+- Sensitive account actions share one failed-password budget. Existing legacy account administration and recovery-code rotation now use it too. Successful verification clears that account/client budget. Anonymous recovery requests also have a client-wide budget.
+- Two-process regression reproduces raw-quota overbooking on the previous patch and passes with serialized writes. A simulated HTML-write failure also reproduces a stranded capture on the previous patch and passes after cleanup.
+- Added Bash and PowerShell origin behavior checks, plus API tests for both failed and successful account operations.
+- These changes continue in Core PR #1. The Extension PR is unchanged in this follow-up.
 
 The remaining items above are explicitly unfinished. This branch must not be described as closing all 21 audit findings.

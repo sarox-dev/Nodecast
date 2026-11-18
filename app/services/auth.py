@@ -23,6 +23,18 @@ def verify_password(password: str, hashed: str) -> bool:
         return False
 
 
+def verify_account_password(request: Request, account: dict, password: str) -> bool:
+    """Share the reauthentication budget across password-protected account actions."""
+    from app.services.auth_rate_limit import check_rate_limit, clear_failures, rate_key, record_failure
+    key = rate_key(request, "account-reauth", account["id"])
+    check_rate_limit(key)
+    if not verify_password(password, account["password_hash"]):
+        record_failure(key)
+        return False
+    clear_failures(key)
+    return True
+
+
 COMMON_WEAK_PASSWORDS = {
     "passwordpassword", "password1234", "123456789012", "qwertyqwerty",
     "letmeinletmein", "adminadminadmin", "correcthorsebatterystaple",
