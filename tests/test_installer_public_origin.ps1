@@ -30,6 +30,6 @@ $cases = @(
 )
 foreach ($case in $cases) {
     $actual = Resolve-PublicOrigin $case[0] $case[1] $case[2]
-    if ($actual -ne $case[3]) { throw "Public origin regression for $($case[0])" }
+    if ($actual -cne $case[3]) { throw "Public origin regression for $($case[0])" }
 }
 Write-Output "14 PowerShell public origin checks passed"
