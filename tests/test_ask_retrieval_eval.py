@@ -12,7 +12,7 @@ def test_synthetic_eval_measures_candidate_and_packet_coverage(tmp_path, monkeyp
     monkeypatch.setattr(database, "CONTENTS_DIR", tmp_path)
     monkeypatch.setattr(database, "USERS_DB_PATH", tmp_path / "users.db")
     monkeypatch.setattr(database, "USERS_DATA_DIR", tmp_path / "users")
-    corpus = json.loads(CORPUS.read_text())
+    corpus = json.loads(CORPUS.read_text(encoding="utf-8"))
     uid = database.create_user_in_db("ask-eval", "not-a-login-hash")
     keys = {}
     for capture in corpus["captures"]:
