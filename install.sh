@@ -57,13 +57,22 @@ safe_install_target() {
 }
 
 public_origin_for() {
-  local existing="$1" host_name="$2" app_port="$3" authority previous_host
-  if [[ "$existing" =~ ^[Hh][Tt][Tt][Pp][Ss]://[A-Za-z0-9.-]+(:[0-9]+)?/?$ ]]; then
-    authority="${existing#*://}"
-    previous_host="${authority%%:*}"
-    previous_host="${previous_host%/}"
-    if [[ "$(printf '%s' "$previous_host" | tr '[:upper:]' '[:lower:]')" == "$(printf '%s' "$host_name" | tr '[:upper:]' '[:lower:]')" ]]; then
-      printf '%s' "${existing%/}"
+  local existing="$1" host_name="$2" app_port="$3" previous_host public_port
+  if [[ "$existing" =~ ^[Hh][Tt][Tt][Pp][Ss]://([A-Za-z0-9.-]+)(:([0-9]{1,5}))?/?$ ]]; then
+    previous_host="$(printf '%s' "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]')"
+    public_port="${BASH_REMATCH[3]}"
+    if [[ -n "$public_port" ]]; then
+      public_port="$((10#$public_port))"
+      if (( public_port > 65535 )); then
+        printf 'http://%s:%s' "$host_name" "$app_port"
+        return
+      fi
+    fi
+    if [[ "$previous_host" == "$(printf '%s' "$host_name" | tr '[:upper:]' '[:lower:]')" ]]; then
+      printf 'https://%s' "$previous_host"
+      if [[ -n "$public_port" && "$public_port" != 443 ]]; then
+        printf ':%s' "$public_port"
+      fi
       return
     fi
   fi
