@@ -34,8 +34,10 @@ precision, source completeness, AI answer quality, or citation correctness.
 The Nodecast release-date query selected eight evidence items; their relevance
 and whether the broader library contains an answer were not assessed.
 
-Two test captures have confirmed reasons. Source enrichment and the current
-AI synthesis packet do not include `save_reason`, so successful source retrieval
-alone does not establish that Ask can answer those reason questions. AI
-generation, provider expansion, browser rendering and the table fix still need
-live evaluation. Some saved passages were captured more than once.
+Two test captures have confirmed reasons. At the November 7 baseline, source
+enrichment and the AI synthesis packet did not include `save_reason`, so
+successful source retrieval alone did not establish that Ask could answer those
+reason questions. The preserved local changes now include confirmed reasons in
+source enrichment and synthesis, with automated regression coverage. Real-provider
+generation, provider expansion and answer quality for these saved passages still
+need live evaluation. Some saved passages were captured more than once.

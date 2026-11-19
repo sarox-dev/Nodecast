@@ -9,6 +9,7 @@ The compatibility goal is to retain local and Trusted LAN access, account switch
 - A fresh installation requires the setup code printed by its installer or read locally from `contents/.setup_token` before creating the owner. Existing accounts continue to sign in normally. This also permits first setup from a LAN browser.
 - Extension pairing opens an extension-owned confirmation tab showing the destination origin. Approve it within 90 seconds. LAN IPv4 addresses and LAN hostnames are supported.
 - Extension credentials migrate from browser sync to device-local storage. UI preferences continue to work on the current device.
+- Only the paired Core origin can read account status or synchronize settings. The confirmation tab requests browser access for the selected server host; declining preserves the previous connection.
 - Public AI provider endpoints require HTTPS. Explicit local Ollama/LM Studio providers retain HTTP support.
 - Session secrets rotate when a new account signs in. Accounts already authenticated in that browser are retained. Extension tokens bound to the replaced session require the existing reconnect flow.
 - Unsafe links render as inert destinations. Quotes and HTML characters in existing saved titles remain visible text.
