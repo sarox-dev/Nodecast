@@ -528,7 +528,7 @@ def list_captures_without_ai_data(uid):
             try: raw=json.loads((raw_path/"capture.json").read_text())
             except (FileNotFoundError,json.JSONDecodeError,OSError): raw={}
             selected=((raw.get("anchor") or {}).get("selected_text") or "").strip()
-            if selected and (raw_path/"page.html").is_file() and n==0: out.append({"id":r["id"],"source_title":r["source_title"] or ""})
+            if n==0 and (selected or (raw_path/"page.html").is_file()): out.append({"id":r["id"],"source_title":r["source_title"] or ""})
         return out
     finally: c.close()
 def add_ai_job(uid,cid,feature,input_version="1",processor_version="1"):
@@ -722,10 +722,10 @@ def enrich_atomics_with_sources(uid,items):
     if not ids: return items
     c=get_db(uid)
     try:
-        ph=",".join("?" for _ in ids); sources={r["id"]:dict(r) for r in c.execute(f"SELECT id,source_url,source_title,source_site_name FROM captures WHERE id IN ({ph})",ids)}
+        ph=",".join("?" for _ in ids); sources={r["id"]:dict(r) for r in c.execute(f"SELECT id,source_url,source_title,source_site_name,save_reason,save_reason_status FROM captures WHERE id IN ({ph})",ids)}
     finally: c.close()
     for a in items:
-        s=sources.get(a.get("source_id")); a.update({"source_url":s["source_url"] if s else "","source_title":s["source_title"] if s else "","source_site_name":s["source_site_name"] if s else ""})
+        s=sources.get(a.get("source_id")); a.update({"source_url":s["source_url"] if s else "","source_title":s["source_title"] if s else "","source_site_name":s["source_site_name"] if s else "","save_reason":s["save_reason"] if s and s["save_reason_status"] == "confirmed" else "","save_reason_status":s["save_reason_status"] if s else "unknown"})
     return items
 def get_atomic_graph(uid,limit=200,include_orphans=False):
     c=get_db(uid)

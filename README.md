@@ -16,7 +16,7 @@ Browser highlight → Save → background atomic extraction
                   → search / entity / graph views with source links
 ```
 
-A save without highlighted text is intentionally just a bookmark.
+Highlights can be indexed without an HTML snapshot. Whole-page saves with HTML are processed in the background; metadata-only bookmarks remain source references. Saving and local source search work without an AI account.
 
 ## Stack
 
@@ -37,6 +37,8 @@ Open `http://localhost:5000`, register the first admin account, then connect the
 python -m pytest tests/ -v
 uvicorn app.main:app --reload --port 5000
 ```
+
+The first-use workspace tour can be skipped immediately and replayed from Settings → Overview. Join the [Discord community](https://discord.gg/tFAM5JST4U) for help.
 
 See [the documentation](docs/README.md) for architecture, API, deployment and the current user workflow.
 

@@ -151,10 +151,10 @@ def capture_item(
         save_reason=reason,
     )
 
-    has_anchor = bool(package.anchor and package.anchor.selected_text)
+    has_anchor = bool(package.anchor and (package.anchor.selected_text or "").strip())
     atomic_count = 0
 
-    if page_html:
+    if page_html or has_anchor:
         add_pending_jobs_on_save(user_id, package.capture_id)
     assignment = get_ai_assignment_for_feature(user_id, "save_reason_inference") if not reason and get_user_setting(user_id, "save_reason_ai_enabled", "true") == "true" else None
     if assignment and get_ai_provider(user_id, assignment["provider_id"]):
@@ -305,10 +305,12 @@ def reextract_capture(capture_id: str, current_user: dict = Depends(get_member_u
         raise HTTPException(404, "Capture not found")
 
     html = get_raw_html(user_id, capture_id)
-    if not html:
-        raise HTTPException(400, "Capture has no HTML to extract")
+    raw = load_raw_capture(user_id, capture_id)
+    selected = (raw.anchor.selected_text or "").strip() if raw and raw.anchor else ""
+    if not html and not selected:
+        raise HTTPException(400, "Capture has no saved text or HTML to extract")
     deleted = delete_atomics_by_source(user_id, capture_id)
-    add_pending_jobs_on_save(user_id, capture_id)
+    add_pending_jobs_on_save(user_id, capture_id, force_reprocess=True)
 
     return {
         "success": True,

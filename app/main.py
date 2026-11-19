@@ -20,6 +20,7 @@ from app.api.routes.atomics import router as atomics_router
 from app.api.routes.extension import router as extension_router
 from app.api.routes.memory import router as memory_router
 from app.api.routes.admin import router as admin_router
+from app.api.routes.onboarding import router as onboarding_router
 from app.services.database import get_user_by_id, init_db, user_count
 from app.services.auth import get_current_user
 from app.services.auto_processor import start_auto_processor
@@ -71,6 +72,7 @@ app.include_router(atomics_router)
 app.include_router(extension_router)
 app.include_router(memory_router)
 app.include_router(admin_router)
+app.include_router(onboarding_router)
 
 # ─── Auth status template variable ────────────────────────────────
 templates = Jinja2Templates(directory="app/templates")

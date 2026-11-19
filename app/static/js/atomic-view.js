@@ -38,6 +38,8 @@ function initAtomicView() {
     resultsContainer?.addEventListener('focusout', hideEvidencePopover);
     resultsContainer?.addEventListener('click', event => {
         if (event.target.closest('[data-refresh-recall]')) { doSearch(currentQuery, 1, true); return; }
+        const copyButton = event.target.closest('[data-copy-answer]');
+        if (copyButton) { copyMemoryAnswer(copyButton); return; }
         const reasonButton = event.target.closest('[data-edit-reason]');
         if (reasonButton) { editCaptureReason(reasonButton); return; }
         const citation = event.target.closest('[data-evidence-id]');
@@ -349,8 +351,7 @@ async function doEvidenceFirstSearch(query, forceRefresh = false, signal, genera
     // and stays visible even if the stream or provider fails later.
     const diagnosticView = document.getElementById('ask-diagnostics');
     const diagnostics = settingsState.askSearchDiagnostics === true;
-    const searchActivity = document.getElementById('ask-search-activity');
-    if (searchActivity) { searchActivity.replaceChildren(); searchActivity.hidden = true; }
+    window.currentMemorySearches = [];
     if (diagnosticView) { diagnosticView.hidden = true; diagnosticView.textContent = ''; }
     const localResponse = await fetch('/api/memory/query', {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -517,12 +518,10 @@ function handleMemoryStreamEvent(event) {
             return false;
         }
         if (event.event === 'search.performed') {
-            const activity = document.getElementById('ask-search-activity');
-            if (activity && typeof event.data?.query === 'string') {
-                const line = document.createElement('div');
-                line.textContent = `Searched: ${event.data.query}`;
-                activity.appendChild(line);
-                activity.hidden = false;
+            if (typeof event.data?.query === 'string') {
+                (window.currentMemorySearches ||= []).push(event.data.query);
+                const activity = resultsContainer.querySelector('[data-search-activity]');
+                if (activity) activity.innerHTML = renderSearchActivityLines();
             }
             return false;
         }
@@ -603,12 +602,17 @@ function renderStreamingMemoryView(viewModel) {
     window.currentMemoryDraft = '';
     window.currentMemoryBlocks = [];
     replaceMemoryResults(`<section class="memory-synthesis memory-synthesis-streaming" aria-live="polite">
-        <div class="memory-synthesis-label memory-stream-status" data-streaming-status>Finding saved evidence</div>
+        <div class="memory-answer-status memory-stream-status" data-streaming-status role="status">Finding saved evidence</div>
+        <div class="ask-search-activity" data-search-activity>${renderSearchActivityLines()}</div>
         <h2>${escapeHtml(currentQuery)}</h2>
         <div class="memory-synthesis-draft" data-streaming-draft><p class="memory-synthesis-summary"></p></div>
     </section>` + renderSourceGroups(allResults));
     emptyState.hidden = true;
     updatePaginationControls();
+}
+
+function renderSearchActivityLines() {
+    return (window.currentMemorySearches || []).map(query => `<div>Searched: ${escapeHtml(query)}</div>`).join('');
 }
 
 function renderCitationParts(parts, fallbackText, fallbackIds = []) {
@@ -636,6 +640,47 @@ function renderSynthesisBlock(block) {
     return '';
 }
 
+function memoryAnswerMarkdown(synthesis) {
+    const plain = (parts, fallback = '') => Array.isArray(parts)
+        ? parts.map(part => part.text || '').join('').trim()
+        : String(fallback || '').replace(/\[\s*EVIDENCE\s*:[^\]]*\]/gi, '').trim();
+    const cell = item => item?.missing ? 'Not found in saved sources' : plain(item?.parts);
+    const safeCell = value => String(value || '').replace(/\|/g, '\\|').replace(/[\r\n]+/g, ' ');
+    const lines = [];
+    if (synthesis.title) lines.push(`## ${synthesis.title}`);
+    const summary = plain(synthesis.summary_parts, synthesis.summary);
+    if (summary) lines.push(summary);
+    for (const section of synthesis.sections || []) {
+        if (section.title) lines.push(`### ${section.title}`);
+        if (!section.blocks?.length) {
+            const content = plain(section.content_parts, section.content);
+            if (content) lines.push(content);
+            continue;
+        }
+        for (const block of section.blocks) {
+            if (block.type === 'bullets' || block.type === 'numbered') {
+                lines.push((block.items || []).map((item, index) => `${block.type === 'numbered' ? `${index + 1}.` : '-'} ${cell(item)}`).join('\n'));
+            } else if (block.type === 'table' && block.columns?.length) {
+                lines.push([`| ${block.columns.map(safeCell).join(' | ')} |`, `| ${block.columns.map(() => '---').join(' | ')} |`, ...(block.rows || []).map(row => `| ${row.map(item => safeCell(cell(item))).join(' | ')} |`)].join('\n'));
+            }
+        }
+    }
+    return lines.filter(Boolean).join('\n\n');
+}
+
+async function copyMemoryAnswer(button) {
+    const synthesis = window.currentMemoryViewModel?.answer || window.currentMemoryViewModel?.synthesis;
+    if (!synthesis) return;
+    try {
+        await navigator.clipboard.writeText(memoryAnswerMarkdown(synthesis));
+        button.setAttribute('aria-label', 'Copied');
+        button.title = 'Copied';
+        if (typeof showNotification === 'function') showNotification({title:'Answer copied', message:'Copied as Markdown without evidence references.', type:'success'});
+    } catch {
+        if (typeof showNotification === 'function') showNotification({title:'Copy failed', message:'Clipboard access is unavailable in this browser.', type:'error'});
+    }
+}
+
 function renderMemoryView(viewModel) {
     const synthesis = viewModel.answer || viewModel.synthesis || {};
     if (synthesis.status === 'error' && typeof showNotification === 'function') {
@@ -654,12 +699,13 @@ function renderMemoryView(viewModel) {
         <h2>Save something worth finding later.</h2>
         <p>Highlight text on any webpage and press Save. Nodecast keeps the original source locally, then makes it available when you ask in your own words.</p>
     </section>` : hasSynthesis ? `<section class="memory-synthesis memory-synthesis-${escapeHtml(viewModel.view || 'list')}">
-        <div class="memory-synthesis-label">AI synthesis</div>
+        <div class="ask-search-activity" data-search-activity>${renderSearchActivityLines()}</div>
         ${viewModel.cache?.hit ? `<div class="memory-cache-note">Saved answer · ${escapeHtml(formatTimeLong(viewModel.cache.created_at))} <button type="button" data-refresh-recall>Generate again</button></div>` : ''}
         <h2>${escapeHtml(synthesis.title || currentQuery)}</h2>
         <p>${renderCitationParts(synthesis.summary_parts, synthesis.summary)}</p>
         ${(synthesis.sections || []).map(section => `<div class="memory-synthesis-section"><h3>${escapeHtml(section.title)}</h3>${section.blocks?.length ? section.blocks.map(renderSynthesisBlock).join('') : `<p>${renderCitationParts(section.content_parts, section.content, section.evidence_ids || [])}</p>`}</div>`).join('')}
-    </section>` : `<div class="memory-fallback-note">${escapeHtml(memoryFallbackMessage(synthesis))}</div>`;
+        <div class="memory-answer-footer"><span class="memory-answer-status" role="status">Answer complete</span><button type="button" class="memory-copy-answer" data-copy-answer aria-label="Copy answer as Markdown" title="Copy answer as Markdown"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg></button></div>
+    </section>` : `<section class="memory-synthesis"><div class="ask-search-activity" data-search-activity>${renderSearchActivityLines()}</div><div class="memory-fallback-note" role="status">${escapeHtml(memoryFallbackMessage(synthesis))}</div></section>`;
     replaceMemoryResults(synthesisHtml + renderSourceGroups(allResults));
     emptyState.hidden = true;
     updatePaginationControls();
@@ -669,9 +715,9 @@ function memoryFallbackMessage(synthesis) {
     if (synthesis.status === 'error') return 'AI synthesis failed. Saved evidence remains available below.';
     switch (synthesis.code) {
         case 'no_saved_sources': return 'No saved sources yet. Save a source before asking for an evidence-backed answer.';
-        case 'no_indexed_evidence': return 'Sources are saved, but no searchable evidence is available yet. AI cannot answer from saved evidence until it is indexed.';
+        case 'no_indexed_evidence': return 'Your sources are saved. Searchable text is still being indexed, or the source has no extractable text. Try again shortly.';
         case 'no_matching_evidence': return 'No matching evidence was found for this question. AI cannot answer from saved evidence; try different wording.';
-        case 'provider_unavailable': return 'Saved evidence is available, but no Recall synthesis model is configured. Connect one in Settings → AI.';
+        case 'provider_unavailable': return 'Showing your saved sources. AI is optional — connect a model in Settings → AI if you want a generated answer.';
         default: return 'Showing saved evidence without an AI-generated answer.';
     }
 }
@@ -728,6 +774,7 @@ async function loadLibrary() {
     loading = true;
     webMode = false;
     currentQuery = '';
+    window.currentMemorySearches = [];
     showLoading(false, 1);
     try {
         const resp = await fetch('/api/memory?limit=8');

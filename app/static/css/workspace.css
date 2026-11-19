@@ -738,7 +738,11 @@ body::before {
 .memory-synthesis > p { margin: 0; color: var(--text-primary); line-height: 1.55; }
 .memory-synthesis-draft { min-height: 1.55em; }
 .memory-synthesis-summary { margin: 0; min-height: 1.55em; white-space: pre-wrap; color: var(--text-primary); line-height: 1.55; }
-.memory-synthesis-streaming .memory-synthesis-label { color: var(--text-tertiary); }
+.memory-answer-status { color: var(--text-tertiary); font-size: .72rem; }
+.memory-answer-footer { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-top: 1rem; }
+.memory-copy-answer { display: inline-flex; align-items: center; justify-content: center; padding: .35rem; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.memory-copy-answer:hover { color: var(--text-primary); border-color: var(--accent); }
+.memory-copy-answer:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .memory-stream-status::after { content: ''; display: inline-block; width: 1.3em; animation: memory-status-dots 1.2s steps(4, end) infinite; }
 @keyframes memory-status-dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75%, 100% { content: '...'; } }
 .memory-synthesis-section { margin-top: 0.85rem; padding-top: 0.8rem; border-top: 1px solid var(--border); }
@@ -990,8 +994,8 @@ body::before {
 .workspace-results-query input { min-width: 0; width: 100%; padding: 0.38rem 0.55rem; border: 1px solid var(--workspace-line); border-radius: 0.45rem; background: var(--workspace-panel); color: var(--text); font: inherit; }
 .workspace-results-query input:focus-visible, .workspace-results-query button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .workspace-results-query button { padding: 0.35rem 0.7rem; border: 1px solid var(--workspace-line); border-radius: 0.45rem; background: var(--workspace-panel); color: var(--text); cursor: pointer; }
-.ask-search-activity { margin: 0.55rem 1.35rem 0; color: var(--text-tertiary); font-size: 0.72rem; overflow-wrap: anywhere; }
-.ask-search-activity[hidden] { display: none; }
+.ask-search-activity { margin: 0 0 .55rem; color: var(--text-tertiary); font-size: 0.72rem; overflow-wrap: anywhere; }
+.ask-search-activity:empty { display: none; }
 .content-view .results-area { overflow-y: auto; }
 .content-view .results-layout { flex: 0 0 auto; overflow: visible; }
 .content-view .results-footer { flex: 0 0 auto; }
