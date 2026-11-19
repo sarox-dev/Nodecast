@@ -21,31 +21,45 @@ def release_type(release):
     return "major" if minor == 0 else "minor"
 
 
+def clean_release_notes(body):
+    lines = []
+    for line in (body or "").splitlines():
+        if re.match(r"^#{1,6}\s+Installation\b", line, re.IGNORECASE):
+            break
+        # The new version is the headline; omit the generated previous-version heading.
+        if re.match(r"^#{1,6}\s+(?:what['’]s changed(?: since .*)?|changes|changelog)\s*$",
+                    line, re.IGNORECASE):
+            continue
+        if re.match(r"^[-*]\s+(?:chore(?:\([^)]*\))?:\s*)?bump version(?:\s+to)?\s+v?\d+\.\d+\.\d+\b",
+                    line, re.IGNORECASE):
+            continue
+        if re.match(r"^[-*]\s+", line):
+            line = re.sub(r"\s+\([0-9a-f]{7,40}\)\s*$", "", line, flags=re.IGNORECASE)
+            line = re.sub(r"^([-*]\s+)(?:feat|fix|perf)(?:\([^)]*\))?!?:\s*", r"\1", line)
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
 def build_payload(release):
     kind = release_type(release)
     if kind is None:
         return None
     version = release["tag_name"].removeprefix("v")
     url = release["html_url"]
-    notes = (release.get("body") or "New features and improvements").strip()
-    # Show changes, leaving installation instructions on GitHub.
-    notes = notes.split("\n## Installation", 1)[0].strip()
-    link = f"\n\n[Read full release notes]({url})"
-    description = notes[:3000 - len(link)] + link
     major = kind == "major"
+    notes = clean_release_notes(release.get("body"))
+    notes = notes or "Release details are available on GitHub."
+    heading = f"# v{version}\n{kind.title()} release\n\n**What's new**\n"
+    link = f"\n\n[View release notes →]({url})"
+    description = heading + notes[:3000 - len(heading) - len(link)] + link
     return {
         "content": "@everyone" if major else "",
         "allowed_mentions": {"parse": ["everyone"] if major else []},
         "embeds": [{
-            "title": f"{'🚀' if major else '⭐'} Nodecast v{version} — {kind.title()} Release",
+            "title": f"{'🚀' if major else '⭐'} Nodecast update",
             "url": url,
             "color": 10181046 if major else 4886754,
             "description": description,
-            "fields": [
-                {"name": "Version", "value": version, "inline": True},
-                {"name": "Type", "value": kind.title(), "inline": True},
-                {"name": "Date", "value": release["published_at"][:10], "inline": True},
-            ],
             "footer": {"text": "Nodecast — Personal Knowledge Layer"},
             "timestamp": release["published_at"],
         }],

@@ -37,9 +37,9 @@ class DiscordReleaseTests(unittest.TestCase):
         data["body"] = '## Changes\n- Quotes " and Latvian ā\n## Installation\nHidden'
         payload = json.loads(json.dumps(notifier.build_payload(data)))
         embed = payload["embeds"][0]
-        self.assertIn("v1.8.0", embed["title"])
+        self.assertTrue(embed["description"].startswith("# v1.8.0\n"))
         self.assertEqual(embed["url"], data["html_url"])
-        self.assertEqual(embed["fields"][0]["value"], "1.8.0")
+        self.assertNotIn("fields", embed)
         self.assertIn('Quotes " and Latvian ā', embed["description"])
         self.assertNotIn("Hidden", embed["description"])
         self.assertEqual(payload["allowed_mentions"], {"parse": []})
@@ -50,6 +50,35 @@ class DiscordReleaseTests(unittest.TestCase):
         description = notifier.build_payload(data)["embeds"][0]["description"]
         self.assertLessEqual(len(description), 3000)
         self.assertTrue(description.endswith(f"({data['html_url']})"))
+
+    def test_generated_changelog_highlights_new_version_and_omits_release_housekeeping(self):
+        data = release("v1.7.0")
+        data["body"] = """## What's changed since v1.6.0
+
+- chore: bump version to 1.7.0 (ccbcaff)
+- fix: harden capture and provider security boundaries (4970629)
+- feat: improve Ask workspace and account switching (ab7d29e)
+- chore: update dependencies (123abcd)
+
+## Installation
+Download installers.
+"""
+        description = notifier.build_payload(data)["embeds"][0]["description"]
+        self.assertTrue(description.startswith("# v1.7.0\nMinor release"))
+        for unwanted in ("v1.6.0", "bump version", "ccbcaff", "4970629", "Installation", "Download installers"):
+            self.assertNotIn(unwanted, description)
+        self.assertIn("- harden capture and provider security boundaries", description)
+        self.assertIn("- improve Ask workspace and account switching", description)
+        self.assertIn("- chore: update dependencies", description)
+
+    def test_only_version_bump_notes_have_neutral_fallback(self):
+        data = release()
+        for body in (None, "", "## What's changed since v1.7.0\n- chore(release): bump version to 1.8.0 (123abcd)"):
+            with self.subTest(body=body):
+                data["body"] = body
+                description = notifier.build_payload(data)["embeds"][0]["description"]
+                self.assertIn("Release details are available on GitHub.", description)
+                self.assertNotIn("bump version", description)
 
     def test_everyone_only_for_major(self):
         payload = notifier.build_payload(release("v2.0.0"))
