@@ -669,9 +669,9 @@ function memoryFallbackMessage(synthesis) {
     if (synthesis.status === 'error') return 'AI synthesis failed. Saved evidence remains available below.';
     switch (synthesis.code) {
         case 'no_saved_sources': return 'No saved sources yet. Save a source before asking for an evidence-backed answer.';
-        case 'no_indexed_evidence': return 'Sources are saved, but no searchable evidence is available yet. AI cannot answer from saved evidence until it is indexed.';
+        case 'no_indexed_evidence': return 'Your sources are saved. Searchable text is still being indexed, or the source has no extractable text. Try again shortly.';
         case 'no_matching_evidence': return 'No matching evidence was found for this question. AI cannot answer from saved evidence; try different wording.';
-        case 'provider_unavailable': return 'Saved evidence is available, but no Recall synthesis model is configured. Connect one in Settings → AI.';
+        case 'provider_unavailable': return 'Showing your saved sources. AI is optional — connect a model in Settings → AI if you want a generated answer.';
         default: return 'Showing saved evidence without an AI-generated answer.';
     }
 }

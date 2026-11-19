@@ -27,6 +27,7 @@ from app.services.structured_extraction import extract_structured_blocks
 logger = logging.getLogger(__name__)
 
 FEATURE_ATOMIC_EXTRACTION = "atomic_extraction"
+ATOMIC_PROCESSOR_VERSION = "2"
 
 ATOMIC_SYSTEM_PROMPT = """You enrich exact evidence fragments without rewriting them.
 
@@ -192,12 +193,8 @@ def _parse_atomics_json(text: str) -> list[dict] | None:
 
 def process_capture_to_atomics(user_id: str, capture_id: str, page_html: str | None, capture_ref: dict) -> dict:
     """
-    Full pipeline for a capture with highlighted text:
-    1. Clean HTML
-    2. Extract atomics via AI
-    3. Return atomics
-    
-    For captures without highlighted text (bookmarks): no atomics created.
+    Index original selected text, or structured page content when no selection exists.
+    Deterministic evidence does not require an AI provider.
     """
     anchor = capture_ref.get("anchor") or {}
     anchor_text = str(anchor.get("selected_text") or "").strip() if isinstance(anchor, dict) else ""
@@ -257,11 +254,11 @@ def extract_atomics_for_capture(user_id: str, capture_id: str) -> dict:
         return {"status": "skipped", "message": "Capture not found"}
 
     html = get_raw_html(user_id, capture_id)
-    if not html:
-        return {"status": "skipped", "message": "No HTML available"}
-
     raw = load_raw_capture(user_id, capture_id)
     anchor = raw.anchor.model_dump() if raw and raw.anchor else None
+    if not html and not (anchor and (anchor.get("selected_text") or "").strip()):
+        return {"status": "skipped", "index_status": "saved_not_indexed",
+                "message": "No saved text or HTML available"}
     result = process_capture_to_atomics(user_id, capture_id, html, {"anchor": anchor})
     count = result.get("atomic_count", 0)
     return {

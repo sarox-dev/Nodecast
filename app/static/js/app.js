@@ -334,4 +334,6 @@ window.addEventListener('DOMContentLoaded', async () => {
         });
         tagManageNew.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); tagManageAddBtn.click(); } });
     }
+    window.nodecastOnboarding?.init(currentUser);
+
 });

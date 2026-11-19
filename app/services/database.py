@@ -528,7 +528,7 @@ def list_captures_without_ai_data(uid):
             try: raw=json.loads((raw_path/"capture.json").read_text())
             except (FileNotFoundError,json.JSONDecodeError,OSError): raw={}
             selected=((raw.get("anchor") or {}).get("selected_text") or "").strip()
-            if selected and (raw_path/"page.html").is_file() and n==0: out.append({"id":r["id"],"source_title":r["source_title"] or ""})
+            if n==0 and (selected or (raw_path/"page.html").is_file()): out.append({"id":r["id"],"source_title":r["source_title"] or ""})
         return out
     finally: c.close()
 def add_ai_job(uid,cid,feature,input_version="1",processor_version="1"):
