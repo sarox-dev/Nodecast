@@ -6,6 +6,7 @@ Renders to HTML ar GitHub-like styling.
 """
 
 import json
+from urllib.parse import urlsplit
 from typing import Any
 
 from app.services.renderers.base import BaseRenderer, register
@@ -38,7 +39,7 @@ class MarkdownRenderer(BaseRenderer):
         title = source_title or "Untitled"
         lines.append(f"<h1>{self._esc(title)}</h1>")
         if source_url:
-            lines.append(f'<p><strong>Source:</strong> <a href="{self._esc(source_url)}">{self._esc(source_url)}</a></p>')
+            lines.append(f'<p><strong>Source:</strong> <a href="{self._esc(self._safe_url(source_url))}">{self._esc(self._safe_url(source_url))}</a></p>')
         lines.append(f"<p><strong>Type:</strong> {self._esc(capture_ref.get('capture_type', 'page'))}</p>")
         proj = capture_ref.get("project")
         if proj:
@@ -48,7 +49,7 @@ class MarkdownRenderer(BaseRenderer):
             lines.append(f"<p><strong>Tags:</strong> {', '.join(self._esc(t) for t in tags)}</p>")
         saved = capture_ref.get("saved_at", "")
         if saved:
-            lines.append(f"<p><strong>Saved:</strong> {saved}</p>")
+            lines.append(f"<p><strong>Saved:</strong> {self._esc(saved)}</p>")
 
         lines.append("<hr>")
 
@@ -67,7 +68,7 @@ class MarkdownRenderer(BaseRenderer):
                     if v:
                         if isinstance(v, list):
                             v = ", ".join(v)
-                        lines.append(f"<tr><td><strong>{k}</strong></td><td>{self._esc(str(v))}</td></tr>")
+                        lines.append(f"<tr><td><strong>{self._esc(k)}</strong></td><td>{self._esc(str(v))}</td></tr>")
                 lines.append("</tbody></table>")
                 lines.append("</section>")
 
@@ -81,7 +82,7 @@ class MarkdownRenderer(BaseRenderer):
                         lines.append(f"<p>{self._esc(para)}</p>")
 
             elif ko_type == "heading":
-                level = min(props.get("level", 2), 6)
+                level = max(1, min(int(props.get("level", 2)), 6))
                 text = props.get("text", "")
                 lines.append(f"<h{level}>{self._esc(text)}</h{level}>")
 
@@ -95,9 +96,9 @@ class MarkdownRenderer(BaseRenderer):
                 href = props.get("href", "")
                 text = props.get("text", "")
                 if href and text:
-                    lines.append(f'<p class="ko-link">→ <a href="{self._esc(href)}">{self._esc(text)}</a></p>')
+                    lines.append(f'<p class="ko-link">→ <a href="{self._esc(self._safe_url(href))}">{self._esc(text)}</a></p>')
                 elif href:
-                    lines.append(f'<p class="ko-link">→ <a href="{self._esc(href)}">{self._esc(href)}</a></p>')
+                    lines.append(f'<p class="ko-link">→ <a href="{self._esc(self._safe_url(href))}">{self._esc(self._safe_url(href))}</a></p>')
 
             elif ko_type == "image":
                 src = props.get("src", "")
@@ -107,7 +108,7 @@ class MarkdownRenderer(BaseRenderer):
                 size_attr = ""
                 if width and height:
                     size_attr = f' width="{self._esc(str(width))}" height="{self._esc(str(height))}"'
-                lines.append(f'<p><img src="{self._esc(src)}" alt="{self._esc(alt)}" loading="lazy"{size_attr}></p>')
+                lines.append(f'<p><img src="{self._esc(self._safe_url(src))}" alt="{self._esc(alt)}" loading="lazy"{size_attr}></p>')
 
             elif ko_type == "quote":
                 text = props.get("text", "")
@@ -131,7 +132,7 @@ class MarkdownRenderer(BaseRenderer):
                 if props.get("author"):
                     channel_url = props.get("channel_url") or ""
                     if channel_url:
-                        lines.append(f'<tr><td>Channel</td><td><a href="{self._esc(channel_url)}">{self._esc(props["author"])}</a></td></tr>')
+                        lines.append(f'<tr><td>Channel</td><td><a href="{self._esc(self._safe_url(channel_url))}">{self._esc(props["author"])}</a></td></tr>')
                     else:
                         lines.append(f"<tr><td>Channel</td><td>{self._esc(props['author'])}</td></tr>")
                 if props.get("channel_id"):
@@ -162,7 +163,7 @@ class MarkdownRenderer(BaseRenderer):
                 lines.append("</tbody></table>")
                 # Thumbnail
                 if props.get("thumbnail"):
-                    lines.append(f'<p><img src="{self._esc(props["thumbnail"])}" alt="Video thumbnail" style="max-width:480px;border-radius:8px;" loading="lazy"></p>')
+                    lines.append(f'<p><img src="{self._esc(self._safe_url(props["thumbnail"]))}" alt="Video thumbnail" style="max-width:480px;border-radius:8px;" loading="lazy"></p>')
                 # Description
                 desc = props.get("description", "")
                 if desc:
@@ -175,7 +176,7 @@ class MarkdownRenderer(BaseRenderer):
                 video_id = props.get("video_id", "")
                 watch_url = f"https://www.youtube.com/watch?v={video_id}" if video_id else ""
                 if watch_url:
-                    lines.append(f'<p><a href="{self._esc(watch_url)}" target="_blank">▶ Watch on YouTube</a></p>')
+                    lines.append(f'<p><a href="{self._esc(self._safe_url(watch_url))}" target="_blank">▶ Watch on YouTube</a></p>')
                 lines.append("</section>")
 
             elif ko_type == "reddit_post":
@@ -197,7 +198,7 @@ class MarkdownRenderer(BaseRenderer):
                     lines.append("<h3>Description</h3>")
                     lines.append(f"<p>{self._esc(props['description'])}</p>")
                 if props.get("url"):
-                    lines.append(f'<p><a href="{self._esc(props["url"])}" target="_blank">🔗 View on Reddit</a></p>')
+                    lines.append(f'<p><a href="{self._esc(self._safe_url(props["url"]))}" target="_blank">🔗 View on Reddit</a></p>')
                 lines.append("</section>")
 
             elif ko_type == "document":
@@ -246,7 +247,7 @@ class MarkdownRenderer(BaseRenderer):
         captured = capture_ref.get("captured_at", "")
         if captured:
             lines.append("<hr>")
-            lines.append(f'<p class="text-muted"><em>Extracted by Nodecast — {captured}</em></p>')
+            lines.append(f'<p class="text-muted"><em>Extracted by Nodecast — {self._esc(captured)}</em></p>')
 
         lines.append("</div>")
 
@@ -258,7 +259,7 @@ class MarkdownRenderer(BaseRenderer):
         content = block.get("content", "")
 
         if btype == "heading":
-            level = min(block.get("level", 2), 6)
+            level = max(1, min(int(block.get("level", 2)), 6))
             return f"<h{level}>{self._esc(content)}</h{level}>"
 
         if btype == "paragraph":
@@ -273,7 +274,7 @@ class MarkdownRenderer(BaseRenderer):
             if width and height:
                 size = f' width="{self._esc(str(width))}" height="{self._esc(str(height))}"'
             caption = block.get("caption", "")
-            result = f'<p><img src="{self._esc(src)}" alt="{self._esc(alt)}" loading="lazy"{size}></p>'
+            result = f'<p><img src="{self._esc(self._safe_url(src))}" alt="{self._esc(alt)}" loading="lazy"{size}></p>'
             if caption:
                 result += f'<figcaption>{self._esc(caption)}</figcaption>'
             return result
@@ -310,6 +311,14 @@ class MarkdownRenderer(BaseRenderer):
             return "\n".join(result)
 
         return ""
+
+    @staticmethod
+    def _safe_url(value: str) -> str:
+        try:
+            parsed = urlsplit(value or "")
+            return value if parsed.scheme.lower() in {"http", "https"} and parsed.hostname else "#"
+        except ValueError:
+            return "#"
 
     def _esc(self, s: str) -> str:
         """HTML escape."""

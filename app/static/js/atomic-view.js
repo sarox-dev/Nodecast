@@ -111,9 +111,7 @@ async function editCaptureReason(button) {
 
 // ─── Helpers ──────────────────────────────────────────────────
 function escapeHtml(value) {
-    const div = document.createElement('div');
-    div.textContent = value || '';
-    return div.innerHTML;
+    return String(value ?? '').replace(/[&<>"']/g, character => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[character]));
 }
 
 function clearSkeletons() {
@@ -200,7 +198,7 @@ function createCard(item) {
 
     const shortContent = content.length > 200 ? content.slice(0, 200) + '…' : content;
     const sourceBadge = sourceUrl
-        ? `<a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener" class="card-source-badge" title="${escapeHtml(sourceTitle || sourceUrl)}">${escapeHtml(sourceTitle || sourceUrl.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</a>`
+        ? `<a href="${escapeHtml(safeExternalUrl(sourceUrl))}" target="_blank" rel="noopener" class="card-source-badge" title="${escapeHtml(sourceTitle || sourceUrl)}">${escapeHtml(sourceTitle || sourceUrl.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</a>`
         : '';
 
     return `
@@ -244,7 +242,7 @@ function renderSourceGroups(items) {
         };
         const fragments = group.fragments;
         const extra = fragments.length > 1 ? `<details class="memory-fragments"><summary>${fragments.length - 1} more fragment${fragments.length === 2 ? '' : 's'}</summary>${fragments.slice(1).map(renderFragment).join('')}</details>` : '';
-        const source = /^https?:\/\//i.test(group.url) ? `<a class="memory-source-link" href="${escapeHtml(group.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(group.site || 'Open source')} <span aria-hidden="true">↗</span></a>` : `<span class="memory-source-site">${escapeHtml(group.site || 'Saved source')}</span>`;
+        const source = /^https?:\/\//i.test(group.url) ? `<a class="memory-source-link" href="${escapeHtml(safeExternalUrl(group.url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(group.site || 'Open source')} <span aria-hidden="true">↗</span></a>` : `<span class="memory-source-site">${escapeHtml(group.site || 'Saved source')}</span>`;
         return `<article class="result-card memory-source-card" data-source-id="${escapeHtml(group.id)}"><div class="memory-source-header"><div><h3>${escapeHtml(group.title)}</h3>${source}</div>${group.id ? `<details class="memory-card-menu"><summary aria-label="Source actions" title="Source actions">⋯</summary><div class="memory-card-menu-content"><button type="button" data-edit-reason="${escapeHtml(group.id)}">Edit save reason</button></div></details>` : ''}</div>${fragments.length ? renderFragment(fragments[0]) : ''}${extra}<div class="memory-source-count">${fragments.length} fragment${fragments.length === 1 ? '' : 's'}</div></article>`;
     };
     return `<section class="memory-sources"><div class="memory-sources-heading"><h2>Sources</h2><span>${groups.length} source${groups.length === 1 ? '' : 's'} · ${fragmentCount} evidence item${fragmentCount === 1 ? '' : 's'}</span></div><div class="memory-source-grid">${groups.map(card).join('')}</div></section>`;
@@ -737,7 +735,7 @@ async function loadAggregateChildren(aggId) {
             const typeColors = { heading: '#1f6feb', text: '#64748b', code_block: '#238636', quote: '#8250df', link: '#9e6a03', image: '#da3633', entity: '#d29922' };
             const color = typeColors[child.type] || '#64748b';
             const src = child.source_url
-                ? `<a href="${escapeHtml(child.source_url)}" target="_blank" rel="noopener" class="card-source-badge" title="${escapeHtml(child.source_title || child.source_url)}">${escapeHtml(child.source_site_name || child.source_url.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</a>`
+                ? `<a href="${escapeHtml(safeExternalUrl(child.source_url))}" target="_blank" rel="noopener" class="card-source-badge" title="${escapeHtml(child.source_title || child.source_url)}">${escapeHtml(child.source_site_name || child.source_url.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</a>`
                 : '';
             return `<div class="card-aggregate-child">
                 <span class="card-chip" style="background:${color};color:#fff;padding:0.1rem 0.3rem;border-radius:0.3rem;font-size:0.65rem;text-transform:uppercase">${escapeHtml(child.type || 'text')}</span>
@@ -877,7 +875,7 @@ function renderFactCard(f) {
     return `<div class="fact-card">
         <span class="fact-bullet">•</span>
         <span class="fact-text">${escapeHtml(f.content)}</span>
-        ${f.source_url ? `<a href="${escapeHtml(f.source_url)}" class="fact-source-badge" target="_blank" rel="noopener" title="${escapeHtml(srcTitle)}">source</a>` : ''}
+        ${f.source_url ? `<a href="${escapeHtml(safeExternalUrl(f.source_url))}" class="fact-source-badge" target="_blank" rel="noopener" title="${escapeHtml(srcTitle)}">source</a>` : ''}
     </div>`;
 }
 
@@ -966,7 +964,7 @@ async function openEntityDetail(entityId) {
                 <div class="entity-section-title">Related knowledge (${relatedAtomics.length})</div>
                 <div class="entity-related-list">${relatedAtomics.map(a => {
                     const src = a.source_url
-                        ? `<a href="${escapeHtml(a.source_url)}" target="_blank" rel="noopener" class="entity-source-badge" title="${escapeHtml(a.source_title || a.source_url)}">${escapeHtml(a.source_site_name || a.source_url.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</a>`
+                        ? `<a href="${escapeHtml(safeExternalUrl(a.source_url))}" target="_blank" rel="noopener" class="entity-source-badge" title="${escapeHtml(a.source_title || a.source_url)}">${escapeHtml(a.source_site_name || a.source_url.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</a>`
                         : '';
                     return `<div class="entity-related-item">
                         <span class="entity-type-badge" style="background:${typeColors[a.type] || '#64748b'};font-size:0.65rem">${escapeHtml(a.type)}</span>
@@ -990,7 +988,7 @@ async function openEntityDetail(entityId) {
         document.querySelectorAll('.entity-capture').forEach(el => {
             el.addEventListener('click', () => {
                 const url = el.dataset.id;
-                if (url) window.open(url, '_blank');
+                if (url) window.open(safeExternalUrl(url), '_blank', 'noopener');
             });
         });
         document.querySelector('.entity-back-btn')?.addEventListener('click', () => entitySearch(''));

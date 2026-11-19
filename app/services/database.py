@@ -71,12 +71,42 @@ def user_exists(name):
     c=get_users_db()
     try: return c.execute("SELECT 1 FROM users WHERE LOWER(username)=LOWER(?)",(name,)).fetchone() is not None
     finally: c.close()
-def create_user_in_db(username,password_hash,is_admin=False,role=None):
+def create_user_in_db(username,password_hash,is_admin=False,role=None,*,enforce_profile=False):
     uid=uuid.uuid4().hex[:12]; c=get_users_db()
     try:
         assigned_role = role or ("owner" if is_admin else "member")
+        if enforce_profile:
+            c.execute("BEGIN IMMEDIATE")
+            if get_account_mode() == "personal" and (assigned_role != "member" or c.execute("SELECT 1 FROM users WHERE role='member' LIMIT 1").fetchone()):
+                raise ValueError("This personal installation already has its Library account")
         c.execute("INSERT INTO users(id,username,password_hash,is_admin,role,created_at) VALUES (?,?,?,?,?,?)",(uid,username,password_hash,int(assigned_role == "owner"),assigned_role,_now())); c.commit(); return uid
     finally: c.close()
+def create_registered_user(username, password_hash, *, owner):
+    """Recheck registration policy in the same transaction as the insert."""
+    db = get_users_db()
+    try:
+        db.execute("BEGIN IMMEDIATE")
+        has_users = db.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None
+        if owner != (not has_users):
+            raise ValueError("Registration state changed. Please try again.")
+        if not owner:
+            if get_account_mode() == "personal" and db.execute("SELECT 1 FROM users WHERE role='member' LIMIT 1").fetchone():
+                raise ValueError("This personal installation already has its Library account")
+            setting = db.execute("SELECT value FROM global_settings WHERE key='open_registration'").fetchone()
+            if not (setting and setting["value"] == "true"):
+                raise ValueError("Registration is closed. Contact your admin.")
+        if db.execute("SELECT 1 FROM users WHERE LOWER(username)=LOWER(?)", (username,)).fetchone():
+            raise ValueError("Username already exists")
+        uid = uuid.uuid4().hex[:12]
+        role = "owner" if owner else "member"
+        db.execute("INSERT INTO users(id,username,password_hash,is_admin,role,created_at) VALUES (?,?,?,?,?,?)",
+                   (uid, username, password_hash, int(owner), role, _now()))
+        db.commit()
+        return uid
+    finally:
+        db.close()
+
+
 def get_user_by_username(name):
     c=get_users_db()
     try:
@@ -128,6 +158,29 @@ def add_web_session_account(secret, uid, ttl_seconds):
         c.execute("INSERT INTO web_session_accounts VALUES (?,?,?) ON CONFLICT(session_id_hash,user_id) DO UPDATE SET authenticated_at=excluded.authenticated_at",(sid,uid,now))
         c.execute("UPDATE web_sessions SET active_user_id=?,expires_at=? WHERE id_hash=?",(uid,now+ttl_seconds,sid)); c.commit(); return True
     finally: c.close()
+def rotate_web_session(secret, new_secret, user_id=None, ttl_seconds=None, user_agent=""):
+    """Move all authenticated accounts to a fresh session and revoke the old one."""
+    now = int(time.time())
+    old_id, new_id = _session_hash(secret), _session_hash(new_secret)
+    db = get_users_db()
+    try:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute("SELECT * FROM web_sessions WHERE id_hash=? AND expires_at>?", (old_id, now)).fetchone()
+        if not row:
+            return False
+        db.execute("INSERT INTO web_sessions(id_hash,active_user_id,created_at,expires_at,last_seen_at,user_agent) VALUES (?,?,?,?,?,?)",
+                   (new_id, user_id or row["active_user_id"], now, now + ttl_seconds if ttl_seconds else row["expires_at"], now, user_agent or row["user_agent"]))
+        db.execute("INSERT INTO web_session_accounts SELECT ?,user_id,authenticated_at FROM web_session_accounts WHERE session_id_hash=?", (new_id, old_id))
+        if user_id:
+            db.execute("INSERT INTO web_session_accounts VALUES (?,?,?) ON CONFLICT(session_id_hash,user_id) DO UPDATE SET authenticated_at=excluded.authenticated_at",
+                       (new_id, user_id, now))
+        db.execute("DELETE FROM web_sessions WHERE id_hash=?", (old_id,))
+        db.commit()
+        return True
+    finally:
+        db.close()
+
+
 def get_web_session_user(secret):
     if not secret: return None
     now=int(time.time()); sid=_session_hash(secret); c=get_users_db()
@@ -516,7 +569,16 @@ def member_count():
         return c.execute("SELECT COUNT(*) c FROM users WHERE role='member'").fetchone()["c"]
     finally:
         c.close()
-def count_active_sessions(timeout_minutes=5): return 0
+def count_active_sessions(timeout_minutes=5):
+    now = int(time.time())
+    db = get_users_db()
+    try:
+        return db.execute(
+            "SELECT COUNT(*) FROM web_sessions WHERE expires_at>? AND last_seen_at>?",
+            (now, now - timeout_minutes * 60),
+        ).fetchone()[0]
+    finally:
+        db.close()
 
 
 def list_captures_without_ai_data(uid):

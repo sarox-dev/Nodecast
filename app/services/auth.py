@@ -9,7 +9,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.core.security import JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRY_HOURS
 from app.services.database import (
     add_web_session_account, create_web_session, get_user_by_id,
-    get_web_session_user, web_session_binding_matches,
+    get_web_session_user, web_session_binding_matches, rotate_web_session,
 )
 
 # ─── Password ─────────────────────────────────────────────────────
@@ -21,6 +21,18 @@ def verify_password(password: str, hashed: str) -> bool:
         return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
     except (ValueError, TypeError):
         return False
+
+
+def verify_account_password(request: Request, account: dict, password: str) -> bool:
+    """Share the reauthentication budget across password-protected account actions."""
+    from app.services.auth_rate_limit import check_rate_limit, clear_failures, rate_key, record_failure
+    key = rate_key(request, "account-reauth", account["id"])
+    check_rate_limit(key)
+    if not verify_password(password, account["password_hash"]):
+        record_failure(key)
+        return False
+    clear_failures(key)
+    return True
 
 
 COMMON_WEAK_PASSWORDS = {
@@ -53,11 +65,13 @@ def create_token(user_id: str, username: str, scope: str = "user", session_bindi
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 def decode_token(token: str) -> dict | None:
+    if len(token) > 16384:
+        return None
     try:
         return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
     except jwt.ExpiredSignatureError:
         return None
-    except jwt.InvalidTokenError:
+    except (jwt.InvalidTokenError, RecursionError):
         return None
 
 # ─── Dependencies ─────────────────────────────────────────────────
@@ -78,10 +92,8 @@ def set_session_cookie(response, token: str) -> None:
 
 def start_web_session(response, user_id: str, existing_secret: str = "", user_agent: str = "") -> str:
     ttl = JWT_EXPIRY_HOURS * 3600
-    if existing_secret and add_web_session_account(existing_secret, user_id, ttl):
-        secret = existing_secret
-    else:
-        secret = secrets.token_urlsafe(48)
+    secret = secrets.token_urlsafe(48)
+    if not existing_secret or not rotate_web_session(existing_secret, secret, user_id, ttl, user_agent):
         create_web_session(secret, user_id, ttl, user_agent)
     set_session_cookie(response, secret)
     return secret

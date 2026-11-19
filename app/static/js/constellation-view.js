@@ -53,7 +53,7 @@
 
         function activate(item) {
             if (item.kind === 'source' && item.source_url) {
-                window.open(item.source_url, '_blank', 'noopener');
+                window.open(safeExternalUrl(item.source_url), '_blank', 'noopener');
                 return;
             }
             window.setWebMode?.(false);

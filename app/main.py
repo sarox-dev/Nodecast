@@ -32,6 +32,9 @@ app = FastAPI()
 def startup():
     # Auto-migrate existing data to per-user structure
     init_db()
+    if user_count() == 0:
+        from app.services.setup_security import setup_token
+        setup_token()
     from app.services.database import get_account_mode, get_global_setting, member_count, set_global_setting
     if get_account_mode() == "personal" and member_count() > 1:
         raise RuntimeError(

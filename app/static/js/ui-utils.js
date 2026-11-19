@@ -96,9 +96,7 @@ function formatTimeLong(isoStr) {
 }
 
 function escapeHtml(value) {
-    const div = document.createElement('div');
-    div.textContent = value || '';
-    return div.innerHTML;
+    return String(value ?? '').replace(/[&<>"']/g, character => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[character]));
 }
 
 function showConfirmDialog(msg, opts = {}) {
@@ -216,5 +214,14 @@ function formatInline(text) {
     return escapeHtml(text)
         .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
         .replace(/\*(.+?)\*/g, '<em>$1</em>')
-        .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+        .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, (_match, label, url) => '<a href="' + safeExternalUrl(url) + '" target="_blank" rel="noopener">' + label + '</a>');
+}
+
+function safeExternalUrl(value) {
+    try {
+        const url = new URL(String(value));
+        return ['https:', 'http:'].includes(url.protocol) ? url.href : '#';
+    } catch {
+        return '#';
+    }
 }

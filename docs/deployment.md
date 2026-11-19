@@ -89,3 +89,9 @@ accounts, per-user knowledge databases, raw captures, the JWT secret and the
 encryption key used for AI credentials.
 
 Nodecast has no SearXNG, Redis, PostgreSQL, Celery, or cloud-sync dependency. For remote exposure, put TLS and access controls in front of the app; the default configuration is intended for a trusted local machine.
+
+## First-owner setup
+
+A fresh installation requires the setup code printed by the installer or stored on the server in `contents/.setup_token`. Enter it when creating the owner. This works from localhost and Trusted LAN. Existing accounts use their normal login. The file is removed after owner creation.
+
+Extension pairing now opens an extension-owned confirmation tab. Confirm the displayed server address within 90 seconds. Existing saved captures remain compatible.

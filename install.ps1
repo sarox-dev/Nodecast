@@ -61,6 +61,17 @@ function Test-SafeInstallTarget([string]$Path) {
     return $true
 }
 
+function Resolve-PublicOrigin([string]$ExistingOrigin, [string]$HostName, [int]$AppPort) {
+    $parsed = $null
+    if ([Uri]::TryCreate($ExistingOrigin, [UriKind]::Absolute, [ref]$parsed) -and
+        $parsed.Scheme -eq "https" -and $parsed.Host -eq $HostName -and
+        -not $parsed.UserInfo -and -not $parsed.Query -and -not $parsed.Fragment -and
+        $parsed.AbsolutePath -eq "/") {
+        return $parsed.GetLeftPart([UriPartial]::Authority)
+    }
+    return "http://${HostName}:$AppPort"
+}
+
 function Test-SafeArchive([string]$Archive) {
     $entries = & tar -tzf $Archive
     if ($LASTEXITCODE -ne 0) { return $false }
@@ -153,6 +164,7 @@ Done "Mode: $Mode | Directory: $InstallDir"
 
 Step "Choosing accounts and network access"
 $ExistingEnv = Join-Path $InstallDir ".env"
+$SavedPublicOrigin = Get-EnvValue $ExistingEnv "NODECAST_PUBLIC_ORIGIN"
 $AccountMode = $env:NODECAST_ACCOUNT_MODE
 if (-not $AccountMode) {
     Write-Host ""
@@ -249,7 +261,8 @@ $AppPortText = if ($portLine) { ($portLine.Line -split '=',2)[1].Trim() } else {
 $AppPort = 0
 if (-not ([int]::TryParse($AppPortText, [ref]$AppPort)) -or $AppPort -lt 1 -or $AppPort -gt 65535) { Fail "APP_PORT in .env must be between 1 and 65535." }
 $originHost = if ($NetworkAccess -eq "lan") { $LanHost } else { "localhost" }
-Add-Content $EnvFile "NODECAST_PUBLIC_ORIGIN=http://${originHost}:$AppPort" -Encoding utf8
+$PublicOrigin = Resolve-PublicOrigin $SavedPublicOrigin $originHost $AppPort
+Add-Content $EnvFile "NODECAST_PUBLIC_ORIGIN=$PublicOrigin" -Encoding utf8
 Done "Configuration and persistent data directory are ready"
 
 Step "Installing Nodecast"
@@ -289,6 +302,11 @@ if (-not (Wait-Nodecast $AppPort)) {
     Fail "Nodecast did not become healthy on port $AppPort."
 }
 Done "Health check passed on http://127.0.0.1:$AppPort"
+$setupCodePath = Join-Path $InstallDir "contents\.setup_token"
+if (Test-Path $setupCodePath) {
+    Note "First-owner setup code (also in contents/.setup_token):"
+    Get-Content $setupCodePath
+}
 
 Step "Configuring update checks"
 $env:NODECAST_INSTALL_DIR = $InstallDir

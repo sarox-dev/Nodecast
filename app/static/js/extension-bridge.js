@@ -76,7 +76,7 @@
         const result = await request('NODECAST_EXTENSION_PAIR', {
             code: pairing.code,
             coreOrigin: window.location.origin,
-        }, 6000);
+        }, 90000);
         if (!result?.success) throw new Error(result?.message || 'Extension did not accept the connection');
         publish({ detected: true, connected: true, username: result.username || '' });
         return result;

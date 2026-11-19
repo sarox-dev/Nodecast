@@ -65,3 +65,13 @@ def test_release_bundle_includes_native_runner():
     workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     assert "git archive" in workflow
     assert (ROOT / "scripts" / "run-nodecast.py").is_file()
+
+def test_host_updater_network_calls_are_bounded():
+    bash = (ROOT / "scripts" / "update-nodecast.sh").read_text(encoding="utf-8")
+    powershell = (ROOT / "scripts" / "update-nodecast.ps1").read_text(encoding="utf-8")
+    for line in bash.splitlines():
+        if "curl " in line:
+            assert "--connect-timeout" in line and "--max-time" in line
+    for line in powershell.splitlines():
+        if "Invoke-RestMethod " in line or "Invoke-WebRequest " in line:
+            assert "-TimeoutSec" in line

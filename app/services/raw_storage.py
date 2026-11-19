@@ -11,6 +11,8 @@ Struktūra:
 import json
 import os
 import shutil
+import sqlite3
+from contextlib import closing, contextmanager
 from pathlib import Path
 
 from app.core.security import CONTENTS_DIR, MAX_SNAPSHOT_BYTES, MAX_USER_STORAGE_BYTES
@@ -32,6 +34,20 @@ def _user_raw_size(user_id: str) -> int:
     return sum(path.stat().st_size for path in raw_root.rglob("*") if path.is_file())
 
 
+@contextmanager
+def _raw_write_lock(user_id: str):
+    """Serialize quota checks, writes and deletes across threads and processes."""
+    user_root = CONTENTS_DIR / "users" / user_id
+    user_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    lock_path = user_root / ".raw-storage.lock"
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    os.close(descriptor)
+    with closing(sqlite3.connect(str(lock_path), timeout=30)) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        with connection:
+            yield
+
+
 def save_raw_capture(
     user_id: str,
     package: CapturePackage,
@@ -47,35 +63,26 @@ def save_raw_capture(
     Atgriež ceļu līdz raw direktorijai.
     """
     raw_path = _raw_dir(user_id, package.capture_id)
+    if html is not None and not isinstance(html, str):
+        raise ValueError("Page snapshot must be text")
     html_size = len(html.encode("utf-8")) if html else 0
-    package_size = len(package.model_dump_json(exclude_none=True).encode("utf-8"))
+    serialized = json.dumps(package.model_dump(exclude_none=True, mode="json"), indent=2, ensure_ascii=False)
+    package_size = len(serialized.encode("utf-8"))
     if html_size > MAX_SNAPSHOT_BYTES:
         raise ValueError("Page snapshot is too large")
-    if _user_raw_size(user_id) + html_size + package_size > MAX_USER_STORAGE_BYTES:
-        raise ValueError("User storage quota exceeded")
-    if raw_path.exists():
-        raise FileExistsError(
-            f"Raw Capture {package.capture_id} already exists — "
-            "Raw Capture is immutable, cannot overwrite."
-        )
-
-    os.makedirs(str(raw_path), exist_ok=True)
-
-    # capture.json
-    capture_path = raw_path / "capture.json"
-    with open(str(capture_path), "w", encoding="utf-8") as f:
-        # Use model_dump with exclude_none to keep JSON clean
-        json.dump(
-            package.model_dump(exclude_none=True, mode="json"),
-            f,
-            indent=2,
-            ensure_ascii=False,
-        )
-
-    # page.html
-    if html:
-        html_path = raw_path / "page.html"
-        html_path.write_text(html, encoding="utf-8")
+    with _raw_write_lock(user_id):
+        if raw_path.exists():
+            raise FileExistsError(f"Raw Capture {package.capture_id} already exists")
+        if _user_raw_size(user_id) + html_size + package_size > MAX_USER_STORAGE_BYTES:
+            raise ValueError("User storage quota exceeded")
+        raw_path.mkdir(mode=0o700, parents=True, exist_ok=False)
+        try:
+            (raw_path / "capture.json").write_text(serialized, encoding="utf-8")
+            if html:
+                (raw_path / "page.html").write_text(html, encoding="utf-8")
+        except BaseException:
+            shutil.rmtree(raw_path, ignore_errors=True)
+            raise
 
     return raw_path
 
@@ -103,10 +110,11 @@ def raw_exists(user_id: str, capture_id: str) -> bool:
 
 def delete_raw_capture(user_id: str, capture_id: str) -> bool:
     raw_path = _raw_dir(user_id, capture_id)
-    if not raw_path.exists():
-        return False
-    shutil.rmtree(raw_path)
-    return True
+    with _raw_write_lock(user_id):
+        if not raw_path.exists():
+            return False
+        shutil.rmtree(raw_path)
+        return True
 
 
 def raw_size(user_id: str, capture_id: str) -> int:

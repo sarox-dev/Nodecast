@@ -36,6 +36,8 @@ def validate_provider_url(url: str, *, allow_private: bool = False) -> str:
     except (socket.gaierror, ValueError) as exc:
         raise UnsafeProviderURL("Provider hostname could not be resolved") from exc
 
+    if parsed.scheme != "https" and not (allow_private and all(address.is_private or address.is_loopback for address in addresses)):
+        raise UnsafeProviderURL("Public providers must use HTTPS")
     if not addresses:
         raise UnsafeProviderURL("Provider hostname could not be resolved")
     if not allow_private and any(not address.is_global for address in addresses):

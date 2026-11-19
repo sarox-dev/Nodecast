@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+umask 077
 
 REPO="sarox-dev/Nodecast"
 TOTAL_STEPS=8
@@ -53,6 +54,29 @@ safe_install_target() {
   if [[ -d "$target" ]] && find "$target" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null | grep -q .; then
     [[ -f "$target/app/version.json" || -f "$target/.nodecast-install" ]] || return 1
   fi
+}
+
+public_origin_for() {
+  local existing="$1" host_name="$2" app_port="$3" previous_host public_port
+  if [[ "$existing" =~ ^[Hh][Tt][Tt][Pp][Ss]://([A-Za-z0-9.-]+)(:([0-9]{1,5}))?/?$ ]]; then
+    previous_host="$(printf '%s' "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]')"
+    public_port="${BASH_REMATCH[3]}"
+    if [[ -n "$public_port" ]]; then
+      public_port="$((10#$public_port))"
+      if (( public_port > 65535 )); then
+        printf 'http://%s:%s' "$host_name" "$app_port"
+        return
+      fi
+    fi
+    if [[ "$previous_host" == "$(printf '%s' "$host_name" | tr '[:upper:]' '[:lower:]')" ]]; then
+      printf 'https://%s' "$previous_host"
+      if [[ -n "$public_port" && "$public_port" != 443 ]]; then
+        printf ':%s' "$public_port"
+      fi
+      return
+    fi
+  fi
+  printf 'http://%s:%s' "$host_name" "$app_port"
 }
 
 archive_is_safe() {
@@ -197,7 +221,9 @@ fi
 if grep -q '^AUTO_UPDATE_DEFAULT=' "$INSTALL_DIR/.env"; then sed -i.bak "s/^AUTO_UPDATE_DEFAULT=.*/AUTO_UPDATE_DEFAULT=$AUTO_UPDATE/" "$INSTALL_DIR/.env" && rm -f "$INSTALL_DIR/.env.bak"; else printf '\nAUTO_UPDATE_DEFAULT=%s\n' "$AUTO_UPDATE" >> "$INSTALL_DIR/.env"; fi
 APP_PORT="$(sed -n 's/^APP_PORT=//p' "$INSTALL_DIR/.env" | tail -1)"; APP_PORT="${APP_PORT:-5000}"
 [[ "$APP_PORT" =~ ^[0-9]+$ ]] && (( APP_PORT >= 1 && APP_PORT <= 65535 )) || fail "APP_PORT in .env must be between 1 and 65535."
-for pair in "NODECAST_ACCOUNT_MODE=$ACCOUNT_MODE" "NODECAST_BIND_HOST=$([[ "$NETWORK_ACCESS" == "lan" ]] && printf '0.0.0.0' || printf '127.0.0.1')" "NODECAST_PUBLIC_ORIGIN=http://$([[ "$NETWORK_ACCESS" == "lan" ]] && printf '%s' "$LAN_HOST" || printf 'localhost'):$APP_PORT"; do
+ORIGIN_HOST="localhost"; [[ "$NETWORK_ACCESS" == "lan" ]] && ORIGIN_HOST="$LAN_HOST"
+PUBLIC_ORIGIN="$(public_origin_for "$current_origin" "$ORIGIN_HOST" "$APP_PORT")"
+for pair in "NODECAST_ACCOUNT_MODE=$ACCOUNT_MODE" "NODECAST_BIND_HOST=$([[ "$NETWORK_ACCESS" == "lan" ]] && printf '0.0.0.0' || printf '127.0.0.1')" "NODECAST_PUBLIC_ORIGIN=$PUBLIC_ORIGIN"; do
   key="${pair%%=*}"; value="${pair#*=}"
   if grep -q "^${key}=" "$INSTALL_DIR/.env"; then sed -i.bak "s|^${key}=.*|${key}=${value}|" "$INSTALL_DIR/.env" && rm -f "$INSTALL_DIR/.env.bak"; else printf '%s=%s\n' "$key" "$value" >> "$INSTALL_DIR/.env"; fi
 done
@@ -253,6 +279,11 @@ if ! wait_for_health; then
   fail "Nodecast did not become healthy on port $APP_PORT."
 fi
 ok "Health check passed on http://127.0.0.1:$APP_PORT"
+if [[ -f "$INSTALL_DIR/contents/.setup_token" ]]; then
+  note "First-owner setup code (also in contents/.setup_token):"
+  cat "$INSTALL_DIR/contents/.setup_token"
+  printf '\n'
+fi
 
 step "Configuring update checks"
 NODECAST_INSTALL_DIR="$INSTALL_DIR" NODECAST_MODE="$MODE" NODECAST_APP_PORT="$APP_PORT" bash "$INSTALL_DIR/scripts/install-updater.sh"

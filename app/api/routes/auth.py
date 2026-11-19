@@ -5,11 +5,11 @@ from fastapi import APIRouter, HTTPException, Depends, Response, Request
 from pydantic import BaseModel
 
 from app.services.auth import (
-    hash_password, verify_password, create_token,
+    hash_password, verify_password, verify_account_password, create_token,
     get_current_user, password_is_supported, set_session_cookie, start_web_session, COOKIE_NAME
 )
 from app.services.database import (
-    init_user_db, user_exists,
+    init_user_db, user_exists, create_registered_user,
     create_user_in_db, get_user_by_username, get_user_by_id,
     get_all_users, update_password, update_username,
     delete_user, clear_user_data,
@@ -31,6 +31,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 class RegisterRequest(BaseModel):
     username: str
     password: str
+    setup_token: str = ""
 
 class LoginRequest(BaseModel):
     username: str
@@ -114,6 +115,10 @@ def register(req: RegisterRequest, response: Response, request: Request):
         raise HTTPException(400, "Username must be at least 2 characters")
     # First user is admin
     is_admin = user_count() == 0
+    if is_admin:
+        from app.services.setup_security import valid_setup_token
+        if not valid_setup_token(req.setup_token):
+            raise HTTPException(403, "Enter the setup code from contents/.setup_token on the server")
     if not password_is_supported(req.password, owner=is_admin):
         minimum = 16 if is_admin else 12
         raise HTTPException(400, f"Password must be between {minimum} and 72 UTF-8 bytes and must not be commonly used")
@@ -129,8 +134,14 @@ def register(req: RegisterRequest, response: Response, request: Request):
     if not is_admin and not get_registration_setting():
         raise HTTPException(403, "Registration is closed. Contact your admin.")
 
-    user_id = create_user_in_db(username, hash_password(req.password), is_admin=is_admin, role="owner" if is_admin else "member")
-    if not is_admin:
+    try:
+        user_id = create_registered_user(username, hash_password(req.password), owner=is_admin)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if is_admin:
+        from app.core.security import CONTENTS_DIR
+        (CONTENTS_DIR / ".setup_token").unlink(missing_ok=True)
+    else:
         init_user_db(user_id)
 
     start_web_session(response, user_id, request.cookies.get(COOKIE_NAME, ""), request.headers.get("user-agent", ""))
@@ -212,9 +223,9 @@ def me(current_user: dict = Depends(get_current_user)):
 
 # ─── Change password ─────────────────────────────────────────────
 @router.post("/change-password")
-def change_password(req: ChangePasswordRequest, response: Response, current_user: dict = Depends(get_current_user)):
+def change_password(req: ChangePasswordRequest, response: Response, request: Request, current_user: dict = Depends(get_current_user)):
     user = get_user_by_id(current_user["user_id"])
-    if not verify_password(req.current_password, user["password_hash"]):
+    if not verify_account_password(request, user, req.current_password):
         raise HTTPException(401, "Current password is incorrect")
     is_owner = user.get("role") == "owner"
     if not password_is_supported(req.new_password, owner=is_owner):
@@ -230,9 +241,9 @@ def change_password(req: ChangePasswordRequest, response: Response, current_user
 
 # ─── Change username ─────────────────────────────────────────────
 @router.post("/change-username")
-def change_username(req: ChangeUsernameRequest, response: Response, current_user: dict = Depends(get_current_user)):
+def change_username(req: ChangeUsernameRequest, response: Response, request: Request, current_user: dict = Depends(get_current_user)):
     user = get_user_by_id(current_user["user_id"])
-    if not verify_password(req.password, user["password_hash"]):
+    if not verify_account_password(request, user, req.password):
         raise HTTPException(401, "Password is incorrect")
     new_username = req.new_username.strip().lower()
     if not new_username or len(new_username) < 2:
@@ -268,11 +279,11 @@ def list_users(current_user: dict = Depends(get_current_user)):
 
 # ─── Admin: delete user or clear data ────────────────────────────
 @router.post("/admin/user")
-def admin_user_action(req: AdminDeleteUserRequest, current_user: dict = Depends(get_current_user)):
+def admin_user_action(req: AdminDeleteUserRequest, request: Request, current_user: dict = Depends(get_current_user)):
     admin = get_user_by_id(current_user["user_id"])
     if not admin or not admin["is_admin"]:
         raise HTTPException(403, "Admin access required")
-    if not verify_password(req.admin_password, admin["password_hash"]):
+    if not verify_account_password(request, admin, req.admin_password):
         raise HTTPException(401, "Admin password is incorrect")
     if req.target_user_id == admin["id"]:
         raise HTTPException(400, "Cannot delete yourself")
@@ -354,10 +365,10 @@ def get_recovery_status(current_user: dict = Depends(get_current_user)):
 
 
 @router.post("/recovery/rotate")
-def rotate_recovery(req: RotateRecoveryRequest, response: Response, current_user: dict = Depends(get_current_user)):
+def rotate_recovery(req: RotateRecoveryRequest, response: Response, request: Request, current_user: dict = Depends(get_current_user)):
     user = get_user_by_id(current_user["user_id"])
     if not user or user.get("role") != "owner": raise HTTPException(403, "Owner access required")
-    if not verify_password(req.current_password, user["password_hash"]): raise HTTPException(401, "Current password is incorrect")
+    if not verify_account_password(request, user, req.current_password): raise HTTPException(401, "Current password is incorrect")
     codes = create_recovery_set(user["id"], "manual_rotation", user["id"])
     response.headers["Cache-Control"] = "no-store"
     return {"codes": codes}
@@ -365,7 +376,10 @@ def rotate_recovery(req: RotateRecoveryRequest, response: Response, current_user
 
 @router.post("/recovery/request")
 def request_password_reset(req: ForgotPasswordRequest, response: Response, request: Request):
-    key = rate_key(request, "recovery-request", req.username); check_rate_limit(key); record_failure(key)
+    key = rate_key(request, "recovery-request", req.username)
+    ip_key = rate_key(request, "recovery-request")
+    check_rate_limit(key, ip_key)
+    record_failure(key, ip_key)
     secret = create_member_reset_request(req.username, request.headers.get("user-agent", ""))
     _set_private_cookie(response, RECOVERY_REQUEST_COOKIE, secret, 24 * 60 * 60)
     return {"message": "If this account exists, a reset request was created."}
@@ -433,7 +447,7 @@ def revoke_other_sessions(request: Request, current_user: dict = Depends(get_cur
 def revoke_session(session_id: str, request: Request, current_user: dict = Depends(get_current_user)):
     db = get_users_db()
     try:
-        row = db.execute("SELECT id_hash FROM web_session_accounts WHERE user_id=? AND substr(session_id_hash,1,16)=?", (current_user["user_id"], session_id)).fetchone()
+        row = db.execute("SELECT session_id_hash AS id_hash FROM web_session_accounts WHERE user_id=? AND substr(session_id_hash,1,16)=?", (current_user["user_id"], session_id)).fetchone()
         if not row: raise HTTPException(404, "Session not found")
         db.execute("DELETE FROM web_sessions WHERE id_hash=?", (row["id_hash"],)); db.commit()
     finally: db.close()
