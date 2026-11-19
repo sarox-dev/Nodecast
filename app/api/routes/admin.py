@@ -6,8 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.services.account_security import audit, has_permission, revoke_user_sessions
-from app.services.auth import get_current_user, hash_password, password_is_supported, verify_password
-from app.services.auth_rate_limit import check_rate_limit, clear_failures, rate_key, record_failure
+from app.services.auth import get_current_user, hash_password, password_is_supported, verify_account_password
 from app.services.database import (
     create_user_in_db, delete_user, get_all_users, get_global_setting, get_user_by_id,
     get_users_db, init_user_db, list_ai_assignments, set_global_setting,
@@ -108,7 +107,11 @@ def create_account(req: CreateAccountRequest, current_user: dict = Depends(get_c
     try:
         if db.execute("SELECT 1 FROM users WHERE LOWER(username)=LOWER(?)", (username,)).fetchone(): raise HTTPException(409, "Username already exists")
     finally: db.close()
-    uid = create_user_in_db(username, hash_password(req.password), role=role); init_user_db(uid)
+    try:
+        uid = create_user_in_db(username, hash_password(req.password), role=role, enforce_profile=True)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    init_user_db(uid)
     audit("account_created", actor["id"], uid, {"role": role})
     return {"success": True, "user_id": uid}
 
@@ -117,9 +120,8 @@ def create_account(req: CreateAccountRequest, current_user: dict = Depends(get_c
 def account_action(user_id: str, req: AccountActionRequest, request: Request, current_user: dict = Depends(get_current_user)):
     actor = _actor(current_user); target = get_user_by_id(user_id)
     if not target: raise HTTPException(404, "User not found")
-    key = rate_key(request, "admin-reauth", actor["id"]); check_rate_limit(key)
-    if not verify_password(req.current_password, actor["password_hash"]): record_failure(key); raise HTTPException(401, "Current password is incorrect")
-    clear_failures(key)
+    if not verify_account_password(request, actor, req.current_password):
+        raise HTTPException(401, "Current password is incorrect")
     if target["role"] == "owner": raise HTTPException(400, "The owner account cannot be modified here")
     if actor["role"] != "owner" and target["role"] != "member": raise HTTPException(403, "Moderator scope exceeded")
     db = get_users_db()
@@ -145,9 +147,8 @@ def set_permissions(user_id: str, req: PermissionRequest, request: Request, curr
     actor = _actor(current_user); target = get_user_by_id(user_id)
     if actor["role"] != "owner": raise HTTPException(403, "Only the owner can grant moderator permissions")
     if not target or target["role"] != "moderator": raise HTTPException(404, "Moderator not found")
-    key = rate_key(request, "admin-reauth", actor["id"]); check_rate_limit(key)
-    if not verify_password(req.current_password, actor["password_hash"]): record_failure(key); raise HTTPException(401, "Current password is incorrect")
-    clear_failures(key)
+    if not verify_account_password(request, actor, req.current_password):
+        raise HTTPException(401, "Current password is incorrect")
     allowed = {"manage_members", "manage_member_resets", "manage_ai_policy"}
     selected = set(req.permissions)
     if not selected.issubset(allowed): raise HTTPException(400, "Unknown moderator permission")
@@ -167,9 +168,8 @@ def set_user_ai_policy(user_id: str, req: UserAIPolicyRequest, request: Request,
     actor = _actor(current_user); target = get_user_by_id(user_id)
     if actor["role"] != "owner": raise HTTPException(403, "Only the owner can set account AI exceptions")
     if not target or target["role"] != "member": raise HTTPException(404, "Member not found")
-    key = rate_key(request, "admin-reauth", actor["id"]); check_rate_limit(key)
-    if not verify_password(req.current_password, actor["password_hash"]): record_failure(key); raise HTTPException(401, "Current password is incorrect")
-    clear_failures(key)
+    if not verify_account_password(request, actor, req.current_password):
+        raise HTTPException(401, "Current password is incorrect")
     if req.mode not in {None, "locked_shared", "default_with_override", "user_managed"}: raise HTTPException(400, "Invalid AI policy mode")
     try: policy = json.loads(get_global_setting("ai_policy", "{}") or "{}")
     except json.JSONDecodeError: policy = {}
@@ -194,9 +194,8 @@ def reset_requests(current_user: dict = Depends(get_current_user)):
 @router.post("/reset-requests/{request_id}")
 def decide_reset(request_id: str, req: ResetDecisionRequest, request: Request, current_user: dict = Depends(get_current_user)):
     actor = _actor(current_user, "manage_member_resets")
-    key = rate_key(request, "admin-reauth", actor["id"]); check_rate_limit(key)
-    if not verify_password(req.current_password, actor["password_hash"]): record_failure(key); raise HTTPException(401, "Current password is incorrect")
-    clear_failures(key)
+    if not verify_account_password(request, actor, req.current_password):
+        raise HTTPException(401, "Current password is incorrect")
     if req.decision not in {"approve", "reject"}: raise HTTPException(400, "Decision must be approve or reject")
     now = int(time.time()); status = "approved" if req.decision == "approve" else "rejected"; db = get_users_db()
     try:

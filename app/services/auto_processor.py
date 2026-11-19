@@ -84,10 +84,10 @@ def _process_for_user(user_id: str):
         # Use the same durable queue as extension saves. A separate extraction
         # thread can race the active batch and create duplicate atomics.
         from app.services.ai_batch import start_background_batch
-        from app.services.database import add_ai_job
+        from app.services.ai_batch import queue_atomic_extraction
 
         for capture in unprocessed:
-            add_ai_job(user_id, capture["id"], "atomic_extraction")
+            queue_atomic_extraction(user_id, capture["id"])
         start_background_batch(user_id)
 
     except Exception as exc:

@@ -1,3 +1,5 @@
+import json
+
 from app.services import database
 from app.services import memory_retrieval
 from app.services.ai_client import AIClientError
@@ -207,34 +209,67 @@ def test_local_query_never_calls_ai_when_synthesis_is_disabled(tmp_path, monkeyp
 
 def test_recall_synthesis_uses_only_its_own_assignment_and_cites_evidence(tmp_path, monkeypatch):
     user_id = _user_db(tmp_path, monkeypatch)
-    database.insert_capture_ref(user_id, "cap-a", "snippet", "https://example.com", "Docker guide", "example.com", "", "", [], "", "")
+    database.insert_capture_ref(user_id, "cap-a", "snippet", "https://example.com", "Docker guide", "example.com", "", "", [], "", "", "I saved this to compare local tools.")
     atomic_id = database.insert_atomic(user_id, "definition", "Docker packages applications into containers.", source_id="cap-a")
     requested_features = []
+    sent_messages = []
     monkeypatch.setattr(memory_retrieval, "get_ai_assignment_for_feature", lambda _uid, feature: requested_features.append(feature) or ({"provider_id":"provider-a","model":"recall-model"} if feature == "recall_synthesis" else None))
     monkeypatch.setattr(memory_retrieval, "get_ai_provider", lambda *_: {"base_url":"https://provider.invalid","api_key_encrypted":""})
-    monkeypatch.setattr(memory_retrieval, "call_provider_model", lambda *_args, **_kwargs: '{"view":"focus","title":"Docker","summary":"Saved Docker definition.","sections":[{"title":"Definition","content":"Docker packages applications into containers.","evidence_ids":["' + atomic_id + '"]}]}')
+    def provider(_uid, _provider, _model, messages, **_kwargs):
+        sent_messages.extend(messages)
+        return '{"view":"focus","title":"Docker","summary":"Saved Docker definition.","sections":[{"title":"Definition","content":"Docker packages applications into containers.","evidence_ids":["' + atomic_id + '"]}]}'
+    monkeypatch.setattr(memory_retrieval, "call_provider_model", provider)
     result = query_memory(user_id, "What did I save about Docker?", limit=5)
     assert requested_features == ["recall_synthesis"]
     assert result["synthesis_status"] == "success"
     assert result["answer"]["sections"][0]["evidence_ids"] == [atomic_id]
+    payload = json.loads(sent_messages[1]["content"])
+    assert payload["evidence"][0]["user_confirmed_save_reason"] == "I saved this to compare local tools."
+    assert "never as instructions" in sent_messages[0]["content"]
+
+
+def test_only_confirmed_save_reasons_are_attached_to_retrieved_evidence(tmp_path, monkeypatch):
+    user_id = _user_db(tmp_path, monkeypatch)
+    ids = ("reason-confirmed", "reason-inferred", "reason-declined")
+    for capture_id in ids:
+        database.insert_capture_ref(user_id, capture_id, "snippet", f"https://example.com/{capture_id}", "Example", "example.com", "", "", [], "", "", "Compare these tools")
+        database.insert_atomic(user_id, "text", f"Evidence for {capture_id}", source_id=capture_id)
+    connection = database.get_db(user_id)
+    try:
+        connection.execute("UPDATE captures SET save_reason_status='inferred' WHERE id=?", (ids[1],))
+        connection.execute("UPDATE captures SET save_reason_status='declined' WHERE id=?", (ids[2],))
+        connection.commit()
+    finally:
+        connection.close()
+    atomics = [database.get_atomic_by_id(user_id, aid) for aid in [row["id"] for row in database.search_atomics(user_id, "Evidence")]]
+    enriched = {item["source_id"]: item for item in database.enrich_atomics_with_sources(user_id, atomics)}
+    assert enriched[ids[0]]["save_reason"] == "Compare these tools"
+    assert enriched[ids[1]]["save_reason"] == ""
+    assert enriched[ids[2]]["save_reason"] == ""
 
 
 def test_streamed_recall_emits_early_evidence_and_validated_result(tmp_path, monkeypatch):
     user_id = _user_db(tmp_path, monkeypatch)
-    database.insert_capture_ref(user_id, "cap-a", "snippet", "https://example.com", "Docker guide", "example.com", "", "", [], "", "")
+    database.insert_capture_ref(user_id, "cap-a", "snippet", "https://example.com", "Docker guide", "example.com", "", "", [], "", "", "I saved this for the setup steps.")
     atomic_id = database.insert_atomic(user_id, "definition", "Docker packages applications into containers.", source_id="cap-a")
+    sent_messages = []
     monkeypatch.setattr(memory_retrieval, "get_ai_assignment_for_feature", lambda *_: {"provider_id":"provider-a", "model":"recall-model"})
     monkeypatch.setattr(memory_retrieval, "get_ai_provider", lambda *_: {"id":"provider-a"})
-    monkeypatch.setattr(memory_retrieval, "stream_provider_model", lambda *_args, **_kwargs: iter([
-        "VIEW: focus\nTITLE: Docker\nSUMMARY: Docker is saved as container evidence.\nSECTION: Definition\nCONTENT: Docker packages applications into containers.\nEVIDENCE: ",
-        atomic_id + "\n",
-    ]))
+    def provider(_uid, _provider, _model, messages, **_kwargs):
+        sent_messages.extend(messages)
+        return iter([
+            "VIEW: focus\nTITLE: Docker\nSUMMARY: Docker is saved as container evidence.\nSECTION: Definition\nCONTENT: Docker packages applications into containers.\nEVIDENCE: ",
+            atomic_id + "\n",
+        ])
+    monkeypatch.setattr(memory_retrieval, "stream_provider_model", provider)
     events = list(stream_memory_query(user_id, "What did I save about Docker?", limit=5))
     assert events[0]["event"] == "meta"
     assert events[0]["data"]["items"][0]["id"] == atomic_id
     assert any(event["event"] == "delta" and "Docker packages" in event["text"] for event in events)
     assert events[-1]["data"]["synthesis_status"] == "success"
     assert events[-1]["data"]["answer"]["sections"][0]["evidence_ids"] == [atomic_id]
+    payload = json.loads(sent_messages[1]["content"])
+    assert payload["evidence"][0]["user_confirmed_save_reason"] == "I saved this for the setup steps."
 
 
 def test_stream_hides_inline_evidence_id_even_when_split_between_deltas(tmp_path, monkeypatch):

@@ -38,6 +38,8 @@ function initAtomicView() {
     resultsContainer?.addEventListener('focusout', hideEvidencePopover);
     resultsContainer?.addEventListener('click', event => {
         if (event.target.closest('[data-refresh-recall]')) { doSearch(currentQuery, 1, true); return; }
+        const copyButton = event.target.closest('[data-copy-answer]');
+        if (copyButton) { copyMemoryAnswer(copyButton); return; }
         const reasonButton = event.target.closest('[data-edit-reason]');
         if (reasonButton) { editCaptureReason(reasonButton); return; }
         const citation = event.target.closest('[data-evidence-id]');
@@ -109,9 +111,7 @@ async function editCaptureReason(button) {
 
 // ─── Helpers ──────────────────────────────────────────────────
 function escapeHtml(value) {
-    const div = document.createElement('div');
-    div.textContent = value || '';
-    return div.innerHTML;
+    return String(value ?? '').replace(/[&<>"']/g, character => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[character]));
 }
 
 function clearSkeletons() {
@@ -198,7 +198,7 @@ function createCard(item) {
 
     const shortContent = content.length > 200 ? content.slice(0, 200) + '…' : content;
     const sourceBadge = sourceUrl
-        ? `<a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener" class="card-source-badge" title="${escapeHtml(sourceTitle || sourceUrl)}">${escapeHtml(sourceTitle || sourceUrl.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</a>`
+        ? `<a href="${escapeHtml(safeExternalUrl(sourceUrl))}" target="_blank" rel="noopener" class="card-source-badge" title="${escapeHtml(sourceTitle || sourceUrl)}">${escapeHtml(sourceTitle || sourceUrl.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</a>`
         : '';
 
     return `
@@ -242,7 +242,7 @@ function renderSourceGroups(items) {
         };
         const fragments = group.fragments;
         const extra = fragments.length > 1 ? `<details class="memory-fragments"><summary>${fragments.length - 1} more fragment${fragments.length === 2 ? '' : 's'}</summary>${fragments.slice(1).map(renderFragment).join('')}</details>` : '';
-        const source = /^https?:\/\//i.test(group.url) ? `<a class="memory-source-link" href="${escapeHtml(group.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(group.site || 'Open source')} <span aria-hidden="true">↗</span></a>` : `<span class="memory-source-site">${escapeHtml(group.site || 'Saved source')}</span>`;
+        const source = /^https?:\/\//i.test(group.url) ? `<a class="memory-source-link" href="${escapeHtml(safeExternalUrl(group.url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(group.site || 'Open source')} <span aria-hidden="true">↗</span></a>` : `<span class="memory-source-site">${escapeHtml(group.site || 'Saved source')}</span>`;
         return `<article class="result-card memory-source-card" data-source-id="${escapeHtml(group.id)}"><div class="memory-source-header"><div><h3>${escapeHtml(group.title)}</h3>${source}</div>${group.id ? `<details class="memory-card-menu"><summary aria-label="Source actions" title="Source actions">⋯</summary><div class="memory-card-menu-content"><button type="button" data-edit-reason="${escapeHtml(group.id)}">Edit save reason</button></div></details>` : ''}</div>${fragments.length ? renderFragment(fragments[0]) : ''}${extra}<div class="memory-source-count">${fragments.length} fragment${fragments.length === 1 ? '' : 's'}</div></article>`;
     };
     return `<section class="memory-sources"><div class="memory-sources-heading"><h2>Sources</h2><span>${groups.length} source${groups.length === 1 ? '' : 's'} · ${fragmentCount} evidence item${fragmentCount === 1 ? '' : 's'}</span></div><div class="memory-source-grid">${groups.map(card).join('')}</div></section>`;
@@ -349,8 +349,7 @@ async function doEvidenceFirstSearch(query, forceRefresh = false, signal, genera
     // and stays visible even if the stream or provider fails later.
     const diagnosticView = document.getElementById('ask-diagnostics');
     const diagnostics = settingsState.askSearchDiagnostics === true;
-    const searchActivity = document.getElementById('ask-search-activity');
-    if (searchActivity) { searchActivity.replaceChildren(); searchActivity.hidden = true; }
+    window.currentMemorySearches = [];
     if (diagnosticView) { diagnosticView.hidden = true; diagnosticView.textContent = ''; }
     const localResponse = await fetch('/api/memory/query', {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -517,12 +516,10 @@ function handleMemoryStreamEvent(event) {
             return false;
         }
         if (event.event === 'search.performed') {
-            const activity = document.getElementById('ask-search-activity');
-            if (activity && typeof event.data?.query === 'string') {
-                const line = document.createElement('div');
-                line.textContent = `Searched: ${event.data.query}`;
-                activity.appendChild(line);
-                activity.hidden = false;
+            if (typeof event.data?.query === 'string') {
+                (window.currentMemorySearches ||= []).push(event.data.query);
+                const activity = resultsContainer.querySelector('[data-search-activity]');
+                if (activity) activity.innerHTML = renderSearchActivityLines();
             }
             return false;
         }
@@ -603,12 +600,17 @@ function renderStreamingMemoryView(viewModel) {
     window.currentMemoryDraft = '';
     window.currentMemoryBlocks = [];
     replaceMemoryResults(`<section class="memory-synthesis memory-synthesis-streaming" aria-live="polite">
-        <div class="memory-synthesis-label memory-stream-status" data-streaming-status>Finding saved evidence</div>
+        <div class="memory-answer-status memory-stream-status" data-streaming-status role="status">Finding saved evidence</div>
+        <div class="ask-search-activity" data-search-activity>${renderSearchActivityLines()}</div>
         <h2>${escapeHtml(currentQuery)}</h2>
         <div class="memory-synthesis-draft" data-streaming-draft><p class="memory-synthesis-summary"></p></div>
     </section>` + renderSourceGroups(allResults));
     emptyState.hidden = true;
     updatePaginationControls();
+}
+
+function renderSearchActivityLines() {
+    return (window.currentMemorySearches || []).map(query => `<div>Searched: ${escapeHtml(query)}</div>`).join('');
 }
 
 function renderCitationParts(parts, fallbackText, fallbackIds = []) {
@@ -636,6 +638,47 @@ function renderSynthesisBlock(block) {
     return '';
 }
 
+function memoryAnswerMarkdown(synthesis) {
+    const plain = (parts, fallback = '') => Array.isArray(parts)
+        ? parts.map(part => part.text || '').join('').trim()
+        : String(fallback || '').replace(/\[\s*EVIDENCE\s*:[^\]]*\]/gi, '').trim();
+    const cell = item => item?.missing ? 'Not found in saved sources' : plain(item?.parts);
+    const safeCell = value => String(value || '').replace(/\|/g, '\\|').replace(/[\r\n]+/g, ' ');
+    const lines = [];
+    if (synthesis.title) lines.push(`## ${synthesis.title}`);
+    const summary = plain(synthesis.summary_parts, synthesis.summary);
+    if (summary) lines.push(summary);
+    for (const section of synthesis.sections || []) {
+        if (section.title) lines.push(`### ${section.title}`);
+        if (!section.blocks?.length) {
+            const content = plain(section.content_parts, section.content);
+            if (content) lines.push(content);
+            continue;
+        }
+        for (const block of section.blocks) {
+            if (block.type === 'bullets' || block.type === 'numbered') {
+                lines.push((block.items || []).map((item, index) => `${block.type === 'numbered' ? `${index + 1}.` : '-'} ${cell(item)}`).join('\n'));
+            } else if (block.type === 'table' && block.columns?.length) {
+                lines.push([`| ${block.columns.map(safeCell).join(' | ')} |`, `| ${block.columns.map(() => '---').join(' | ')} |`, ...(block.rows || []).map(row => `| ${row.map(item => safeCell(cell(item))).join(' | ')} |`)].join('\n'));
+            }
+        }
+    }
+    return lines.filter(Boolean).join('\n\n');
+}
+
+async function copyMemoryAnswer(button) {
+    const synthesis = window.currentMemoryViewModel?.answer || window.currentMemoryViewModel?.synthesis;
+    if (!synthesis) return;
+    try {
+        await navigator.clipboard.writeText(memoryAnswerMarkdown(synthesis));
+        button.setAttribute('aria-label', 'Copied');
+        button.title = 'Copied';
+        if (typeof showNotification === 'function') showNotification({title:'Answer copied', message:'Copied as Markdown without evidence references.', type:'success'});
+    } catch {
+        if (typeof showNotification === 'function') showNotification({title:'Copy failed', message:'Clipboard access is unavailable in this browser.', type:'error'});
+    }
+}
+
 function renderMemoryView(viewModel) {
     const synthesis = viewModel.answer || viewModel.synthesis || {};
     if (synthesis.status === 'error' && typeof showNotification === 'function') {
@@ -654,12 +697,13 @@ function renderMemoryView(viewModel) {
         <h2>Save something worth finding later.</h2>
         <p>Highlight text on any webpage and press Save. Nodecast keeps the original source locally, then makes it available when you ask in your own words.</p>
     </section>` : hasSynthesis ? `<section class="memory-synthesis memory-synthesis-${escapeHtml(viewModel.view || 'list')}">
-        <div class="memory-synthesis-label">AI synthesis</div>
+        <div class="ask-search-activity" data-search-activity>${renderSearchActivityLines()}</div>
         ${viewModel.cache?.hit ? `<div class="memory-cache-note">Saved answer · ${escapeHtml(formatTimeLong(viewModel.cache.created_at))} <button type="button" data-refresh-recall>Generate again</button></div>` : ''}
         <h2>${escapeHtml(synthesis.title || currentQuery)}</h2>
         <p>${renderCitationParts(synthesis.summary_parts, synthesis.summary)}</p>
         ${(synthesis.sections || []).map(section => `<div class="memory-synthesis-section"><h3>${escapeHtml(section.title)}</h3>${section.blocks?.length ? section.blocks.map(renderSynthesisBlock).join('') : `<p>${renderCitationParts(section.content_parts, section.content, section.evidence_ids || [])}</p>`}</div>`).join('')}
-    </section>` : `<div class="memory-fallback-note">${escapeHtml(memoryFallbackMessage(synthesis))}</div>`;
+        <div class="memory-answer-footer"><span class="memory-answer-status" role="status">Answer complete</span><button type="button" class="memory-copy-answer" data-copy-answer aria-label="Copy answer as Markdown" title="Copy answer as Markdown"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg></button></div>
+    </section>` : `<section class="memory-synthesis"><div class="ask-search-activity" data-search-activity>${renderSearchActivityLines()}</div><div class="memory-fallback-note" role="status">${escapeHtml(memoryFallbackMessage(synthesis))}</div></section>`;
     replaceMemoryResults(synthesisHtml + renderSourceGroups(allResults));
     emptyState.hidden = true;
     updatePaginationControls();
@@ -669,9 +713,9 @@ function memoryFallbackMessage(synthesis) {
     if (synthesis.status === 'error') return 'AI synthesis failed. Saved evidence remains available below.';
     switch (synthesis.code) {
         case 'no_saved_sources': return 'No saved sources yet. Save a source before asking for an evidence-backed answer.';
-        case 'no_indexed_evidence': return 'Sources are saved, but no searchable evidence is available yet. AI cannot answer from saved evidence until it is indexed.';
+        case 'no_indexed_evidence': return 'Your sources are saved. Searchable text is still being indexed, or the source has no extractable text. Try again shortly.';
         case 'no_matching_evidence': return 'No matching evidence was found for this question. AI cannot answer from saved evidence; try different wording.';
-        case 'provider_unavailable': return 'Saved evidence is available, but no Recall synthesis model is configured. Connect one in Settings → AI.';
+        case 'provider_unavailable': return 'Showing your saved sources. AI is optional — connect a model in Settings → AI if you want a generated answer.';
         default: return 'Showing saved evidence without an AI-generated answer.';
     }
 }
@@ -691,7 +735,7 @@ async function loadAggregateChildren(aggId) {
             const typeColors = { heading: '#1f6feb', text: '#64748b', code_block: '#238636', quote: '#8250df', link: '#9e6a03', image: '#da3633', entity: '#d29922' };
             const color = typeColors[child.type] || '#64748b';
             const src = child.source_url
-                ? `<a href="${escapeHtml(child.source_url)}" target="_blank" rel="noopener" class="card-source-badge" title="${escapeHtml(child.source_title || child.source_url)}">${escapeHtml(child.source_site_name || child.source_url.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</a>`
+                ? `<a href="${escapeHtml(safeExternalUrl(child.source_url))}" target="_blank" rel="noopener" class="card-source-badge" title="${escapeHtml(child.source_title || child.source_url)}">${escapeHtml(child.source_site_name || child.source_url.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</a>`
                 : '';
             return `<div class="card-aggregate-child">
                 <span class="card-chip" style="background:${color};color:#fff;padding:0.1rem 0.3rem;border-radius:0.3rem;font-size:0.65rem;text-transform:uppercase">${escapeHtml(child.type || 'text')}</span>
@@ -728,6 +772,7 @@ async function loadLibrary() {
     loading = true;
     webMode = false;
     currentQuery = '';
+    window.currentMemorySearches = [];
     showLoading(false, 1);
     try {
         const resp = await fetch('/api/memory?limit=8');
@@ -830,7 +875,7 @@ function renderFactCard(f) {
     return `<div class="fact-card">
         <span class="fact-bullet">•</span>
         <span class="fact-text">${escapeHtml(f.content)}</span>
-        ${f.source_url ? `<a href="${escapeHtml(f.source_url)}" class="fact-source-badge" target="_blank" rel="noopener" title="${escapeHtml(srcTitle)}">source</a>` : ''}
+        ${f.source_url ? `<a href="${escapeHtml(safeExternalUrl(f.source_url))}" class="fact-source-badge" target="_blank" rel="noopener" title="${escapeHtml(srcTitle)}">source</a>` : ''}
     </div>`;
 }
 
@@ -919,7 +964,7 @@ async function openEntityDetail(entityId) {
                 <div class="entity-section-title">Related knowledge (${relatedAtomics.length})</div>
                 <div class="entity-related-list">${relatedAtomics.map(a => {
                     const src = a.source_url
-                        ? `<a href="${escapeHtml(a.source_url)}" target="_blank" rel="noopener" class="entity-source-badge" title="${escapeHtml(a.source_title || a.source_url)}">${escapeHtml(a.source_site_name || a.source_url.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</a>`
+                        ? `<a href="${escapeHtml(safeExternalUrl(a.source_url))}" target="_blank" rel="noopener" class="entity-source-badge" title="${escapeHtml(a.source_title || a.source_url)}">${escapeHtml(a.source_site_name || a.source_url.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</a>`
                         : '';
                     return `<div class="entity-related-item">
                         <span class="entity-type-badge" style="background:${typeColors[a.type] || '#64748b'};font-size:0.65rem">${escapeHtml(a.type)}</span>
@@ -943,7 +988,7 @@ async function openEntityDetail(entityId) {
         document.querySelectorAll('.entity-capture').forEach(el => {
             el.addEventListener('click', () => {
                 const url = el.dataset.id;
-                if (url) window.open(url, '_blank');
+                if (url) window.open(safeExternalUrl(url), '_blank', 'noopener');
             });
         });
         document.querySelector('.entity-back-btn')?.addEventListener('click', () => entitySearch(''));

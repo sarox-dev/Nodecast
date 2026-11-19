@@ -19,4 +19,12 @@ assert.ok(context.renderSynthesisBlock({type:'numbered', items:[item]}).includes
 const table = context.renderSynthesisBlock({type:'table', columns:['<heading>', 'B'], rows:[[item, {missing:true}]]});
 assert.ok(table.includes('&lt;heading>') && table.includes('&lt;unsafe>'));
 assert.ok(table.includes('data-evidence-id="abc123"') && table.includes('Not found in saved sources'));
+const markdown = context.memoryAnswerMarkdown({title:'Comparison', summary_parts:[{text:'Overview '},{evidence_id:'abc123'}], sections:[
+    {title:'List', blocks:[{type:'bullets', items:[item]}]},
+    {title:'Steps', blocks:[{type:'numbered', items:[{parts:[{text:'First'}]}]}]},
+    {title:'Table', blocks:[{type:'table', columns:['App','Feature'], rows:[[{parts:[{text:'A|B'}]}, {missing:true}]]}]},
+]});
+assert.ok(markdown.includes('## Comparison') && markdown.includes('- <unsafe>') && markdown.includes('1. First'));
+assert.ok(markdown.includes('| A\\|B | Not found in saved sources |'));
+assert.ok(!markdown.includes('abc123') && !markdown.includes('data-evidence-id'));
 console.log('Inline citation rendering checks passed');

@@ -122,11 +122,11 @@ Download installers.
         send.assert_called_once_with("webhook", notifier.build_payload(data))
 
     def test_published_event_uses_event_release_without_api_fetch(self):
-        with tempfile.NamedTemporaryFile(mode="w+", encoding="utf-8") as event:
-            json.dump({"release": release()}, event)
-            event.flush()
+        with tempfile.TemporaryDirectory() as directory:
+            event = Path(directory) / "event.json"
+            event.write_text(json.dumps({"release": release()}), encoding="utf-8")
             with patch.dict(notifier.os.environ, {
-                "GITHUB_EVENT_PATH": event.name, "DISCORD_WEBHOOK_URL": "webhook",
+                "GITHUB_EVENT_PATH": str(event), "DISCORD_WEBHOOK_URL": "webhook",
             }, clear=True), patch.object(notifier, "urlopen") as api, \
                  patch.object(notifier, "send_notification") as send:
                 notifier.main()

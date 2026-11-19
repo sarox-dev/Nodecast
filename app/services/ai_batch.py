@@ -3,11 +3,11 @@ import logging
 import threading
 import uuid
 
-from app.services.atomic_extraction import FEATURE_ATOMIC_EXTRACTION, extract_atomics_for_capture
+from app.services.atomic_extraction import ATOMIC_PROCESSOR_VERSION, FEATURE_ATOMIC_EXTRACTION, extract_atomics_for_capture
 from app.services.database import (
     add_ai_job, count_pending_ai_jobs, get_pending_ai_jobs_grouped,
     mark_ai_job_done, mark_ai_job_error,
-    lease_ai_job, retry_or_fail_ai_job,
+    lease_ai_job, retry_or_fail_ai_job, get_db,
 )
 
 logger = logging.getLogger(__name__)
@@ -98,8 +98,28 @@ def process_capture(user_id: str, capture_id: str) -> dict:
     return process_single(user_id, capture_id)
 
 
-def add_pending_jobs_on_save(user_id: str, capture_id: str):
-    job = add_ai_job(user_id, capture_id, FEATURE_ATOMIC_EXTRACTION)
+def queue_atomic_extraction(user_id: str, capture_id: str, *, force_reprocess: bool = False):
+    # An old active job runs the new code too. Do not create a second job
+    # during processor upgrades while its source is still being indexed.
+    connection = get_db(user_id)
+    try:
+        active = connection.execute(
+            "SELECT id,status FROM pending_ai_jobs WHERE capture_id=? AND feature=? AND status IN ('pending','processing') LIMIT 1",
+            (capture_id, FEATURE_ATOMIC_EXTRACTION),
+        ).fetchone()
+    finally:
+        connection.close()
+    if active:
+        return dict(active)
+    # Old skipped jobs can be recovered once. Explicit re-extraction gets a
+    # fresh identity only after the user requests it; raw captures stay intact.
+    return add_ai_job(user_id, capture_id, FEATURE_ATOMIC_EXTRACTION,
+                      input_version=uuid.uuid4().hex if force_reprocess else "1",
+                      processor_version=ATOMIC_PROCESSOR_VERSION)
+
+
+def add_pending_jobs_on_save(user_id: str, capture_id: str, *, force_reprocess: bool = False):
+    job = queue_atomic_extraction(user_id, capture_id, force_reprocess=force_reprocess)
     start_background_batch(user_id)
     return [job]
 

@@ -161,9 +161,17 @@ def create_member_reset_request(username: str, user_agent: str) -> str:
     now = int(time.time())
     db = get_users_db()
     try:
+        db.execute("BEGIN IMMEDIATE")
         user = db.execute("SELECT id,role,disabled FROM users WHERE LOWER(username)=LOWER(?)", (username.strip(),)).fetchone()
         db.execute("DELETE FROM password_reset_requests WHERE expires_at<=?", (now,))
         if user and user["role"] in {"member", "moderator"} and not user["disabled"]:
+            approved = db.execute(
+                "SELECT 1 FROM password_reset_requests WHERE user_id=? AND status='approved' AND expires_at>? AND approved_at>?",
+                (user["id"], now, now - APPROVED_RESET_TTL),
+            ).fetchone()
+            if approved:
+                db.commit()
+                return secret
             db.execute("UPDATE password_reset_requests SET status='superseded' WHERE user_id=? AND status IN ('pending','approved')", (user["id"],))
             db.execute(
                 "INSERT INTO password_reset_requests(id,user_id,secret_hash,status,created_at,expires_at,user_agent) VALUES (?,?,?,?,?,?,?)",

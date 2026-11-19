@@ -46,7 +46,7 @@ const settingsSchema = [
     },
     {
         category: 'AI',
-        description: 'Connect AI providers to extract saved evidence and answer questions from your library.',
+        description: 'Optionally connect AI providers for enrichment and generated answers. Saving and local source search work without AI.',
         items: []  // Custom rendering
     },
     {
@@ -490,6 +490,11 @@ async function renderSettingsOverview() {
         <div class="settings-overview-grid">
           ${overviewRows}
         </div>
+        <section class="settings-tour-help" aria-label="Help and community">
+          <p>New here, or need a refresher? Explore the workspace in a short tour.</p>
+          <button type="button" data-replay-tour>Replay quick tour</button>
+          <a href="https://discord.gg/tFAM5JST4U" target="_blank" rel="noopener noreferrer">Join Discord ↗</a>
+        </section>
       </div>`;
     settingsList.querySelectorAll('[data-open-settings]').forEach(button => {
         button.addEventListener('click', () => openSettings(button.dataset.openSettings));
@@ -1931,10 +1936,8 @@ function openAIProviderModal(existing, preset) {
     });
 }
 
-function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, character => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[character]));
 }
 
 function filterSettings(query) {

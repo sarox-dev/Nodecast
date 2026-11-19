@@ -2,9 +2,7 @@
 // ─── Helpers ──────────────────────────────────────────
 
 function escapeHtml(value) {
-    const div = document.createElement('div');
-    div.textContent = value || '';
-    return div.innerHTML;
+    return String(value ?? '').replace(/[&<>"']/g, character => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[character]));
 }
 
 // ─── Entity Search ────────────────────────────────────
@@ -97,7 +95,7 @@ async function openEntityDetail(entityId) {
                 <div class="entity-section-title">Related knowledge (${relatedAtomics.length})</div>
                 <div class="entity-related-list">${relatedAtomics.map(a => {
                     const src = a.source_url
-                        ? `<a href="${escapeHtml(a.source_url)}" target="_blank" rel="noopener" class="entity-source-badge" title="${escapeHtml(a.source_title || a.source_url)}">${escapeHtml(a.source_site_name || a.source_url.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</a>`
+                        ? `<a href="${escapeHtml(safeExternalUrl(a.source_url))}" target="_blank" rel="noopener" class="entity-source-badge" title="${escapeHtml(a.source_title || a.source_url)}">${escapeHtml(a.source_site_name || a.source_url.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</a>`
                         : '';
                     return `<div class="entity-related-item">
                         <span class="entity-type-badge" style="background:${typeColors[a.type] || '#64748b'};font-size:0.65rem">${escapeHtml(a.type)}</span>
@@ -121,7 +119,7 @@ async function openEntityDetail(entityId) {
         document.querySelectorAll('.entity-capture').forEach(el => {
             el.addEventListener('click', () => {
                 const url = el.dataset.id;
-                if (url) window.open(url, '_blank');
+                if (url) window.open(safeExternalUrl(url), '_blank', 'noopener');
             });
         });
         document.querySelector('.entity-back-btn')?.addEventListener('click', () => entitySearch(''));
