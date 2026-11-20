@@ -1,0 +1,216 @@
+{
+  "corpus_version": "synthetic-ask-expansion-v1",
+  "corpus_sha256": "9338b76bf7d5a0bf7cf7ec2aadf7ec5cb2990d2606e3b98cbe3d6effe3e53f2c",
+  "planner_sha256": "db71b165f0ec0017f159a1456455eee3315ce9c43d0a6735e54b15800564368e",
+  "pipeline": "stream_memory_query_v2 with real plan validation and local candidate/constraint/packet selection",
+  "scope": "Fixed synthetic planner replies; no external AI, generated-answer or production quality evaluation. Initial local evidence remains separately reported.",
+  "captures": 8,
+  "queries": 7,
+  "metrics": {
+    "source_recall_at_5": 0.5714,
+    "source_recall_in_packet": 0.5714,
+    "source_precision_at_5": 0.675,
+    "evidence_recall_in_packet": 0.5714,
+    "evidence_precision_in_packet": 0.675,
+    "provenance_integrity": true,
+    "queries_with_forbidden_sources": 2
+  },
+  "results": [
+    {
+      "id": "context_lv",
+      "query": "Kāpēc ilgāks konteksta logs palielina atmiņas prasības?",
+      "kind": "translation",
+      "expected_sources": [
+        "context"
+      ],
+      "actual_sources": [
+        "context"
+      ],
+      "source_recall_at_5": 1.0,
+      "source_recall_in_packet": 1.0,
+      "source_precision_at_5": 1.0,
+      "evidence_recall_in_packet": 1.0,
+      "evidence_precision_in_packet": 1.0,
+      "provenance_integrity": true,
+      "actual_evidence_keys": [
+        "context"
+      ],
+      "initial_local_sources": [],
+      "planner_calls": 1,
+      "planner_status": "success",
+      "performed_queries": [
+        "context length KV cache memory"
+      ],
+      "forbidden_source_hits": []
+    },
+    {
+      "id": "context_paraphrase",
+      "query": "Kas nosaka modeļa patērētās operatīvās atmiņas apjomu?",
+      "kind": "translation",
+      "expected_sources": [
+        "context"
+      ],
+      "actual_sources": [
+        "context"
+      ],
+      "source_recall_at_5": 1.0,
+      "source_recall_in_packet": 1.0,
+      "source_precision_at_5": 1.0,
+      "evidence_recall_in_packet": 1.0,
+      "evidence_precision_in_packet": 1.0,
+      "provenance_integrity": true,
+      "actual_evidence_keys": [
+        "context"
+      ],
+      "initial_local_sources": [],
+      "planner_calls": 1,
+      "planner_status": "success",
+      "performed_queries": [
+        "KV cache context length batch size"
+      ],
+      "forbidden_source_hits": []
+    },
+    {
+      "id": "cloud_constraint_lv",
+      "query": "Kādas piezīmes var lietot bez mākoņa?",
+      "kind": "translated_constraint",
+      "expected_sources": [
+        "notes-local",
+        "notes-optional",
+        "dropbox"
+      ],
+      "actual_sources": [],
+      "source_recall_at_5": 0.0,
+      "source_recall_in_packet": 0.0,
+      "source_precision_at_5": null,
+      "evidence_recall_in_packet": 0.0,
+      "evidence_precision_in_packet": null,
+      "provenance_integrity": true,
+      "actual_evidence_keys": [],
+      "initial_local_sources": [],
+      "planner_calls": 0,
+      "planner_status": "skipped_sensitive",
+      "performed_queries": [],
+      "forbidden_source_hits": []
+    },
+    {
+      "id": "cloud_constraint_paraphrase",
+      "query": "piezīmju rīki bez mākoņa",
+      "kind": "translated_constraint",
+      "expected_sources": [
+        "notes-local",
+        "notes-optional",
+        "dropbox"
+      ],
+      "actual_sources": [],
+      "source_recall_at_5": 0.0,
+      "source_recall_in_packet": 0.0,
+      "source_precision_at_5": null,
+      "evidence_recall_in_packet": 0.0,
+      "evidence_precision_in_packet": null,
+      "provenance_integrity": true,
+      "actual_evidence_keys": [],
+      "initial_local_sources": [],
+      "planner_calls": 0,
+      "planner_status": "skipped_sensitive",
+      "performed_queries": [],
+      "forbidden_source_hits": []
+    },
+    {
+      "id": "cloud_and_literal_exclusion",
+      "query": "piezīmes bez mākoņa izņemot Dropbox",
+      "kind": "translated_constraint",
+      "expected_sources": [
+        "notes-local",
+        "notes-optional"
+      ],
+      "actual_sources": [],
+      "source_recall_at_5": 0.0,
+      "source_recall_in_packet": 0.0,
+      "source_precision_at_5": null,
+      "evidence_recall_in_packet": 0.0,
+      "evidence_precision_in_packet": null,
+      "provenance_integrity": true,
+      "actual_evidence_keys": [],
+      "initial_local_sources": [],
+      "planner_calls": 0,
+      "planner_status": "skipped_sensitive",
+      "performed_queries": [],
+      "forbidden_source_hits": []
+    },
+    {
+      "id": "protected_acronym",
+      "query": "Kāpēc aug KV atmiņa?",
+      "kind": "protected_term",
+      "expected_sources": [
+        "context"
+      ],
+      "actual_sources": [
+        "context",
+        "notes-cloud",
+        "dropbox",
+        "notes-optional",
+        "notes-local"
+      ],
+      "source_recall_at_5": 1.0,
+      "source_recall_in_packet": 1.0,
+      "source_precision_at_5": 0.2,
+      "evidence_recall_in_packet": 1.0,
+      "evidence_precision_in_packet": 0.2,
+      "provenance_integrity": true,
+      "actual_evidence_keys": [
+        "context",
+        "cloud",
+        "dropbox",
+        "optional",
+        "local"
+      ],
+      "initial_local_sources": [
+        "context"
+      ],
+      "planner_calls": 1,
+      "planner_status": "success",
+      "performed_queries": [
+        "cloud storage",
+        "KV cache memory"
+      ],
+      "forbidden_source_hits": [
+        "notes-cloud"
+      ]
+    },
+    {
+      "id": "protected_identifier",
+      "query": "Kā SQLite WAL palīdz vienlaicīgiem lasītājiem?",
+      "kind": "protected_term",
+      "expected_sources": [
+        "sqlite"
+      ],
+      "actual_sources": [
+        "sqlite",
+        "postgres"
+      ],
+      "source_recall_at_5": 1.0,
+      "source_recall_in_packet": 1.0,
+      "source_precision_at_5": 0.5,
+      "evidence_recall_in_packet": 1.0,
+      "evidence_precision_in_packet": 0.5,
+      "provenance_integrity": true,
+      "actual_evidence_keys": [
+        "sqlite",
+        "postgres"
+      ],
+      "initial_local_sources": [
+        "sqlite"
+      ],
+      "planner_calls": 1,
+      "planner_status": "success",
+      "performed_queries": [
+        "PostgreSQL transactions",
+        "SQLite WAL concurrent readers"
+      ],
+      "forbidden_source_hits": [
+        "postgres"
+      ]
+    }
+  ]
+}

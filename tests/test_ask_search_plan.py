@@ -17,7 +17,7 @@ def test_original_query_is_preserved_and_alternatives_deduplicated():
 def test_sensitive_questions_never_lose_constraints():
     def must_not_call(_):
         raise AssertionError("Sensitive query must not be sent to planner")
-    for query in ('rīki bez mākoņa', 'without cloud services', 'GitHub projects after 2025', '"exact phrase"', 'C++'):
+    for query in ('rīki bez abonementa', 'notes without an account', 'GitHub projects after 2025', '"exact phrase"', 'C++'):
         assert plan_search_queries(query, must_not_call) == [query]
 
 
@@ -46,7 +46,7 @@ def test_provider_receives_only_the_question_and_has_short_timeout(monkeypatch):
 
 def test_diagnostic_status_distinguishes_safety_invalid_and_provider_failure():
     trace = {}
-    plan_search_queries('without cloud', lambda _: None, trace)
+    plan_search_queries('without an account', lambda _: None, trace)
     assert trace['planner_status'] == 'skipped_sensitive'
     plan_search_queries('Obsidian', lambda _: 'not JSON', trace)
     assert trace['planner_status'] == 'invalid_response'

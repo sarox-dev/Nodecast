@@ -11,6 +11,7 @@ playwright = pytest.importorskip("playwright.sync_api")
 import uvicorn
 from app import main
 from app.services import ai_batch, atomic_extraction, database, raw_storage
+from app.services import ask_search_plan, memory_retrieval
 from app.services.auth import hash_password
 
 PASSWORD = "Synthetic-browser-passphrase-29"
@@ -225,4 +226,55 @@ def test_constrained_results_and_unknown_conditions_in_authenticated_browser(bro
     playwright.expect(results.locator('[data-constraint-notice]')).to_contain_text('No retrieved excerpt could confirm')
     playwright.expect(results.locator('.memory-source-card')).to_have_count(0)
     assert provider_calls == []
+    context.close()
+
+
+def test_latvian_question_finds_english_source_with_guarded_translation(browser, workspace, monkeypatch):
+    base, users, _provider_calls = workspace
+    uid = users[0]
+    for key, text in {
+        'local-notes': 'Notes work without cloud services.',
+        'cloud-notes': 'Notes require a cloud server.',
+    }.items():
+        database.insert_capture_ref(uid, key, 'snippet', f'https://example.test/{key}', key, 'example.test', '', '', [], '', '')
+        aid = database.insert_atomic(uid, 'text', text, source_id=key)
+        if key == 'local-notes':
+            supporting_id = aid
+    monkeypatch.setattr(memory_retrieval, 'get_ai_assignment_for_feature', lambda *_: {'provider_id': 'synthetic', 'model': 'stub'})
+    monkeypatch.setattr(memory_retrieval, 'get_ai_provider', lambda *_: {'id': 'synthetic'})
+    queries = []
+    def planner(_uid, _provider, _model, messages, **_kwargs):
+        import json
+        queries.append(json.loads(messages[1]['content'])['query'])
+        return '{"queries":["notes"]}'
+    monkeypatch.setattr(ask_search_plan, 'call_provider_model', planner)
+    monkeypatch.setattr(memory_retrieval, 'stream_provider_model', lambda *_args, **_kwargs: iter([
+        f'VIEW: list\nTITLE: Piezīmes bez mākoņa\nSUMMARY: Piezīmes darbojas bez mākoņa.\nSECTION: Avots\nCONTENT: Saglabātais avots apstiprina darbību bez mākoņa.\nEVIDENCE: {supporting_id}\n'
+    ]))
+    context = browser.new_context(viewport={'width': 1280, 'height': 900})
+    context.route('https://**/*', lambda route: route.abort())
+    page = context.new_page()
+    errors = []
+    page.on('pageerror', lambda error: errors.append(str(error)))
+    login(page, base)
+    page.get_by_role('button', name='Skip tour', exact=True).click()
+    page.locator('#search-mode-toggle').click()
+    playwright.expect(page.locator('#search-mode-toggle')).to_contain_text('Ask')
+    query = 'piezīmes bez mākoņa'
+    page.locator('#query').fill(query)
+    page.locator('#query').press('Enter')
+    results = page.locator('#results-container')
+    playwright.expect(results.locator('.memory-answer-status')).to_contain_text('Answer complete')
+    playwright.expect(results.locator('.memory-source-card')).to_have_count(1)
+    playwright.expect(results).to_contain_text('Notes work without cloud services.')
+    playwright.expect(results.locator('[data-search-activity]')).to_contain_text('Searched: notes')
+    playwright.expect(results.locator(f'button[data-evidence-id="{supporting_id}"]').first).to_be_visible()
+    assert results.locator('a[href="https://example.test/local-notes"]').count() == 1
+    assert results.locator('a[href="https://example.test/cloud-notes"]').count() == 0
+    assert queries == [query]
+    assert not errors
+    output = os.environ.get('NODECAST_UI_ARTIFACTS')
+    if output:
+        Path(output).mkdir(parents=True, exist_ok=True)
+        page.screenshot(path=str(Path(output) / 'ask-translated-conditions.png'))
     context.close()

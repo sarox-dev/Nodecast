@@ -1,0 +1,50 @@
+{
+  "version": "synthetic-ask-expansion-v1",
+  "captures": [
+    {"id": "context", "title": "Local LLM memory", "evidence": [["context", "KV cache grows with context length and batch size."]]},
+    {"id": "notes-local", "title": "Local notes", "evidence": [["local", "Plain notes work without cloud services."]]},
+    {"id": "notes-optional", "title": "Optional synchronization", "evidence": [["optional", "Plain notes: cloud synchronization is optional."]]},
+    {"id": "notes-cloud", "title": "Cloud notes", "evidence": [["cloud", "Plain notes require a cloud server for storage."]]},
+    {"id": "dropbox", "title": "Dropbox notes", "evidence": [["dropbox", "Dropbox notes work without cloud synchronization."]]},
+    {"id": "notes-unknown", "title": "Writing interface", "evidence": [["unknown", "Plain notes support Markdown."]]},
+    {"id": "sqlite", "title": "SQLite WAL", "evidence": [["sqlite", "SQLite WAL allows concurrent readers while a writer appends to the log."]]},
+    {"id": "postgres", "title": "PostgreSQL transactions", "evidence": [["postgres", "PostgreSQL transactions isolate concurrent updates."]]}
+  ],
+  "queries": [
+    {
+      "id": "context_lv", "query": "Kāpēc ilgāks konteksta logs palielina atmiņas prasības?",
+      "expected": ["context"], "expected_sources": ["context"], "kind": "translation",
+      "planner_queries": ["context length KV cache memory"], "forbidden_sources": []
+    },
+    {
+      "id": "context_paraphrase", "query": "Kas nosaka modeļa patērētās operatīvās atmiņas apjomu?",
+      "expected": ["context"], "expected_sources": ["context"], "kind": "translation",
+      "planner_queries": ["KV cache context length batch size"], "forbidden_sources": []
+    },
+    {
+      "id": "cloud_constraint_lv", "query": "Kādas piezīmes var lietot bez mākoņa?",
+      "expected": ["local", "optional", "dropbox"], "expected_sources": ["notes-local", "notes-optional", "dropbox"], "kind": "translated_constraint",
+      "planner_queries": ["notes"], "forbidden_sources": ["notes-cloud", "notes-unknown"]
+    },
+    {
+      "id": "cloud_constraint_paraphrase", "query": "piezīmju rīki bez mākoņa",
+      "expected": ["local", "optional", "dropbox"], "expected_sources": ["notes-local", "notes-optional", "dropbox"], "kind": "translated_constraint",
+      "planner_queries": ["notes offline", "notes cloud"], "forbidden_sources": ["notes-cloud", "notes-unknown"]
+    },
+    {
+      "id": "cloud_and_literal_exclusion", "query": "piezīmes bez mākoņa izņemot Dropbox",
+      "expected": ["local", "optional"], "expected_sources": ["notes-local", "notes-optional"], "kind": "translated_constraint",
+      "planner_queries": ["notes"], "forbidden_sources": ["dropbox", "notes-cloud", "notes-unknown"]
+    },
+    {
+      "id": "protected_acronym", "query": "Kāpēc aug KV atmiņa?",
+      "expected": ["context"], "expected_sources": ["context"], "kind": "protected_term",
+      "planner_queries": ["cloud storage", "KV cache memory"], "forbidden_sources": ["notes-cloud"]
+    },
+    {
+      "id": "protected_identifier", "query": "Kā SQLite WAL palīdz vienlaicīgiem lasītājiem?",
+      "expected": ["sqlite"], "expected_sources": ["sqlite"], "kind": "protected_term",
+      "planner_queries": ["PostgreSQL transactions", "SQLite WAL concurrent readers"], "forbidden_sources": ["postgres"]
+    }
+  ]
+}

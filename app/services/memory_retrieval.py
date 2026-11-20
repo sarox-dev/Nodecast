@@ -25,7 +25,7 @@ from app.services.database import (
 )
 from app.services.semantic_retrieval import get_embedding_provider, reciprocal_rank_fusion
 from app.services import recall_cache
-from app.services.ask_search_plan import merge_ranked_results, provider_search_queries
+from app.services.ask_search_plan import merge_ranked_results, provider_search_queries, preserves_search_anchors
 
 
 ERROR_RE = re.compile(r"(?:\b[A-Z][A-Za-z]+Error\b|\b(?:error|exception|traceback|failed)\b|\b[A-Z]{2,8}-?\d{3,}\b)", re.I)
@@ -223,6 +223,8 @@ def _memory_context(user_id: str, query: str, limit: int, token_budget: int, req
         for alternative in alternative_queries[:3]:
             try:
                 rows, _ = _candidate_search(user_id, alternative, limit=30, embedding_identity=embedding_identity)
+                rows = [row for row in rows if preserves_search_anchors(query_plan["search_text"],
+                        str(row.get("content") or "") + ' ' + str(row.get("context_header") or ""))]
                 ranked.append(rows)
                 if searched_queries is not None:
                     searched_queries.append(alternative)
@@ -294,10 +296,32 @@ def _with_synthesis(result: dict, synthesis: dict | None, requested_view: str) -
     return response
 
 
-def query_memory(user_id: str, query: str, limit: int = 8, token_budget: int = 700, requested_view: str = "auto", synthesize: bool = True, response_language: str = "auto") -> dict:
-    result, packet, intent = _memory_context(user_id, query, limit, token_budget, requested_view, response_language=response_language)
+def query_memory(user_id: str, query: str, limit: int = 8, token_budget: int = 700, requested_view: str = "auto", synthesize: bool = True, response_language: str = "auto", expand_search: bool = False, diagnostics: bool = False) -> dict:
+    trace = {"planner_status": "not_requested", "alternative_queries": 0} if diagnostics else None
+    result, packet, intent = _memory_context(user_id, query, limit, token_budget, requested_view, response_language=response_language, diagnostics=trace)
+    if trace is not None:
+        result["diagnostics"] = trace
     if not synthesize:
         return result
+    if expand_search:
+        assignment = get_ai_assignment_for_feature(user_id, FEATURE_RECALL_SYNTHESIS)
+        provider = get_ai_provider(user_id, assignment["provider_id"]) if assignment else None
+        if provider:
+            try:
+                queries = (provider_search_queries(user_id, provider, assignment["model"], query, diagnostics=trace) if trace is not None else provider_search_queries(user_id, provider, assignment["model"], query))
+                if trace is not None:
+                    trace["alternative_queries"] = max(0, len(queries) - 1)
+                if len(queries) > 1:
+                    result, packet, intent = _memory_context(user_id, query, limit, token_budget, requested_view,
+                        response_language=response_language, alternative_queries=queries[1:], diagnostics=trace)
+                    if trace is not None:
+                        result["diagnostics"] = trace
+            except Exception:
+                logger.warning("Recall query expansion failed; using local results")
+                if trace is not None:
+                    trace["planner_status"] = "provider_error"
+        elif trace is not None:
+            trace["planner_status"] = "provider_unavailable"
     if not packet:
         return result
     # The model may cite only evidence the UI can open directly in this packet.
@@ -758,7 +782,7 @@ Choose one primary format per section. Prefer a bulleted list for independent po
 
 def stream_memory_query_v2(user_id: str, query: str, limit: int = 8, token_budget: int = 700,
                            requested_view: str = "auto", request_id: str = "", cancel_check=None,
-                           synthesize: bool = True, response_language: str = "auto", force_refresh: bool = False, diagnostics: bool = False):
+                           synthesize: bool = True, response_language: str = "auto", force_refresh: bool = False, diagnostics: bool = False, expand_search: bool = True):
     """Translate the stable recall pipeline into a typed, ordered NDJSON contract."""
     request_id = request_id or uuid.uuid4().hex
     seq = 0
@@ -788,7 +812,7 @@ def stream_memory_query_v2(user_id: str, query: str, limit: int = 8, token_budge
         yield event("usage", {"token_estimate": result.get("token_estimate", 0), "budget": token_budget})
         yield event("request.completed", {"result": result})
         return
-    legacy = stream_memory_query(user_id, query, limit, token_budget, requested_view, response_language, force_refresh, expand_search=True, diagnostics=diagnostics)
+    legacy = stream_memory_query(user_id, query, limit, token_budget, requested_view, response_language, force_refresh, expand_search=expand_search, diagnostics=diagnostics)
     evidence_emitted = False
     for item in legacy:
         if cancel_check and cancel_check():
