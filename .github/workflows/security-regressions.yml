@@ -1,7 +1,7 @@
 name: Security regression checks
 on:
   push:
-    branches: ["security/lan-compatible-hardening"]
+    branches: ["main", "security/lan-compatible-hardening"]
   pull_request:
 permissions:
   contents: read

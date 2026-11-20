@@ -11,6 +11,7 @@ from collections import defaultdict
 
 from app.services.ai_client import AIClientError, call_provider_model, stream_provider_model
 from app.services.query_planning import build_query_plan
+from app.services.query_constraints import filter_content_constraints
 from app.services.database import (
     enrich_atomics_with_sources,
     get_ai_assignment_for_feature,
@@ -213,7 +214,7 @@ def _memory_context(user_id: str, query: str, limit: int, token_budget: int, req
         configured_provider = get_user_setting(user_id, "multilingual_embedding_provider", "")
         configured_model = get_user_setting(user_id, "multilingual_embedding_model", "")
         embedding_identity = (configured_provider, configured_model) if configured_provider and configured_model else None
-    candidates, retrieval_capabilities = _candidate_search(user_id, query, limit=30, embedding_identity=embedding_identity)
+    candidates, retrieval_capabilities = _candidate_search(user_id, query_plan["search_text"], limit=30, embedding_identity=embedding_identity)
     if diagnostics is not None:
         diagnostics["original_candidates"] = len(candidates)
         diagnostics["alternative_candidate_counts"] = []
@@ -236,6 +237,7 @@ def _memory_context(user_id: str, query: str, limit: int, token_budget: int, req
         diagnostics["merged_candidates"] = len(candidates)
     raw = enrich_atomics_with_sources(user_id, candidates)
     evidence = [a for a in raw if a.get("role", "evidence") == "evidence" and a.get("status", "ready") != "rejected"]
+    evidence, constraint_counts = filter_content_constraints(evidence, query_plan["content_constraints"])
     evidence = _select_evidence_candidates(evidence, query, 12)
     cards=[]; packet=[]; used=0
     for atomic in evidence:
@@ -273,7 +275,7 @@ def _memory_context(user_id: str, query: str, limit: int, token_budget: int, req
         "synthesis_status": "local_only",
         "synthesis": {"status":"local_only","code":empty_reason or "not_requested"},
         "capabilities":["open","expand","trace_sources","graph"],
-        "retrieval":{"capabilities":retrieval_capabilities,"analyzer":"nodecast-unicode-v2"},
+        "retrieval":{"capabilities":retrieval_capabilities,"analyzer":"nodecast-unicode-v2", "constraints": constraint_counts},
         "available_views":["list","focus","sources","compare","problem","graph"],
         # This endpoint returns a bounded evidence packet, not pageable results.
         "page":{"cursor":None,"has_more":False}, "token_estimate":used,

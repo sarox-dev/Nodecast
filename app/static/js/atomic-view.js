@@ -604,13 +604,21 @@ function renderStreamingMemoryView(viewModel) {
         <div class="ask-search-activity" data-search-activity>${renderSearchActivityLines()}</div>
         <h2>${escapeHtml(currentQuery)}</h2>
         <div class="memory-synthesis-draft" data-streaming-draft><p class="memory-synthesis-summary"></p></div>
-    </section>` + renderSourceGroups(allResults));
+    </section>` + renderConstraintNotice(viewModel) + renderSourceGroups(allResults));
     emptyState.hidden = true;
     updatePaginationControls();
 }
 
 function renderSearchActivityLines() {
     return (window.currentMemorySearches || []).map(query => `<div>Searched: ${escapeHtml(query)}</div>`).join('');
+}
+
+function renderConstraintNotice(viewModel) {
+    if (!viewModel.retrieval?.constraints?.applied) return '';
+    const message = allResults.length
+        ? 'Showing excerpts with explicit support for these conditions. Check the original source for the full context.'
+        : 'No retrieved excerpt could confirm these conditions. This does not mean your library has no matching source. Try a broader question or inspect the original sources.';
+    return `<p class="memory-fallback-note" role="status" data-constraint-notice>${escapeHtml(message)}</p>`;
 }
 
 function renderCitationParts(parts, fallbackText, fallbackIds = []) {
@@ -704,7 +712,7 @@ function renderMemoryView(viewModel) {
         ${(synthesis.sections || []).map(section => `<div class="memory-synthesis-section"><h3>${escapeHtml(section.title)}</h3>${section.blocks?.length ? section.blocks.map(renderSynthesisBlock).join('') : `<p>${renderCitationParts(section.content_parts, section.content, section.evidence_ids || [])}</p>`}</div>`).join('')}
         <div class="memory-answer-footer"><span class="memory-answer-status" role="status">Answer complete</span><button type="button" class="memory-copy-answer" data-copy-answer aria-label="Copy answer as Markdown" title="Copy answer as Markdown"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg></button></div>
     </section>` : `<section class="memory-synthesis"><div class="ask-search-activity" data-search-activity>${renderSearchActivityLines()}</div><div class="memory-fallback-note" role="status">${escapeHtml(memoryFallbackMessage(synthesis))}</div></section>`;
-    replaceMemoryResults(synthesisHtml + renderSourceGroups(allResults));
+    replaceMemoryResults(synthesisHtml + renderConstraintNotice(viewModel) + renderSourceGroups(allResults));
     emptyState.hidden = true;
     updatePaginationControls();
 }

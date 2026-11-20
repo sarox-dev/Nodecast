@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.services.database import get_db, get_user_setting
 
-CACHE_VERSION = "recall-stream-v14-source-diversity"
+CACHE_VERSION = "recall-stream-v15-content-constraints"
 MAX_ENTRIES = 200
 TTL = timedelta(days=7)
 

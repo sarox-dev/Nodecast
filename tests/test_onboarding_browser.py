@@ -182,3 +182,47 @@ def test_no_ai_save_search_and_source_in_authenticated_browser(browser, workspac
     assert page.request.get(base + "/api/capture/browser_text_001").json()["capture"]["anchor"]["selected_text"] == original
     assert provider_calls == []
     context.close()
+
+
+def test_constrained_results_and_unknown_conditions_in_authenticated_browser(browser, workspace):
+    base, users, provider_calls = workspace
+    context = browser.new_context()
+    context.route("https://**/*", lambda route: route.abort())
+    page = context.new_page()
+    login(page, base)
+    page.get_by_role('button', name='Skip tour', exact=True).click()
+    for key, text in {
+        'offline': 'ConstraintProbe notes work without cloud services.',
+        'required': 'ConstraintProbe notes require a cloud server.',
+        'unknown': 'UnknownProbe notes support Markdown.',
+    }.items():
+        response = page.request.post(base + '/api/capture', data={
+            'capture_id': 'constraint_' + key, 'capture_type': 'snippet',
+            'source': {'url': f'https://example.test/{key}', 'title': key + ' notes'},
+            'anchor': {'selected_text': text},
+        })
+        assert response.status == 200
+    deadline = time.monotonic() + 5
+    while any(not database.get_atomics_by_source(users[0], 'constraint_' + key) for key in ('offline', 'required', 'unknown')) and time.monotonic() < deadline:
+        time.sleep(.02)
+    page.locator('#search-mode-toggle').click()
+    playwright.expect(page.locator('#search-mode-toggle')).to_contain_text('Ask')
+    query = page.locator('#query')
+    query.fill('ConstraintProbe notes without cloud')
+    query.press('Enter')
+    results = page.locator('#results-container')
+    playwright.expect(results.locator('[data-constraint-notice]')).to_contain_text('explicit support')
+    playwright.expect(results.locator('.memory-source-card')).to_have_count(1)
+    playwright.expect(results).to_contain_text('notes work without cloud')
+    playwright.expect(results).not_to_contain_text('notes require a cloud')
+    playwright.expect(results.locator('.memory-synthesis-streaming')).to_have_count(0)
+    output = os.environ.get('NODECAST_UI_ARTIFACTS')
+    if output:
+        Path(output).mkdir(parents=True, exist_ok=True)
+        page.screenshot(path=str(Path(output) / 'ask-conditions-supported.png'))
+    query.fill('UnknownProbe without cloud')
+    query.press('Enter')
+    playwright.expect(results.locator('[data-constraint-notice]')).to_contain_text('No retrieved excerpt could confirm')
+    playwright.expect(results.locator('.memory-source-card')).to_have_count(0)
+    assert provider_calls == []
+    context.close()

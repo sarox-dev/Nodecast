@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from app.services.text_analysis import analyze_text, language_hint
+from app.services.query_constraints import parse_content_constraints
 
 
 PLAN_SCHEMA_VERSION = 1
@@ -67,8 +68,9 @@ def validate_query_plan(proposed: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_query_plan(query: str, response_language: str = "auto", proposed: dict[str, Any] | None = None) -> dict[str, Any]:
+    search_text, content_constraints = parse_content_constraints(query)
     if proposed is not None:
-        return validate_query_plan(proposed)
+        return validate_query_plan(proposed) | {"search_text": search_text, "content_constraints": content_constraints}
     analysis = analyze_text(query, mode="query")
     query_language, confidence = language_hint(analysis)
     return validate_query_plan({
@@ -82,4 +84,4 @@ def build_query_plan(query: str, response_language: str = "auto", proposed: dict
         "constraints": [],
         "alternative_queries": [],
         "language_confidence": confidence,
-    }) | {"language_confidence": confidence}
+    }) | {"language_confidence": confidence, "search_text": search_text, "content_constraints": content_constraints}
