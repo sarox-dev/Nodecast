@@ -1,0 +1,555 @@
+{
+  "version": "synthetic-ask-quality-v1",
+  "captures": [
+    {
+      "id": "notes",
+      "title": "Obsidian alternatives with sync",
+      "evidence": [
+        [
+          "joplin",
+          "Joplin offers synchronization through WebDAV."
+        ],
+        [
+          "logseq",
+          "Logseq uses file synchronization."
+        ],
+        [
+          "community",
+          "r/foss"
+        ]
+      ]
+    },
+    {
+      "id": "vram",
+      "title": "Local LLM memory",
+      "evidence": [
+        [
+          "context",
+          "KV cache grows with context length and batch size."
+        ]
+      ]
+    },
+    {
+      "id": "ollama",
+      "title": "Ollama",
+      "evidence": [
+        [
+          "ollama",
+          "Ollama runs language models locally."
+        ]
+      ]
+    },
+    {
+      "id": "llama",
+      "title": "llama.cpp",
+      "evidence": [
+        [
+          "llama",
+          "llama.cpp is a local model inference library."
+        ]
+      ]
+    },
+    {
+      "id": "benchmark",
+      "title": "LAG-MMLU",
+      "evidence": [
+        [
+          "latvian",
+          "The benchmark evaluates models in Latvian and Giriama."
+        ]
+      ]
+    },
+    {
+      "id": "exact",
+      "title": "Docker troubleshooting",
+      "evidence": [
+        [
+          "error",
+          "PermissionError: Docker socket denied."
+        ]
+      ]
+    },
+    {
+      "id": "cloud",
+      "title": "Cloud storage",
+      "evidence": [
+        [
+          "cloud",
+          "This tool stores notes on a cloud server."
+        ]
+      ]
+    },
+    {
+      "id": "diverse-5-0",
+      "title": "Snapshot source 5/0",
+      "evidence": [
+        [
+          "diverse-5-0-0",
+          "DiversityProbe5 DiversityProbe5 DiversityProbe5 DiversityProbe5 DiversityProbe5 DiversityProbe5 snapshot source detail."
+        ],
+        [
+          "diverse-5-0-1",
+          "DiversityProbe5 DiversityProbe5 DiversityProbe5 DiversityProbe5 DiversityProbe5 DiversityProbe5 snapshot source detail."
+        ],
+        [
+          "diverse-5-0-2",
+          "DiversityProbe5 DiversityProbe5 DiversityProbe5 DiversityProbe5 DiversityProbe5 DiversityProbe5 snapshot source detail."
+        ],
+        [
+          "diverse-5-0-3",
+          "DiversityProbe5 DiversityProbe5 DiversityProbe5 DiversityProbe5 DiversityProbe5 DiversityProbe5 snapshot source detail."
+        ],
+        [
+          "diverse-5-0-4",
+          "DiversityProbe5 DiversityProbe5 DiversityProbe5 DiversityProbe5 DiversityProbe5 DiversityProbe5 snapshot source detail."
+        ],
+        [
+          "diverse-5-0-5",
+          "DiversityProbe5 DiversityProbe5 DiversityProbe5 DiversityProbe5 DiversityProbe5 DiversityProbe5 snapshot source detail."
+        ]
+      ]
+    },
+    {
+      "id": "diverse-5-1",
+      "title": "Snapshot source 5/1",
+      "evidence": [
+        [
+          "diverse-5-1-0",
+          "DiversityProbe5 snapshots retain a distinct original source with useful backup context and recovery details."
+        ]
+      ]
+    },
+    {
+      "id": "diverse-5-2",
+      "title": "Snapshot source 5/2",
+      "evidence": [
+        [
+          "diverse-5-2-0",
+          "DiversityProbe5 snapshots retain a distinct original source with useful backup context and recovery details."
+        ]
+      ]
+    },
+    {
+      "id": "diverse-5-3",
+      "title": "Snapshot source 5/3",
+      "evidence": [
+        [
+          "diverse-5-3-0",
+          "DiversityProbe5 snapshots retain a distinct original source with useful backup context and recovery details."
+        ]
+      ]
+    },
+    {
+      "id": "diverse-5-4",
+      "title": "Snapshot source 5/4",
+      "evidence": [
+        [
+          "diverse-5-4-0",
+          "DiversityProbe5 snapshots retain a distinct original source with useful backup context and recovery details."
+        ]
+      ]
+    },
+    {
+      "id": "diverse-8-0",
+      "title": "Snapshot source 8/0",
+      "evidence": [
+        [
+          "diverse-8-0-0",
+          "DiversityProbe8 DiversityProbe8 DiversityProbe8 DiversityProbe8 DiversityProbe8 DiversityProbe8 snapshot source detail."
+        ],
+        [
+          "diverse-8-0-1",
+          "DiversityProbe8 DiversityProbe8 DiversityProbe8 DiversityProbe8 DiversityProbe8 DiversityProbe8 snapshot source detail."
+        ],
+        [
+          "diverse-8-0-2",
+          "DiversityProbe8 DiversityProbe8 DiversityProbe8 DiversityProbe8 DiversityProbe8 DiversityProbe8 snapshot source detail."
+        ],
+        [
+          "diverse-8-0-3",
+          "DiversityProbe8 DiversityProbe8 DiversityProbe8 DiversityProbe8 DiversityProbe8 DiversityProbe8 snapshot source detail."
+        ],
+        [
+          "diverse-8-0-4",
+          "DiversityProbe8 DiversityProbe8 DiversityProbe8 DiversityProbe8 DiversityProbe8 DiversityProbe8 snapshot source detail."
+        ],
+        [
+          "diverse-8-0-5",
+          "DiversityProbe8 DiversityProbe8 DiversityProbe8 DiversityProbe8 DiversityProbe8 DiversityProbe8 snapshot source detail."
+        ]
+      ]
+    },
+    {
+      "id": "diverse-8-1",
+      "title": "Snapshot source 8/1",
+      "evidence": [
+        [
+          "diverse-8-1-0",
+          "DiversityProbe8 snapshots retain a distinct original source with useful backup context and recovery details."
+        ]
+      ]
+    },
+    {
+      "id": "diverse-8-2",
+      "title": "Snapshot source 8/2",
+      "evidence": [
+        [
+          "diverse-8-2-0",
+          "DiversityProbe8 snapshots retain a distinct original source with useful backup context and recovery details."
+        ]
+      ]
+    },
+    {
+      "id": "diverse-8-3",
+      "title": "Snapshot source 8/3",
+      "evidence": [
+        [
+          "diverse-8-3-0",
+          "DiversityProbe8 snapshots retain a distinct original source with useful backup context and recovery details."
+        ]
+      ]
+    },
+    {
+      "id": "diverse-8-4",
+      "title": "Snapshot source 8/4",
+      "evidence": [
+        [
+          "diverse-8-4-0",
+          "DiversityProbe8 snapshots retain a distinct original source with useful backup context and recovery details."
+        ]
+      ]
+    },
+    {
+      "id": "diverse-8-5",
+      "title": "Snapshot source 8/5",
+      "evidence": [
+        [
+          "diverse-8-5-0",
+          "DiversityProbe8 snapshots retain a distinct original source with useful backup context and recovery details."
+        ]
+      ]
+    },
+    {
+      "id": "diverse-8-6",
+      "title": "Snapshot source 8/6",
+      "evidence": [
+        [
+          "diverse-8-6-0",
+          "DiversityProbe8 snapshots retain a distinct original source with useful backup context and recovery details."
+        ]
+      ]
+    },
+    {
+      "id": "diverse-8-7",
+      "title": "Snapshot source 8/7",
+      "evidence": [
+        [
+          "diverse-8-7-0",
+          "DiversityProbe8 snapshots retain a distinct original source with useful backup context and recovery details."
+        ]
+      ]
+    },
+    {
+      "id": "lv-memory",
+      "title": "Darba atmiņa",
+      "evidence": [
+        [
+          "lv-memory",
+          "Darba atmiņa glabā īslaicīgu informāciju uzdevuma veikšanai."
+        ]
+      ],
+      "rejected": false
+    },
+    {
+      "id": "zh-wal",
+      "title": "SQLite 日志",
+      "evidence": [
+        [
+          "zh-wal",
+          "SQLite预写式日志允许并发读取事务。"
+        ]
+      ],
+      "rejected": false
+    },
+    {
+      "id": "nfc",
+      "title": "Café",
+      "evidence": [
+        [
+          "nfc",
+          "Café stores a decomposed accent in this example."
+        ]
+      ],
+      "rejected": false
+    },
+    {
+      "id": "rejected",
+      "title": "RejectedProbe",
+      "evidence": [
+        [
+          "rejected",
+          "RejectedProbe evidence should never appear."
+        ]
+      ],
+      "rejected": true
+    },
+    {
+      "id": "budget-a",
+      "title": "Budget example",
+      "evidence": [
+        [
+          "budget-a",
+          "BudgetProbe BudgetProbe BudgetProbe BudgetProbe BudgetProbe BudgetProbe BudgetProbe BudgetProbe BudgetProbe BudgetProbe BudgetProbe BudgetProbe The first excerpt explains checkpoint ordering."
+        ]
+      ]
+    },
+    {
+      "id": "budget-b",
+      "title": "Budget example",
+      "evidence": [
+        [
+          "budget-b",
+          "BudgetProbe BudgetProbe BudgetProbe BudgetProbe BudgetProbe BudgetProbe BudgetProbe BudgetProbe BudgetProbe BudgetProbe The next excerpt contains a longer discussion of snapshot consistency and database backups across concurrent processes and recovery."
+        ]
+      ]
+    },
+    {
+      "id": "budget-c",
+      "title": "Budget example",
+      "evidence": [
+        [
+          "budget-c",
+          "BudgetProbe short note."
+        ]
+      ]
+    }
+  ],
+  "queries": [
+    {
+      "id": "notes_sync",
+      "query": "Obsidian alternatives sync",
+      "expected": [
+        "joplin",
+        "logseq"
+      ],
+      "irrelevant": [
+        "community"
+      ],
+      "expected_sources": [
+        "notes"
+      ],
+      "forbidden_sources": [],
+      "kind": "lookup"
+    },
+    {
+      "id": "context_lv",
+      "query": "Kāpēc ilgāks konteksta logs palielina atmiņas prasības?",
+      "expected": [
+        "context"
+      ],
+      "irrelevant": [],
+      "expected_sources": [
+        "vram"
+      ],
+      "forbidden_sources": [],
+      "kind": "cross_language"
+    },
+    {
+      "id": "compare",
+      "query": "Ollama vs llama.cpp",
+      "expected": [
+        "ollama",
+        "llama"
+      ],
+      "irrelevant": [],
+      "expected_sources": [
+        "ollama",
+        "llama"
+      ],
+      "forbidden_sources": [],
+      "kind": "lookup"
+    },
+    {
+      "id": "latvian",
+      "query": "Latvian model benchmark",
+      "expected": [
+        "latvian"
+      ],
+      "irrelevant": [],
+      "expected_sources": [
+        "benchmark"
+      ],
+      "forbidden_sources": [],
+      "kind": "lookup"
+    },
+    {
+      "id": "error",
+      "query": "PermissionError Docker socket",
+      "expected": [
+        "error"
+      ],
+      "irrelevant": [],
+      "expected_sources": [
+        "exact"
+      ],
+      "forbidden_sources": [],
+      "kind": "lookup"
+    },
+    {
+      "id": "personal_reason",
+      "query": "Why did I save llama.cpp?",
+      "expected": [
+        "llama"
+      ],
+      "irrelevant": [],
+      "answer_policy": "personal_intent_unconfirmed",
+      "expected_sources": [
+        "llama"
+      ],
+      "forbidden_sources": [],
+      "kind": "lookup"
+    },
+    {
+      "id": "negative",
+      "query": "notes without cloud",
+      "expected": [],
+      "irrelevant": [
+        "cloud"
+      ],
+      "answer_policy": "do_not_invent",
+      "expected_sources": [],
+      "forbidden_sources": [
+        "cloud"
+      ],
+      "kind": "constraint"
+    },
+    {
+      "id": "missing",
+      "query": "unknown aardvark orbital antenna",
+      "expected": [],
+      "irrelevant": [],
+      "answer_policy": "do_not_invent",
+      "expected_sources": [],
+      "forbidden_sources": [],
+      "kind": "lookup"
+    },
+    {
+      "id": "diverse_5",
+      "query": "DiversityProbe5",
+      "kind": "source_diversity",
+      "expected_sources": [
+        "diverse-5-0",
+        "diverse-5-1",
+        "diverse-5-2",
+        "diverse-5-3",
+        "diverse-5-4"
+      ],
+      "expected": [
+        "diverse-5-0-0",
+        "diverse-5-0-1",
+        "diverse-5-0-2",
+        "diverse-5-0-3",
+        "diverse-5-0-4",
+        "diverse-5-0-5",
+        "diverse-5-1-0",
+        "diverse-5-2-0",
+        "diverse-5-3-0",
+        "diverse-5-4-0"
+      ],
+      "limit": 5
+    },
+    {
+      "id": "diverse_8",
+      "query": "DiversityProbe8",
+      "kind": "source_diversity",
+      "expected_sources": [
+        "diverse-8-0",
+        "diverse-8-1",
+        "diverse-8-2",
+        "diverse-8-3",
+        "diverse-8-4",
+        "diverse-8-5",
+        "diverse-8-6",
+        "diverse-8-7"
+      ],
+      "expected": [
+        "diverse-8-0-0",
+        "diverse-8-0-1",
+        "diverse-8-0-2",
+        "diverse-8-0-3",
+        "diverse-8-0-4",
+        "diverse-8-0-5",
+        "diverse-8-1-0",
+        "diverse-8-2-0",
+        "diverse-8-3-0",
+        "diverse-8-4-0",
+        "diverse-8-5-0",
+        "diverse-8-6-0",
+        "diverse-8-7-0"
+      ],
+      "limit": 8
+    },
+    {
+      "id": "lv-memory",
+      "query": "Darba atmiņa glabā",
+      "kind": "same_language",
+      "expected_sources": [
+        "lv-memory"
+      ],
+      "expected": [
+        "lv-memory"
+      ],
+      "forbidden_sources": []
+    },
+    {
+      "id": "zh-wal",
+      "query": "SQLite预写式日志",
+      "kind": "same_language",
+      "expected_sources": [
+        "zh-wal"
+      ],
+      "expected": [
+        "zh-wal"
+      ],
+      "forbidden_sources": []
+    },
+    {
+      "id": "nfc",
+      "query": "Café",
+      "kind": "same_language",
+      "expected_sources": [
+        "nfc"
+      ],
+      "expected": [
+        "nfc"
+      ],
+      "forbidden_sources": []
+    },
+    {
+      "id": "rejected",
+      "query": "RejectedProbe",
+      "kind": "rejected",
+      "expected_sources": [],
+      "expected": [],
+      "forbidden_sources": [
+        "rejected"
+      ]
+    },
+    {
+      "id": "budget_continue",
+      "query": "BudgetProbe",
+      "kind": "token_budget",
+      "expected_sources": [
+        "budget-a",
+        "budget-b",
+        "budget-c"
+      ],
+      "expected": [
+        "budget-a",
+        "budget-b",
+        "budget-c"
+      ],
+      "token_budget": 100
+    }
+  ]
+}
