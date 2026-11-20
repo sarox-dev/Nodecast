@@ -1,0 +1,443 @@
+{
+  "corpus_version": "synthetic-ask-quality-v1",
+  "corpus_sha256": "ab3d64138afb8a2e1bda472d0a0ad98c9ed67d99057ace91d0103898afd46b83",
+  "pipeline": "query_memory(synthesize=False)",
+  "scope": "Synthetic local Ask evidence selection only; no capture/indexing, authenticated browser, AI answer or semantic citation-support evaluation.",
+  "retrieval_sha256": "ff114e5de899d2f85e5552f84b5d4f7d56f8c0645c7c975ff0041ac0b7ac87cf",
+  "source_at_5_definition": "Top five distinct sources in packet order, not the first five evidence rows; recall undefined for empty ground truth, precision undefined for empty results",
+  "captures": 27,
+  "queries": 15,
+  "metrics": {
+    "source_recall_at_5": 0.8576,
+    "source_recall_in_packet": 0.8889,
+    "source_precision_at_5": 0.875,
+    "evidence_recall_in_packet": 0.8152,
+    "evidence_precision_in_packet": 0.8472,
+    "provenance_integrity": true,
+    "queries_with_forbidden_sources": 1
+  },
+  "latency_ms": {
+    "p50": 2.95,
+    "max": 3.88
+  },
+  "results": [
+    {
+      "id": "notes_sync",
+      "query": "Obsidian alternatives sync",
+      "kind": "lookup",
+      "expected_sources": [
+        "notes"
+      ],
+      "actual_sources": [
+        "notes"
+      ],
+      "source_recall_at_5": 1.0,
+      "source_recall_in_packet": 1.0,
+      "source_precision_at_5": 1.0,
+      "evidence_recall_in_packet": 1.0,
+      "evidence_precision_in_packet": 0.6666666666666666,
+      "provenance_integrity": true,
+      "actual_evidence_keys": [
+        "logseq",
+        "joplin",
+        "community"
+      ],
+      "forbidden_source_hits": [],
+      "selected_evidence_count": 3,
+      "token_estimate": 20,
+      "limit": 8,
+      "token_budget": 700,
+      "latency_ms": 3.48
+    },
+    {
+      "id": "context_lv",
+      "query": "Kāpēc ilgāks konteksta logs palielina atmiņas prasības?",
+      "kind": "cross_language",
+      "expected_sources": [
+        "vram"
+      ],
+      "actual_sources": [],
+      "source_recall_at_5": 0.0,
+      "source_recall_in_packet": 0.0,
+      "source_precision_at_5": null,
+      "evidence_recall_in_packet": 0.0,
+      "evidence_precision_in_packet": null,
+      "provenance_integrity": true,
+      "actual_evidence_keys": [],
+      "forbidden_source_hits": [],
+      "selected_evidence_count": 0,
+      "token_estimate": 0,
+      "limit": 8,
+      "token_budget": 700,
+      "latency_ms": 2.93
+    },
+    {
+      "id": "compare",
+      "query": "Ollama vs llama.cpp",
+      "kind": "lookup",
+      "expected_sources": [
+        "ollama",
+        "llama"
+      ],
+      "actual_sources": [
+        "llama",
+        "ollama"
+      ],
+      "source_recall_at_5": 1.0,
+      "source_recall_in_packet": 1.0,
+      "source_precision_at_5": 1.0,
+      "evidence_recall_in_packet": 1.0,
+      "evidence_precision_in_packet": 1.0,
+      "provenance_integrity": true,
+      "actual_evidence_keys": [
+        "llama",
+        "ollama"
+      ],
+      "forbidden_source_hits": [],
+      "selected_evidence_count": 2,
+      "token_estimate": 20,
+      "limit": 8,
+      "token_budget": 700,
+      "latency_ms": 3.54
+    },
+    {
+      "id": "latvian",
+      "query": "Latvian model benchmark",
+      "kind": "lookup",
+      "expected_sources": [
+        "benchmark"
+      ],
+      "actual_sources": [
+        "benchmark",
+        "llama"
+      ],
+      "source_recall_at_5": 1.0,
+      "source_recall_in_packet": 1.0,
+      "source_precision_at_5": 0.5,
+      "evidence_recall_in_packet": 1.0,
+      "evidence_precision_in_packet": 0.5,
+      "provenance_integrity": true,
+      "actual_evidence_keys": [
+        "latvian",
+        "llama"
+      ],
+      "forbidden_source_hits": [],
+      "selected_evidence_count": 2,
+      "token_estimate": 24,
+      "limit": 8,
+      "token_budget": 700,
+      "latency_ms": 2.95
+    },
+    {
+      "id": "error",
+      "query": "PermissionError Docker socket",
+      "kind": "lookup",
+      "expected_sources": [
+        "exact"
+      ],
+      "actual_sources": [
+        "exact"
+      ],
+      "source_recall_at_5": 1.0,
+      "source_recall_in_packet": 1.0,
+      "source_precision_at_5": 1.0,
+      "evidence_recall_in_packet": 1.0,
+      "evidence_precision_in_packet": 1.0,
+      "provenance_integrity": true,
+      "actual_evidence_keys": [
+        "error"
+      ],
+      "forbidden_source_hits": [],
+      "selected_evidence_count": 1,
+      "token_estimate": 9,
+      "limit": 8,
+      "token_budget": 700,
+      "latency_ms": 3.05
+    },
+    {
+      "id": "personal_reason",
+      "query": "Why did I save llama.cpp?",
+      "kind": "lookup",
+      "expected_sources": [
+        "llama"
+      ],
+      "actual_sources": [
+        "llama"
+      ],
+      "source_recall_at_5": 1.0,
+      "source_recall_in_packet": 1.0,
+      "source_precision_at_5": 1.0,
+      "evidence_recall_in_packet": 1.0,
+      "evidence_precision_in_packet": 1.0,
+      "provenance_integrity": true,
+      "actual_evidence_keys": [
+        "llama"
+      ],
+      "forbidden_source_hits": [],
+      "selected_evidence_count": 1,
+      "token_estimate": 11,
+      "limit": 8,
+      "token_budget": 700,
+      "latency_ms": 2.95
+    },
+    {
+      "id": "negative",
+      "query": "notes without cloud",
+      "kind": "constraint",
+      "expected_sources": [],
+      "actual_sources": [
+        "cloud"
+      ],
+      "source_recall_at_5": null,
+      "source_recall_in_packet": null,
+      "source_precision_at_5": 0.0,
+      "evidence_recall_in_packet": null,
+      "evidence_precision_in_packet": 0.0,
+      "provenance_integrity": true,
+      "actual_evidence_keys": [
+        "cloud"
+      ],
+      "forbidden_source_hits": [
+        "cloud"
+      ],
+      "selected_evidence_count": 1,
+      "token_estimate": 10,
+      "limit": 8,
+      "token_budget": 700,
+      "latency_ms": 2.95
+    },
+    {
+      "id": "missing",
+      "query": "unknown aardvark orbital antenna",
+      "kind": "lookup",
+      "expected_sources": [],
+      "actual_sources": [],
+      "source_recall_at_5": null,
+      "source_recall_in_packet": null,
+      "source_precision_at_5": null,
+      "evidence_recall_in_packet": null,
+      "evidence_precision_in_packet": null,
+      "provenance_integrity": true,
+      "actual_evidence_keys": [],
+      "forbidden_source_hits": [],
+      "selected_evidence_count": 0,
+      "token_estimate": 0,
+      "limit": 8,
+      "token_budget": 700,
+      "latency_ms": 3.15
+    },
+    {
+      "id": "diverse_5",
+      "query": "DiversityProbe5",
+      "kind": "source_diversity",
+      "expected_sources": [
+        "diverse-5-0",
+        "diverse-5-1",
+        "diverse-5-2",
+        "diverse-5-3",
+        "diverse-5-4"
+      ],
+      "actual_sources": [
+        "diverse-5-0",
+        "diverse-5-4",
+        "diverse-5-3",
+        "diverse-5-2",
+        "diverse-5-1"
+      ],
+      "source_recall_at_5": 1.0,
+      "source_recall_in_packet": 1.0,
+      "source_precision_at_5": 1.0,
+      "evidence_recall_in_packet": 0.5,
+      "evidence_precision_in_packet": 1.0,
+      "provenance_integrity": true,
+      "actual_evidence_keys": [
+        "diverse-5-0-5",
+        "diverse-5-4-0",
+        "diverse-5-3-0",
+        "diverse-5-2-0",
+        "diverse-5-1-0"
+      ],
+      "forbidden_source_hits": [],
+      "selected_evidence_count": 5,
+      "token_estimate": 137,
+      "limit": 5,
+      "token_budget": 700,
+      "latency_ms": 3.03
+    },
+    {
+      "id": "diverse_8",
+      "query": "DiversityProbe8",
+      "kind": "source_diversity",
+      "expected_sources": [
+        "diverse-8-0",
+        "diverse-8-1",
+        "diverse-8-2",
+        "diverse-8-3",
+        "diverse-8-4",
+        "diverse-8-5",
+        "diverse-8-6",
+        "diverse-8-7"
+      ],
+      "actual_sources": [
+        "diverse-8-0",
+        "diverse-8-7",
+        "diverse-8-6",
+        "diverse-8-5",
+        "diverse-8-4",
+        "diverse-8-3",
+        "diverse-8-2",
+        "diverse-8-1"
+      ],
+      "source_recall_at_5": 0.625,
+      "source_recall_in_packet": 1.0,
+      "source_precision_at_5": 1.0,
+      "evidence_recall_in_packet": 0.6153846153846154,
+      "evidence_precision_in_packet": 1.0,
+      "provenance_integrity": true,
+      "actual_evidence_keys": [
+        "diverse-8-0-5",
+        "diverse-8-7-0",
+        "diverse-8-6-0",
+        "diverse-8-5-0",
+        "diverse-8-4-0",
+        "diverse-8-3-0",
+        "diverse-8-2-0",
+        "diverse-8-1-0"
+      ],
+      "forbidden_source_hits": [],
+      "selected_evidence_count": 8,
+      "token_estimate": 218,
+      "limit": 8,
+      "token_budget": 700,
+      "latency_ms": 2.83
+    },
+    {
+      "id": "lv-memory",
+      "query": "Darba atmiņa glabā",
+      "kind": "same_language",
+      "expected_sources": [
+        "lv-memory"
+      ],
+      "actual_sources": [
+        "lv-memory"
+      ],
+      "source_recall_at_5": 1.0,
+      "source_recall_in_packet": 1.0,
+      "source_precision_at_5": 1.0,
+      "evidence_recall_in_packet": 1.0,
+      "evidence_precision_in_packet": 1.0,
+      "provenance_integrity": true,
+      "actual_evidence_keys": [
+        "lv-memory"
+      ],
+      "forbidden_source_hits": [],
+      "selected_evidence_count": 1,
+      "token_estimate": 15,
+      "limit": 8,
+      "token_budget": 700,
+      "latency_ms": 2.75
+    },
+    {
+      "id": "zh-wal",
+      "query": "SQLite预写式日志",
+      "kind": "same_language",
+      "expected_sources": [
+        "zh-wal"
+      ],
+      "actual_sources": [
+        "zh-wal"
+      ],
+      "source_recall_at_5": 1.0,
+      "source_recall_in_packet": 1.0,
+      "source_precision_at_5": 1.0,
+      "evidence_recall_in_packet": 1.0,
+      "evidence_precision_in_packet": 1.0,
+      "provenance_integrity": true,
+      "actual_evidence_keys": [
+        "zh-wal"
+      ],
+      "forbidden_source_hits": [],
+      "selected_evidence_count": 1,
+      "token_estimate": 5,
+      "limit": 8,
+      "token_budget": 700,
+      "latency_ms": 3.04
+    },
+    {
+      "id": "nfc",
+      "query": "Café",
+      "kind": "same_language",
+      "expected_sources": [
+        "nfc"
+      ],
+      "actual_sources": [
+        "nfc"
+      ],
+      "source_recall_at_5": 1.0,
+      "source_recall_in_packet": 1.0,
+      "source_precision_at_5": 1.0,
+      "evidence_recall_in_packet": 1.0,
+      "evidence_precision_in_packet": 1.0,
+      "provenance_integrity": true,
+      "actual_evidence_keys": [
+        "nfc"
+      ],
+      "forbidden_source_hits": [],
+      "selected_evidence_count": 1,
+      "token_estimate": 12,
+      "limit": 8,
+      "token_budget": 700,
+      "latency_ms": 2.55
+    },
+    {
+      "id": "rejected",
+      "query": "RejectedProbe",
+      "kind": "rejected",
+      "expected_sources": [],
+      "actual_sources": [],
+      "source_recall_at_5": null,
+      "source_recall_in_packet": null,
+      "source_precision_at_5": null,
+      "evidence_recall_in_packet": null,
+      "evidence_precision_in_packet": null,
+      "provenance_integrity": true,
+      "actual_evidence_keys": [],
+      "forbidden_source_hits": [],
+      "selected_evidence_count": 0,
+      "token_estimate": 0,
+      "limit": 8,
+      "token_budget": 700,
+      "latency_ms": 3.88
+    },
+    {
+      "id": "budget_continue",
+      "query": "BudgetProbe",
+      "kind": "token_budget",
+      "expected_sources": [
+        "budget-a",
+        "budget-b",
+        "budget-c"
+      ],
+      "actual_sources": [
+        "budget-c",
+        "budget-a"
+      ],
+      "source_recall_at_5": 0.6666666666666666,
+      "source_recall_in_packet": 0.6666666666666666,
+      "source_precision_at_5": 1.0,
+      "evidence_recall_in_packet": 0.6666666666666666,
+      "evidence_precision_in_packet": 1.0,
+      "provenance_integrity": true,
+      "actual_evidence_keys": [
+        "budget-c",
+        "budget-a"
+      ],
+      "forbidden_source_hits": [],
+      "selected_evidence_count": 2,
+      "token_estimate": 52,
+      "limit": 8,
+      "token_budget": 100,
+      "latency_ms": 2.64
+    }
+  ]
+}

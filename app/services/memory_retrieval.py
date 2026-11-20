@@ -106,11 +106,14 @@ def _select_evidence_candidates(items: list[dict], query: str, limit: int) -> li
 
     ordered = sorted(items, key=navigation_only)
     selected, per_source, used = [], defaultdict(int), set()
-    for per_source_limit in (2, 4):
+    for per_source_limit in (1, 2, 4):
         for item in ordered:
             ident = item.get("id")
             source = item.get("source_id") or ident
             if ident in used or per_source[source] >= per_source_limit:
+                continue
+            # Do not spend another source's first slot on navigation-only text.
+            if per_source_limit == 1 and navigation_only(item):
                 continue
             selected.append(item)
             used.add(ident)

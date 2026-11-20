@@ -91,7 +91,11 @@ def test_dismiss_replay_persistence_focus_and_account_isolation(browser, workspa
         page.get_by_role("button", name="Skip tour", exact=True).click()
     assert saved.value.status == 200
     assert not page.locator("#page-shell").evaluate("el => el.inert")
-    page.reload()
+    # The workspace binds its settings handler after /auth/me resolves. Visible
+    # server-rendered controls alone do not mean that initialization has finished.
+    # The tour preference request is issued at the end of that initialization.
+    with page.expect_response(lambda response: response.url.endswith("/api/onboarding") and response.request.method == "GET"):
+        page.reload()
     playwright.expect(page.locator("#query")).to_be_visible()
     assert page.request.get(base + "/api/onboarding").json() == {"dismissed": True}
     playwright.expect(page.locator("#onboarding-overlay")).to_have_count(0)

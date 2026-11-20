@@ -33,9 +33,19 @@ def test_evidence_selection_preserves_exact_short_results_and_diversity():
         {"id":"short", "source_id":"b", "content":"Metal — Apple Silicon"},
         {"id":"three", "source_id":"a", "content":"Third useful item."},
     ]
-    assert [i['id'] for i in select(items, 'Obsidian sync', 5)] == ['one','two','short','three','nav']
+    assert [i['id'] for i in select(items, 'Obsidian sync', 5)] == ['one','short','two','three','nav']
     assert select(items, 'r/foss', 1)[0]['id'] == 'nav'
     assert select([items[3]], 'Metal', 1)[0]['id'] == 'short'
+
+
+def test_source_diversity_does_not_promote_navigation_over_useful_evidence():
+    items = [
+        {"id":"a1", "source_id":"a", "content":"The first useful claim."},
+        {"id":"a2", "source_id":"a", "content":"A second useful claim."},
+        {"id":"nav", "source_id":"b", "content":"Related Community Links", "properties":{"structure_kind":"heading"}},
+    ]
+    chosen = memory_retrieval._select_evidence_candidates(items, "useful claim", 2)
+    assert [item["id"] for item in chosen] == ["a1", "a2"]
 
 
 def test_evidence_keeps_short_selection_and_multiline_context_together():
