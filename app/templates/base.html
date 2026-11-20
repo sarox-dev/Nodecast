@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="/static/css/theme-light.css?v=20261021-2" />
     <link rel="stylesheet" href="/static/css/settings.css?v=20261021-7" />
     <link rel="stylesheet" href="/static/css/modal.css?v=20260926-1" />
-    <link rel="stylesheet" href="/static/css/workspace.css?v=20261119-2" />
+    <link rel="stylesheet" href="/static/css/workspace.css?v=filters-20261120-1" />
     <link rel="stylesheet" href="/static/css/onboarding.css?v=20261119-2" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -20,7 +20,7 @@
     <link rel="icon" type="image/png" sizes="16x16" href="../static/favicon_io/favicon-16x16.png" />
     <link rel="manifest" href="../static/favicon_io/site.webmanifest" />
   </head>
-  <body>
+  <body data-library-user="{{ user.id if user else '' }}">
     <div class="page-shell" id="page-shell">
       <div class="workspace-shell inspector-collapsed">
         <main class="workspace-center">
@@ -39,6 +39,7 @@
               <span id="search-mode-tooltip" class="search-mode-tooltip" role="tooltip">Search the web with your configured provider.</span>
               <span class="workspace-search-icon" aria-hidden="true">⌕</span>
               <input id="query" name="q" type="search" placeholder="Search DuckDuckGo…" autocomplete="off" spellcheck="false" />
+              <button id="library-filter-toggle" type="button" class="library-filter-toggle" data-open-library-filters aria-label="Filter saved items" aria-haspopup="dialog" aria-controls="library-filters-dialog"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M7 12h10M10 17h4"/></svg><span data-filter-count hidden></span></button>
               <button type="submit" class="search-submit" aria-label="Search">
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   <circle cx="11" cy="11" r="8" />
@@ -49,6 +50,7 @@
               <div id="web-suggestions" class="web-suggestions" role="listbox" aria-label="Search suggestions" hidden></div>
             </div>
           </form>
+          <div id="home-filter-chips" class="library-filter-chips" aria-label="Active library filters" hidden></div>
           </header>
 
           <section id="content-view" class="content-view" hidden aria-label="Library results">
@@ -59,6 +61,7 @@
               <form id="workspace-results-query-form" class="workspace-results-query" role="search" hidden>
                 <label class="sr-only" for="workspace-results-query">Ask your library</label>
                 <input id="workspace-results-query" type="search" maxlength="1000" autocomplete="off" aria-label="Ask your library">
+                <button type="button" class="library-filter-toggle" data-open-library-filters aria-label="Filter saved items" aria-haspopup="dialog" aria-controls="library-filters-dialog"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M7 12h10M10 17h4"/></svg><span data-filter-count hidden></span></button>
                 <button type="submit" aria-label="Ask this question">Ask</button>
               </form>
             </div>
@@ -76,7 +79,7 @@
             <span>Searching your library...</span>
           </div>
 
-          <div id="filter-bar" class="filter-bar" hidden></div>
+          <div id="filter-bar" class="filter-bar library-filter-chips" aria-label="Active library filters" hidden></div>
           <div id="ask-diagnostics" class="memory-fallback-note" role="status" hidden></div>
 
           <div id="status-bar" class="status-bar" hidden>
@@ -88,6 +91,13 @@
 
           <div class="results-area">
             <div id="results-container" class="results-layout"></div>
+            <section id="saved-browse" class="saved-browse" aria-label="Matching saved items" hidden>
+              <div class="memory-sources-heading"><h2>Matching saved items</h2><span id="saved-browse-count" role="status"></span></div>
+              <p class="saved-browse-help">Browse original saves matching your text and filters. Ask above uses a short selection of evidence.</p>
+              <div id="saved-browse-items" class="memory-source-grid"></div>
+              <p id="saved-browse-status" role="status"></p>
+              <button id="saved-browse-more" type="button" class="workspace-secondary-action" hidden>Load more saved items</button>
+            </section>
             <div id="results-sentinel" class="sentinel" hidden></div>
             <div class="results-footer">
               <button id="load-more-button" class="load-more-button" hidden>Load more</button>
@@ -321,18 +331,36 @@
 
     {% include 'settings.html' %}
 
+
+    <dialog id="library-filters-dialog" class="library-filters-dialog" role="dialog" aria-labelledby="library-filters-title" aria-describedby="library-filters-description">
+      <form id="library-filters-form">
+        <div class="library-filters-heading"><h2 id="library-filters-title">Filter saved items</h2><button type="button" data-close-library-filters aria-label="Close filters">×</button></div>
+        <p id="library-filters-description">Choose filters before searching. They stay active until you change or clear them.</p>
+        <div class="library-filters-body">
+          <fieldset><legend>Sources</legend><input id="library-filter-source-search" type="search" placeholder="Find a source…" aria-label="Find a source" autocomplete="off"><div id="library-filter-sources" class="library-filter-options"><p>Loading sources…</p></div></fieldset>
+          <fieldset><legend>Saved</legend><label class="sr-only" for="library-filter-period">Saved time</label><select id="library-filter-period"><option value="any">Any time</option><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="last7">Last 7 days</option><option value="last30">Last 30 days</option><option value="custom">Custom dates</option></select>
+            <div id="library-filter-dates" class="library-filter-dates" hidden><label>From<input id="library-filter-start" type="date"></label><label>Through<input id="library-filter-end" type="date"></label></div><small id="library-filter-timezone"></small>
+          </fieldset>
+          <fieldset><legend>Material type</legend><div id="library-filter-types" class="library-filter-options"></div></fieldset>
+          <p id="library-filter-error" class="library-filter-error" role="alert" hidden></p>
+        </div>
+        <div class="library-filters-footer"><button id="library-filters-clear" type="button">Clear all</button><span></span><button type="button" data-close-library-filters>Cancel</button><button id="library-filters-apply" type="submit">Apply</button></div>
+      </form>
+    </dialog>
+
     <script src="/static/vendor/d3.v7.9.0.min.js"></script>
     <script src="/static/js/ui-utils.js?v=20261119-2"></script>
     <script src="/static/js/extension-bridge.js?v=20261119-2"></script>
     <script src="/static/js/settings.js?v=20261119-2"></script>
-    <script src="/static/js/atomic-view.js?v=ask-constraints-20261120"></script>
+    <script src="/static/js/library-filters.js?v=20261120-1"></script>
+    <script src="/static/js/atomic-view.js?v=filters-20261120-1"></script>
     <script src="/static/js/entity-view.js?v=20261119-2"></script>
     <script src="/static/js/graph-view.js?v=20261021-1"></script>
     <script src="/static/js/constellation-view.js?v=20261119-2"></script>
-    <script src="/static/js/web-search.js?v=20261021-3"></script>
+    <script src="/static/js/web-search.js?v=filters-20261120-1"></script>
     <script src="/static/js/onboarding.js?v=20261119-2"></script>
     <script src="/static/js/app.js?v=20261119-2"></script>
     <script src="/static/js/workspace-store.js?v=20261021-1"></script>
-    <script src="/static/js/workspace-controller.js?v=20261106-7"></script>
+    <script src="/static/js/workspace-controller.js?v=filters-20261120-1"></script>
   </body>
 </html>

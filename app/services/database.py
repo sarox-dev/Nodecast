@@ -374,7 +374,10 @@ def init_user_db(uid):
 def get_db(uid):
     p=get_user_db_path(uid)
     if not p.exists(): init_user_db(uid)
-    c=sqlite3.connect(str(p)); c.row_factory=sqlite3.Row; c.execute("PRAGMA journal_mode=WAL"); c.execute("PRAGMA foreign_keys=ON"); return c
+    from app.services.search_filters import source_domain
+    c=sqlite3.connect(str(p)); c.row_factory=sqlite3.Row
+    c.create_function("nodecast_source_domain", 1, source_domain, deterministic=True)
+    c.execute("PRAGMA journal_mode=WAL"); c.execute("PRAGMA foreign_keys=ON"); return c
 def init_db():
     c=get_users_db()
     try: user_ids=[row["id"] for row in c.execute("SELECT id FROM users")]
@@ -673,7 +676,7 @@ def get_atomics_by_type(uid,type_,limit=50):
     c=get_db(uid)
     try: return [_atomic(r) for r in c.execute("SELECT * FROM atomics WHERE type=? ORDER BY relevance DESC,created_at DESC LIMIT ?",(type_,limit))]
     finally: c.close()
-def search_atomics(uid,query,type_=None,limit=50):
+def search_atomics(uid,query,type_=None,limit=50,filters=None):
     c=get_db(uid)
     try:
         analysis=analyze_text(query,mode="query")
@@ -687,6 +690,11 @@ def search_atomics(uid,query,type_=None,limit=50):
         for stage_index,match in enumerate(stages):
             sql="SELECT a.*,bm25(atomic_lexical_fts) AS search_rank FROM atomic_lexical_fts JOIN atomics a ON a.id=atomic_lexical_fts.atomic_id WHERE atomic_lexical_fts MATCH ?"
             params=[match]
+            if filters:
+                from app.services.search_filters import filter_sql
+                sql += " AND EXISTS (SELECT 1 FROM captures c WHERE c.id=a.source_id"
+                fragment, values = filter_sql(filters)
+                sql += fragment + ")"; params.extend(values)
             if type_: sql+=" AND a.type=?"; params.append(type_)
             sql+=" ORDER BY search_rank ASC,a.relevance DESC,a.created_at DESC LIMIT ?"; params.append(max(limit,len(found)+limit))
             for row in c.execute(sql,params):
@@ -730,7 +738,7 @@ def upsert_atomic_embedding(uid, atomic_id, provider, model, model_revision, vec
         c.close()
 
 
-def search_atomic_embeddings(uid, query_vector, provider, model, model_revision="", type_=None, limit=50):
+def search_atomic_embeddings(uid, query_vector, provider, model, model_revision="", type_=None, limit=50, filters=None):
     from app.services.semantic_retrieval import cosine_similarity, unpack_vector
     c = get_db(uid)
     try:
@@ -738,6 +746,11 @@ def search_atomic_embeddings(uid, query_vector, provider, model, model_revision=
                  FROM atomic_embeddings e JOIN atomics a ON a.id=e.atomic_id
                  WHERE e.provider=? AND e.model=?"""
         params = [provider, model]
+        if filters:
+            from app.services.search_filters import filter_sql
+            fragment, values = filter_sql(filters)
+            sql += " AND EXISTS (SELECT 1 FROM captures c WHERE c.id=a.source_id" + fragment + ")"
+            params.extend(values)
         if model_revision:
             sql += " AND e.model_revision=?"; params.append(model_revision)
         if type_:

@@ -23,7 +23,7 @@
             shell.classList.add('results-open');
             title.textContent = label;
             title.hidden = Boolean(editableQuery);
-            resultsQueryForm.hidden = !editableQuery;
+            resultsQueryForm.hidden = !editableQuery && !window.nodecastLibraryFilters?.hasActive();
             if (editableQuery) resultsQuery.value = editableQuery;
         }
 
@@ -52,14 +52,14 @@
         form?.addEventListener('submit', () => {
             if (window.webMode) return;
             const value = query.value.trim();
-            if (!value) return;
+            if (!value && !window.nodecastLibraryFilters?.hasActive()) return;
             openResults(value.replace(/^\/\w+\s*/, '') || 'Library results', value);
             store?.set({ query: value, section: 'library' });
         });
         resultsQueryForm?.addEventListener('submit', event => {
             event.preventDefault();
             const value = resultsQuery.value.trim();
-            if (!value) { resultsQuery.focus(); return; }
+            if (!value && !window.nodecastLibraryFilters?.hasActive()) { resultsQuery.focus(); return; }
             query.value = value;
             form.requestSubmit();
         });
@@ -86,7 +86,7 @@
                 query?.dispatchEvent(new Event('input', { bubbles: true }));
                 return;
             }
-            if (window.nodecastShortcutMatches?.(event, 'close_view') && !content.hidden && !isTypingTarget(event.target)) closeResults();
+            if (window.nodecastShortcutMatches?.(event, 'close_view') && !content.hidden && !settingsOpen && !dialogOpen && !isTypingTarget(event.target)) closeResults();
         });
 
         window.nodecastWorkspace = { openResults, closeResults };

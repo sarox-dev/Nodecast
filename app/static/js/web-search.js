@@ -139,6 +139,7 @@ window.addEventListener('DOMContentLoaded', () => {
         window.graphMode = false;
         webMode = Boolean(web);
         window.webMode = webMode;
+        window.dispatchEvent(new CustomEvent('nodecast:search-mode'));
         document.getElementById('page-shell')?.classList.toggle('web-search-mode', webMode);
         const graphArea = document.getElementById('graph-area');
         if (graphArea) graphArea.hidden = true;

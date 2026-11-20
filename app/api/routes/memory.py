@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 from app.services.auth import get_member_user
 from app.services.database import set_user_setting
 from app.services import recall_cache
+from app.services.search_filters import SearchFilters, prepare_filter_context
+from app.services.saved_search import filter_options, browse_saved, interpret_with_provider
 from app.services.agentic_ask import run_bounded_tool_loop
 from app.services.topic_views import get_topic_view, refresh_topic_view
 from app.services.memory_retrieval import focused_graph, memory_constellation, memory_detail, memory_feedback, memory_sources, query_memory, recent_memory, relation_feedback, stream_memory_query, stream_memory_query_v2
@@ -16,7 +18,7 @@ from app.services.memory_retrieval import focused_graph, memory_constellation, m
 router = APIRouter(prefix="/api", tags=["memory"])
 
 class MemoryQuery(BaseModel):
-    query: str = Field(min_length=1,max_length=1000)
+    query: str = Field(min_length=0,max_length=1000)
     view: str = "auto"
     limit: int = Field(default=8,ge=1,le=8)
     token_budget: int = Field(default=700,ge=100,le=4000)
@@ -28,6 +30,48 @@ class MemoryQuery(BaseModel):
     request_id: str | None = Field(default=None, max_length=128)
     stream_version: int = Field(default=1, ge=1, le=2)
     force_refresh: bool = False
+    filters: SearchFilters | None = None
+    timezone: str = Field(default="UTC", max_length=80)
+    interpret_filters: bool = True
+    filter_phrases: list[str] = Field(default_factory=list, max_length=8)
+
+class BrowseQuery(MemoryQuery):
+    limit: int = Field(default=20, ge=1, le=50)
+    offset: int = Field(default=0, ge=0, le=1000000)
+
+
+def request_filter_context(body, user_id):
+    if any(len(phrase)>200 for phrase in body.filter_phrases):
+        raise HTTPException(422, "Invalid filter phrase")
+    try:
+        options = filter_options(user_id)
+        context = prepare_filter_context(body.query, body.filters.model_dump(mode="json") if body.filters else None,
+            body.timezone, body.interpret_filters, [row["value"] for row in options["sources"]], body.filter_phrases)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    if not body.query.strip() and not any(context["resolved"].values()):
+        raise HTTPException(422, "Enter a search term or choose a filter")
+    return context
+
+
+@router.get("/memory/filters")
+def library_filter_options(user=Depends(get_member_user)):
+    return filter_options(user["user_id"])
+
+
+@router.post("/memory/filters/interpret")
+def interpret_library_filters(body:MemoryQuery, user=Depends(get_member_user)):
+    context = request_filter_context(body, user["user_id"])
+    if not body.synthesize:
+        return {"filters":context["filters"], "filter_phrases":body.filter_phrases, "status":"local"}
+    return interpret_with_provider(user["user_id"], body.query, context)
+
+
+@router.post("/memory/browse")
+def browse_library(body:BrowseQuery, user=Depends(get_member_user)):
+    context = request_filter_context(body, user["user_id"])
+    return browse_saved(user["user_id"], body.query, context, body.limit, body.offset)
+
 
 class RelationFeedback(BaseModel): action: str
 class MemoryFeedback(BaseModel): feedback: str; outcome: str = ""
@@ -60,14 +104,16 @@ def search(body:MemoryQuery,user=Depends(get_member_user)):
         raise HTTPException(422,"Invalid query mode")
     if body.response_language != "auto" and not re.fullmatch(r"[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*", body.response_language):
         raise HTTPException(422,"Invalid response language")
+    context = request_filter_context(body, user["user_id"])
+    filter_args = {"filter_context":context} if body.filters is not None or context["recognized"] else {}
     request_id = body.request_id or uuid.uuid4().hex
     result = query_memory(user["user_id"],body.query,body.limit,body.token_budget,body.view,body.synthesize,body.response_language,
-                          expand_search=body.cross_language and body.mode != "fast", diagnostics=body.diagnostics)
+                          expand_search=body.cross_language and body.mode != "fast", diagnostics=body.diagnostics, **filter_args)
     result["request_id"] = request_id
     result["mode"] = body.mode
     result["response_language"] = body.response_language
     should_escalate = body.mode == "deep" or (body.mode == "auto" and (result["query_analysis"]["intent"] in {"compare", "research"} or not result["items"]))
-    if should_escalate:
+    if should_escalate and not any(context["resolved"].values()):
         deep = run_bounded_tool_loop(user["user_id"], body.query)
         result["agentic"] = {"usage": deep["usage"], "evidence_ids": [item["evidence_id"] for item in deep["evidence"]]}
         if body.diagnostics:
@@ -80,18 +126,20 @@ def search_stream(body:MemoryQuery,user=Depends(get_member_user)):
     if body.view not in {"auto","list","focus","compare","problem","sources","graph"}:
         raise HTTPException(422,"Invalid memory view")
 
+    context = request_filter_context(body, user["user_id"])
+    filter_args = {"filter_context":context} if body.filters is not None or context["recognized"] else {}
     def events():
         expand = body.cross_language and body.mode != "fast"
         if body.stream_version == 1 and not body.synthesize:
-            result = query_memory(user["user_id"], body.query, body.limit, body.token_budget, body.view, False, body.response_language, diagnostics=body.diagnostics)
+            result = query_memory(user["user_id"], body.query, body.limit, body.token_budget, body.view, False, body.response_language, diagnostics=body.diagnostics, **filter_args)
             stream = iter([{"event": "done", "data": result}])
         elif body.stream_version == 1:
             stream = stream_memory_query(user["user_id"], body.query, body.limit, body.token_budget, body.view,
-                body.response_language, body.force_refresh, expand_search=expand, diagnostics=body.diagnostics)
+                body.response_language, body.force_refresh, expand_search=expand, diagnostics=body.diagnostics, **filter_args)
         else:
             stream = stream_memory_query_v2(user["user_id"], body.query, body.limit, body.token_budget, body.view, body.request_id or "",
                 synthesize=body.synthesize, response_language=body.response_language, force_refresh=body.force_refresh,
-                diagnostics=body.diagnostics, expand_search=expand)
+                diagnostics=body.diagnostics, expand_search=expand, **filter_args)
         for event in stream:
             yield json.dumps(event, ensure_ascii=False) + "\n"
 

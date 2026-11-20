@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.services.database import get_db, get_user_setting
 
-CACHE_VERSION = "recall-stream-v16-guarded-query-expansion"
+CACHE_VERSION = "recall-stream-v17-visible-filters"
 MAX_ENTRIES = 200
 TTL = timedelta(days=7)
 
@@ -32,10 +32,10 @@ def normalize_query(query):
     return re.sub(r"[?!.]+$", "", text).strip().casefold()
 
 
-def cache_key(query, packet, revision_value, assignment, provider, view, language):
+def cache_key(query, packet, revision_value, assignment, provider, view, language, filters=None):
     payload = {"version": CACHE_VERSION, "query": normalize_query(query), "revision": revision_value,
                "packet": packet, "assignment": assignment, "provider": provider,
-               "view": view, "language": language}
+               "view": view, "language": language, "filters": filters}
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":"))
     return hashlib.sha256(encoded.encode()).hexdigest()
 

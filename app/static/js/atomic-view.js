@@ -64,7 +64,7 @@ function initAtomicView() {
     form?.addEventListener('submit', async (e) => {
         e.preventDefault();
         const query = queryInput.value.trim();
-        if (!query) {
+        if (!query && !window.nodecastLibraryFilters?.hasActive()) {
             queryInput.focus();
             if (typeof showNotification === 'function') showNotification({ title: 'Enter a question', message: 'Type a question or search term to continue.', type: 'error', key: 'memory-empty-query' });
             return;
@@ -287,19 +287,21 @@ function renderResults(append = false) {
     updatePaginationControls();
 }
 
-async function doSearch(query, page, forceRefresh = false) {
-    // Memory query returns one bounded packet and does not support paging.
+async function doSearch(query, page, forceRefresh = false, interpretFilters = true) {
+    // Ask stays bounded; original saves are paginated separately below it.
     if (loading || page !== 1) return;
     memorySearchController?.abort();
     const controller = new AbortController();
     memorySearchController = controller;
     const generation = ++memorySearchGeneration;
+    const filterArgs = window.nodecastLibraryFilters?.request(interpretFilters, query) || {};
+    window.nodecastLibraryFilters?.searchSaved(query, filterArgs, controller.signal);
     loading = true;
     showLoading(true, page);
     try {
         if (page === 1) {
             try {
-                if (await doEvidenceFirstSearch(query, forceRefresh, controller.signal, generation)) return;
+                if (await doEvidenceFirstSearch(query, forceRefresh, controller.signal, generation, filterArgs)) return;
             } catch (streamError) {
                 if (controller.signal.aborted || generation !== memorySearchGeneration) return;
                 // A proxy or provider can interrupt a streamed response. Preserve
@@ -310,7 +312,7 @@ async function doSearch(query, page, forceRefresh = false) {
         const resp = await fetch('/api/memory/query', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             signal: controller.signal,
-            body: JSON.stringify({ query, limit: 8, token_budget: 700, mode: 'fast', synthesize: false }),
+            body: JSON.stringify({ query, limit: 8, token_budget: 700, mode: 'fast', synthesize: false, ...filterArgs }),
         });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
@@ -344,7 +346,7 @@ async function doSearch(query, page, forceRefresh = false) {
     }
 }
 
-async function doEvidenceFirstSearch(query, forceRefresh = false, signal, generation) {
+async function doEvidenceFirstSearch(query, forceRefresh = false, signal, generation, filterArgs = {}) {
     // Local recall never waits for an AI provider. It is the reliable baseline
     // and stays visible even if the stream or provider fails later.
     const diagnosticView = document.getElementById('ask-diagnostics');
@@ -354,17 +356,54 @@ async function doEvidenceFirstSearch(query, forceRefresh = false, signal, genera
     const localResponse = await fetch('/api/memory/query', {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         signal,
-        body: JSON.stringify({ query, limit: 8, token_budget: 700, mode: 'fast', synthesize: false }),
+        body: JSON.stringify({ query, limit: 8, token_budget: 700, mode: 'fast', synthesize: false, ...filterArgs }),
     });
     if (!localResponse.ok) throw new Error(`HTTP ${localResponse.status}`);
-    const local = await localResponse.json();
+    let local = await localResponse.json();
+    let unresolvedTimeFilter = false;
     if (signal.aborted || generation !== memorySearchGeneration) return true;
+    window.nodecastLibraryFilters?.accept(local, query);
+    if (local.filter_ai_pending && filterArgs.interpret_filters) {
+        allResults = local.items || [];
+        window.currentMemoryViewModel = local;
+        showLoading(false, 1); renderMemoryView(local);
+        try {
+            const interpreted = await fetch('/api/memory/filters/interpret', {
+                method:'POST', headers:{'Content-Type':'application/json'}, signal,
+                body:JSON.stringify({query, ...filterArgs}),
+            });
+            if (signal.aborted || generation !== memorySearchGeneration) return true;
+            const plan = interpreted.ok ? await interpreted.json() : null;
+            if (signal.aborted || generation !== memorySearchGeneration) return true;
+            if (plan?.status === 'ai') {
+                window.nodecastLibraryFilters?.accept(plan, query);
+                Object.assign(filterArgs, window.nodecastLibraryFilters.request(false, query));
+                window.nodecastLibraryFilters.searchSaved(query, filterArgs, signal);
+                const revised = await fetch('/api/memory/query', {method:'POST', headers:{'Content-Type':'application/json'}, signal, body:JSON.stringify({query, mode:'fast', synthesize:false, ...filterArgs})});
+                if (!revised.ok) throw new Error(`HTTP ${revised.status}`);
+                local = await revised.json();
+                if (signal.aborted || generation !== memorySearchGeneration) return true;
+            } else {
+                unresolvedTimeFilter = true;
+                if (typeof showNotification === 'function') showNotification({title:'Choose the time filter', message:'This time phrase could not be interpreted automatically. Choose dates with the filter button.', type:'info', key:'library-filter-interpretation'});
+            }
+        } catch (error) {
+            if (signal.aborted || generation !== memorySearchGeneration) return true;
+            unresolvedTimeFilter = true;
+            console.warn('Time filter interpretation unavailable; keeping local results.', error);
+        }
+    }
     allResults = local.items || [];
     window.currentMemoryViewModel = local;
     hasMore = false;
     currentPage = 1;
     showLoading(false, 1);
     renderMemoryView(local);
+    if (unresolvedTimeFilter) {
+        if (diagnosticView) { diagnosticView.hidden = false; diagnosticView.textContent = 'Time filter not applied. Choose dates with the filter button; the results below are local text matches.'; }
+        return true;
+    }
+    if (!query.trim() || (local.filter_search_text === '' && window.nodecastLibraryFilters?.hasActive())) return true;
     const pending = {
         ...local,
         synthesis_status: 'streaming',
@@ -381,7 +420,7 @@ async function doEvidenceFirstSearch(query, forceRefresh = false, signal, genera
             body: JSON.stringify({
                 query, limit: 8, token_budget: 700, mode: 'auto', response_language: 'auto',
                 synthesize: true, stream_version: 2, force_refresh: forceRefresh,
-                diagnostics,
+                diagnostics, ...filterArgs,
                 request_id: globalThis.crypto?.randomUUID?.() || `memory-${Date.now()}`,
             }),
         });
@@ -688,6 +727,11 @@ async function copyMemoryAnswer(button) {
 }
 
 function renderMemoryView(viewModel) {
+    window.nodecastLibraryFilters?.accept(viewModel, currentQuery);
+    if ((!currentQuery.trim() || viewModel.filter_search_text === '') && window.nodecastLibraryFilters?.hasActive()) {
+        replaceMemoryResults('<section class="memory-synthesis"><h2>Filtered saved items</h2><p class="memory-fallback-note">Browse matching saves below, or enter a topic to ask your library.</p></section>');
+        emptyState.hidden = true; updatePaginationControls(); return;
+    }
     const synthesis = viewModel.answer || viewModel.synthesis || {};
     if (synthesis.status === 'error' && typeof showNotification === 'function') {
         showNotification({

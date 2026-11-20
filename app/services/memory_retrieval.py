@@ -193,8 +193,10 @@ For compare, use shared dimensions as section titles and never invent missing va
     except (json.JSONDecodeError, AttributeError, TypeError): return None
 
 
-def _candidate_search(user_id: str, query: str, limit: int = 30, embedding_identity: tuple[str, str] | None = None):
-    lexical = search_atomics(user_id, query, limit=limit)
+def _candidate_search(user_id: str, query: str, limit: int = 30, embedding_identity: tuple[str, str] | None = None, filters: dict | None = None):
+    if not query.strip():
+        return [], {"lexical":True, "cross_language":False, "semantic_reason":"empty_query"}
+    lexical = search_atomics(user_id, query, limit=limit, **({"filters": filters} if filters else {}))
     if not embedding_identity:
         return lexical, {"lexical": True, "cross_language": False, "semantic_reason": "not_configured"}
     provider = get_embedding_provider(*embedding_identity)
@@ -203,18 +205,21 @@ def _candidate_search(user_id: str, query: str, limit: int = 30, embedding_ident
     vectors = provider.embed([query])
     if len(vectors) != 1 or len(vectors[0]) != provider.dimensions:
         return lexical, {"lexical": True, "cross_language": False, "semantic_reason": "invalid_query_embedding"}
-    semantic = search_atomic_embeddings(user_id, vectors[0], provider.provider, provider.model, provider.revision, limit=limit)
+    semantic = search_atomic_embeddings(user_id, vectors[0], provider.provider, provider.model, provider.revision, limit=limit, **({"filters": filters} if filters else {}))
     return reciprocal_rank_fusion(lexical, semantic, limit), {"lexical": True, "cross_language": True, "semantic_reason": "available"}
 
 
-def _memory_context(user_id: str, query: str, limit: int, token_budget: int, requested_view: str, embedding_identity: tuple[str, str] | None = None, response_language: str = "auto", alternative_queries: list[str] | None = None, diagnostics: dict | None = None, searched_queries: list[str] | None = None) -> tuple[dict, list[dict], str]:
-    query_plan = build_query_plan(query, response_language=response_language)
+def _memory_context(user_id: str, query: str, limit: int, token_budget: int, requested_view: str, embedding_identity: tuple[str, str] | None = None, response_language: str = "auto", alternative_queries: list[str] | None = None, diagnostics: dict | None = None, searched_queries: list[str] | None = None, filter_context: dict | None = None) -> tuple[dict, list[dict], str]:
+    query_plan = build_query_plan(filter_context["search_text"] if filter_context else query, response_language=response_language)
+    filter_args = {"filters": filter_context["resolved"]} if filter_context and any(filter_context["resolved"].values()) else {}
+    if filter_context:
+        query_plan["filters"] = filter_context["filters"]
     intent = {"troubleshoot":"problem","lookup":"focus" if 0 < len(query.split()) <= 3 else "list"}.get(query_plan["intent"],query_plan["intent"])
     if embedding_identity is None:
         configured_provider = get_user_setting(user_id, "multilingual_embedding_provider", "")
         configured_model = get_user_setting(user_id, "multilingual_embedding_model", "")
         embedding_identity = (configured_provider, configured_model) if configured_provider and configured_model else None
-    candidates, retrieval_capabilities = _candidate_search(user_id, query_plan["search_text"], limit=30, embedding_identity=embedding_identity)
+    candidates, retrieval_capabilities = _candidate_search(user_id, query_plan["search_text"], limit=30, embedding_identity=embedding_identity, **filter_args)
     if diagnostics is not None:
         diagnostics["original_candidates"] = len(candidates)
         diagnostics["alternative_candidate_counts"] = []
@@ -222,7 +227,7 @@ def _memory_context(user_id: str, query: str, limit: int, token_budget: int, req
         ranked = [candidates]
         for alternative in alternative_queries[:3]:
             try:
-                rows, _ = _candidate_search(user_id, alternative, limit=30, embedding_identity=embedding_identity)
+                rows, _ = _candidate_search(user_id, alternative, limit=30, embedding_identity=embedding_identity, **filter_args)
                 rows = [row for row in rows if preserves_search_anchors(query_plan["search_text"],
                         str(row.get("content") or "") + ' ' + str(row.get("context_header") or ""))]
                 ranked.append(rows)
@@ -271,6 +276,7 @@ def _memory_context(user_id: str, query: str, limit: int, token_budget: int, req
         empty_reason = "no_saved_sources" if not has_sources else "no_indexed_evidence" if not has_evidence else "no_matching_evidence"
     return {
         "query":{"text":query,"intent":intent}, "query_analysis":query_plan, "view":view, "items":cards,
+        **({"filters": filter_context["filters"], "resolved_filters": filter_context["resolved"], "filter_search_text": filter_context["search_text"], "filter_ai_pending":filter_context.get("needs_ai", False)} if filter_context else {}),
         "evidence": cards,
         "sources": list(source_groups.values()),
         "answer": None,
@@ -281,7 +287,7 @@ def _memory_context(user_id: str, query: str, limit: int, token_budget: int, req
         "available_views":["list","focus","sources","compare","problem","graph"],
         # This endpoint returns a bounded evidence packet, not pageable results.
         "page":{"cursor":None,"has_more":False}, "token_estimate":used,
-        "result_id":hashlib.sha256(f"{user_id}:{query}".encode()).hexdigest()[:16],
+        "result_id":hashlib.sha256(f"{user_id}:{query}:{json.dumps(filter_context['resolved'], sort_keys=True) if filter_context else ''}".encode()).hexdigest()[:16],
     }, packet, intent
 
 
@@ -296,9 +302,9 @@ def _with_synthesis(result: dict, synthesis: dict | None, requested_view: str) -
     return response
 
 
-def query_memory(user_id: str, query: str, limit: int = 8, token_budget: int = 700, requested_view: str = "auto", synthesize: bool = True, response_language: str = "auto", expand_search: bool = False, diagnostics: bool = False) -> dict:
+def query_memory(user_id: str, query: str, limit: int = 8, token_budget: int = 700, requested_view: str = "auto", synthesize: bool = True, response_language: str = "auto", expand_search: bool = False, diagnostics: bool = False, filter_context: dict | None = None) -> dict:
     trace = {"planner_status": "not_requested", "alternative_queries": 0} if diagnostics else None
-    result, packet, intent = _memory_context(user_id, query, limit, token_budget, requested_view, response_language=response_language, diagnostics=trace)
+    result, packet, intent = _memory_context(user_id, query, limit, token_budget, requested_view, response_language=response_language, diagnostics=trace, filter_context=filter_context)
     if trace is not None:
         result["diagnostics"] = trace
     if not synthesize:
@@ -308,12 +314,12 @@ def query_memory(user_id: str, query: str, limit: int = 8, token_budget: int = 7
         provider = get_ai_provider(user_id, assignment["provider_id"]) if assignment else None
         if provider:
             try:
-                queries = (provider_search_queries(user_id, provider, assignment["model"], query, diagnostics=trace) if trace is not None else provider_search_queries(user_id, provider, assignment["model"], query))
+                queries = (provider_search_queries(user_id, provider, assignment["model"], filter_context["search_text"] if filter_context else query, diagnostics=trace) if trace is not None else provider_search_queries(user_id, provider, assignment["model"], filter_context["search_text"] if filter_context else query))
                 if trace is not None:
                     trace["alternative_queries"] = max(0, len(queries) - 1)
                 if len(queries) > 1:
                     result, packet, intent = _memory_context(user_id, query, limit, token_budget, requested_view,
-                        response_language=response_language, alternative_queries=queries[1:], diagnostics=trace)
+                        response_language=response_language, alternative_queries=queries[1:], diagnostics=trace, filter_context=filter_context)
                     if trace is not None:
                         result["diagnostics"] = trace
             except Exception:
@@ -680,7 +686,7 @@ def _repair_missing_table_fallback(synthesis: dict, packet: list[dict]) -> None:
         section["content"] = "".join(part.get("text", "") for part in parts).strip()
 
 
-def stream_memory_query(user_id: str, query: str, limit: int = 8, token_budget: int = 700, requested_view: str = "auto", response_language: str = "auto", force_refresh: bool = False, expand_search: bool = False, diagnostics: bool = False):
+def stream_memory_query(user_id: str, query: str, limit: int = 8, token_budget: int = 700, requested_view: str = "auto", response_language: str = "auto", force_refresh: bool = False, expand_search: bool = False, diagnostics: bool = False, filter_context: dict | None = None):
     """Yield JSON-serializable stream events for an evidence-cited recall answer."""
     try:
         cache_enabled = recall_cache.enabled(user_id)
@@ -689,7 +695,7 @@ def stream_memory_query(user_id: str, query: str, limit: int = 8, token_budget: 
         logger.warning("Recall cache unavailable; continuing without cache", exc_info=True)
         cache_enabled, initial_revision = False, None
     trace = {"planner_status": "not_requested", "alternative_queries": 0} if diagnostics else None
-    result, packet, intent = _memory_context(user_id, query, limit, token_budget, requested_view, response_language=response_language, diagnostics=trace)
+    result, packet, intent = _memory_context(user_id, query, limit, token_budget, requested_view, response_language=response_language, diagnostics=trace, filter_context=filter_context)
     if trace is not None:
         result["diagnostics"] = trace
     assignment = get_ai_assignment_for_feature(user_id, FEATURE_RECALL_SYNTHESIS)
@@ -703,11 +709,11 @@ def stream_memory_query(user_id: str, query: str, limit: int = 8, token_budget: 
         # Emit local results before asking the configured model for a plan.
         yield {"event": "meta", "data": result}
         try:
-            queries = (provider_search_queries(user_id, provider, assignment["model"], query, diagnostics=trace) if trace is not None else provider_search_queries(user_id, provider, assignment["model"], query))
+            queries = (provider_search_queries(user_id, provider, assignment["model"], filter_context["search_text"] if filter_context else query, diagnostics=trace) if trace is not None else provider_search_queries(user_id, provider, assignment["model"], filter_context["search_text"] if filter_context else query))
             if trace is not None: trace["alternative_queries"] = max(0, len(queries) - 1)
             if len(queries) > 1:
                 performed = []
-                result, packet, intent = _memory_context(user_id, query, limit, token_budget, requested_view, response_language=response_language, alternative_queries=queries[1:], diagnostics=trace, searched_queries=performed)
+                result, packet, intent = _memory_context(user_id, query, limit, token_budget, requested_view, response_language=response_language, alternative_queries=queries[1:], diagnostics=trace, searched_queries=performed, filter_context=filter_context)
                 if trace is not None: result["diagnostics"] = trace
                 for search_text in performed:
                     yield {"event": "search.performed", "query": search_text}
@@ -721,7 +727,7 @@ def stream_memory_query(user_id: str, query: str, limit: int = 8, token_budget: 
     key = None
     try:
         if cache_enabled and initial_revision == recall_cache.revision(user_id):
-            key = recall_cache.cache_key(query, packet, initial_revision, assignment, provider, requested_view, response_language)
+            key = recall_cache.cache_key(query, packet, initial_revision, assignment, provider, requested_view, response_language, filters=filter_context)
             cached = None if force_refresh else recall_cache.get(user_id, key, initial_revision)
             if cached:
                 answer, created_at = cached
@@ -782,7 +788,7 @@ Choose one primary format per section. Prefer a bulleted list for independent po
 
 def stream_memory_query_v2(user_id: str, query: str, limit: int = 8, token_budget: int = 700,
                            requested_view: str = "auto", request_id: str = "", cancel_check=None,
-                           synthesize: bool = True, response_language: str = "auto", force_refresh: bool = False, diagnostics: bool = False, expand_search: bool = True):
+                           synthesize: bool = True, response_language: str = "auto", force_refresh: bool = False, diagnostics: bool = False, expand_search: bool = True, filter_context: dict | None = None):
     """Translate the stable recall pipeline into a typed, ordered NDJSON contract."""
     request_id = request_id or uuid.uuid4().hex
     seq = 0
@@ -806,13 +812,13 @@ def stream_memory_query_v2(user_id: str, query: str, limit: int = 8, token_budge
         yield event("request.cancelled", {"reason": "client_cancelled"})
         return
     if not synthesize:
-        result, _packet, _intent = _memory_context(user_id, query, limit, token_budget, requested_view, response_language=response_language)
+        result, _packet, _intent = _memory_context(user_id, query, limit, token_budget, requested_view, response_language=response_language, filter_context=filter_context)
         yield event("search.completed", {"count": len(result.get("items", [])), "retrieval": result.get("retrieval", {})})
         yield event("evidence.selected", {"result": result})
         yield event("usage", {"token_estimate": result.get("token_estimate", 0), "budget": token_budget})
         yield event("request.completed", {"result": result})
         return
-    legacy = stream_memory_query(user_id, query, limit, token_budget, requested_view, response_language, force_refresh, expand_search=expand_search, diagnostics=diagnostics)
+    legacy = stream_memory_query(user_id, query, limit, token_budget, requested_view, response_language, force_refresh, expand_search=expand_search, diagnostics=diagnostics, filter_context=filter_context)
     evidence_emitted = False
     for item in legacy:
         if cancel_check and cancel_check():
