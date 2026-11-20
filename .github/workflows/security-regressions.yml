@@ -28,7 +28,7 @@ jobs:
       - run: node tests/test_workspace_query.js
       - if: runner.os == 'Linux'
         run: |
-          python -m pip install playwright
+          python -m pip install playwright==1.65.2
           python -m playwright install --with-deps chromium
           python -m pytest tests/test_browser_security.py -q
       - if: runner.os != 'Windows'

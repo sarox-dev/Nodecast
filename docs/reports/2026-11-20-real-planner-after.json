@@ -1,0 +1,70 @@
+{
+  "timestamp_utc": "2026-11-20T09:38:26.510166+00:00",
+  "scope": "Replay of the previously validated real-provider alternatives through updated keyword normalization and isolated local retrieval. No second provider call; no generated-answer evaluation.",
+  "provider_type": "chatgpt_oauth",
+  "model": "gpt-6-luna",
+  "cases": [
+    {
+      "id": "context",
+      "query": "Kāpēc ilgāks konteksta logs palielina atmiņas prasības?",
+      "expected_sources": [
+        "context"
+      ],
+      "queries": [
+        "Kāpēc ilgāks konteksta logs palielina atmiņas prasības?",
+        "longer context window increase memory requirements"
+      ],
+      "planner_status": "success",
+      "provider_error": null,
+      "elapsed_seconds": 5.4,
+      "actual_sources": [
+        "context"
+      ],
+      "expected_found": true,
+      "unexpected_sources": []
+    },
+    {
+      "id": "conditions",
+      "query": "piezīmes bez mākoņa izņemot Dropbox",
+      "expected_sources": [
+        "local",
+        "optional"
+      ],
+      "queries": [
+        "piezīmes bez mākoņa izņemot Dropbox",
+        "piezīmes notes Dropbox"
+      ],
+      "planner_status": "success",
+      "provider_error": null,
+      "elapsed_seconds": 4.49,
+      "actual_sources": [
+        "local",
+        "optional"
+      ],
+      "expected_found": true,
+      "unexpected_sources": []
+    },
+    {
+      "id": "technical",
+      "query": "Kā SQLite WAL palīdz vienlaicīgiem lasītājiem?",
+      "expected_sources": [
+        "sqlite"
+      ],
+      "queries": [
+        "Kā SQLite WAL palīdz vienlaicīgiem lasītājiem?",
+        "SQLite WAL vienlaicīgi lasītāji concurrent readers"
+      ],
+      "planner_status": "success",
+      "provider_error": null,
+      "elapsed_seconds": 3.47,
+      "actual_sources": [
+        "sqlite"
+      ],
+      "expected_found": true,
+      "unexpected_sources": []
+    }
+  ],
+  "replayed_at_utc": "2026-11-20T09:41:37.867382+00:00",
+  "baseline_code": "02edd1dd5f48993d6e9aed40c5cc13df9e22d0f8",
+  "planner_sha256": "0a7b42226588636c40b6bc46a468a494f5e088060beb40570a0cca375729eee0"
+}

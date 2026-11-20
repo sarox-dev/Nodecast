@@ -25,6 +25,12 @@ word such as `concurrent` from adding an unrelated PostgreSQL source to a SQLite
 question. This extra check does not remove the original local search results.
 Ordinary title-case words are not automatically classified as named entities.
 
+English articles, question auxiliaries and common function words are removed from
+the additional keyword searches. Negation, constraints and technical words are
+not stopwords, and all guards run before the cleaned phrase is used. This keeps a
+full-sentence translation from matching unrelated excerpts just because they
+contain `a`. The original user query and its local search are unchanged.
+
 The existing limits remain: up to three alternatives, 200 characters per query,
 4096 characters in the planner reply, an 8-second provider-call timeout and local
 user-scoped searches. The planner receives only the bounded original question,
@@ -83,3 +89,20 @@ provider absence and planner failure. Chromium checks the real UI receiving an
 English source and a valid evidence citation for a Latvian constrained question;
 the model reply is explicitly simulated. Real-provider observations, when run,
 must be reported separately from these fixtures.
+
+## Real-provider probe, 2026-11-20
+
+Three synthetic Latvian questions were sent through the installation's existing
+ChatGPT OAuth Recall assignment (`gpt-6-luna`) using the updated planner prompt.
+No saved personal text was sent. All three produced valid alternatives and found
+the expected synthetic sources; the first also retrieved two unrelated sources
+because the model returned a full English question containing articles.
+
+[Observed plans/results](reports/2026-11-20-real-planner-before.json) preserve that
+failure. The same previously validated model alternatives were then replayed
+through keyword normalization and identical isolated evidence: all expected
+sources remain and the two unrelated sources disappear
+([fixed replay](reports/2026-11-20-real-planner-after.json)). The replay is
+deterministic and does not represent a second model call. The observed full
+sentence is now a regression test. This small probe does not evaluate generated
+answers, semantic citation support or the user's real library.

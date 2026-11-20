@@ -18,6 +18,13 @@ PLAN_VERSION = "ask-query-expansion-v2-constraints"
 MAX_ALTERNATIVES = 3
 MAX_QUERY_CHARS = 200
 MAX_RESPONSE_CHARS = 4096
+# Additional queries are keyword searches. English articles/question auxiliaries
+# in a full-sentence translation must not turn relaxed OR into a match on "a".
+# Negators, exclusions, dates, numbers and technical words are never stopwords.
+_FUNCTION_WORDS = frozenset('a an the am is are was were be been being do does did '
+    'have has had of to for from in on at by with as and or but this that these '
+    'those it its i me my we our you your they their what which who whom whose '
+    'when where why how can could will would should'.split())
 
 # Exact syntax and unsupported negation/numeric conditions keep the original
 # query only. Recognized content conditions are enforced independently on the
@@ -44,6 +51,11 @@ uncertain. Search is local; you cannot access the user's library."""
 
 def _words(text: str) -> set[str]:
     return {word.casefold() for word in re.findall(r'\b[^\W\d_]\w*\b', text)}
+
+
+def _search_phrase(text: str) -> str:
+    terms = [word.strip('?!,;:') for word in text.split()]
+    return ' '.join(word for word in terms if word and word.casefold() not in _FUNCTION_WORDS)
 
 
 def preserves_search_anchors(original: str, text: str) -> bool:
@@ -125,13 +137,14 @@ def plan_search_queries(query: str, planner: Callable[[str], str | None], diagno
             status("invalid_response")
             return [original]
         candidate_positive, candidate_constraints = parse_content_constraints(candidate)
+        candidate_positive = _search_phrase(candidate_positive)
         if (not signatures(candidate_constraints) <= original_constraints
+                or not candidate_positive
                 or _SENSITIVE.search(candidate_positive)
                 or not preserves_search_anchors(positive, candidate_positive)):
             rejected += 1
             continue
-        if constraints:
-            candidate = candidate_positive
+        candidate = candidate_positive
         if candidate.casefold() not in seen:
             queries.append(candidate)
             seen.add(candidate.casefold())

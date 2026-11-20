@@ -17,6 +17,16 @@ def test_translated_v2_packets_keep_constraints_sources_and_provenance():
     assert any(row['initial_local_sources'] == [] and row['actual_sources'] for row in report['results'])
 
 
+def test_real_observed_full_sentence_translation_does_not_match_articles():
+    corpus = load_corpus(CORPUS)
+    case = next(row for row in corpus['queries'] if row['id'] == 'context_lv')
+    case['planner_queries'] = ['Why does a longer context window increase memory requirements?']
+    report = evaluate_expansion(corpus)
+    result = next(row for row in report['results'] if row['id'] == 'context_lv')
+    assert result['actual_sources'] == ['context']
+    assert result['performed_queries'] == ['longer context window increase memory requirements']
+
+
 @pytest.mark.parametrize('query, alternative', [
     ('piezīmes bez mākoņa', 'notes'),
     ('piezīmes bez mākoņa izņemot Dropbox', 'notes'),

@@ -1,0 +1,72 @@
+{
+  "timestamp_utc": "2026-11-20T09:38:26.510166+00:00",
+  "scope": "Real configured Recall provider and new planner prompt/validation, followed by new local retrieval on synthetic data. No personal captures sent; no generated-answer or semantic citation-support evaluation. Existing provider adapter may perform its normal OAuth refresh.",
+  "provider_type": "chatgpt_oauth",
+  "model": "gpt-6-luna",
+  "cases": [
+    {
+      "id": "context",
+      "query": "Kāpēc ilgāks konteksta logs palielina atmiņas prasības?",
+      "expected_sources": [
+        "context"
+      ],
+      "queries": [
+        "Kāpēc ilgāks konteksta logs palielina atmiņas prasības?",
+        "Why does a longer context window increase memory requirements?"
+      ],
+      "planner_status": "success",
+      "provider_error": null,
+      "elapsed_seconds": 5.4,
+      "actual_sources": [
+        "cloud",
+        "context",
+        "sqlite"
+      ],
+      "expected_found": true,
+      "unexpected_sources": [
+        "cloud",
+        "sqlite"
+      ]
+    },
+    {
+      "id": "conditions",
+      "query": "piezīmes bez mākoņa izņemot Dropbox",
+      "expected_sources": [
+        "local",
+        "optional"
+      ],
+      "queries": [
+        "piezīmes bez mākoņa izņemot Dropbox",
+        "piezīmes notes Dropbox"
+      ],
+      "planner_status": "success",
+      "provider_error": null,
+      "elapsed_seconds": 4.49,
+      "actual_sources": [
+        "local",
+        "optional"
+      ],
+      "expected_found": true,
+      "unexpected_sources": []
+    },
+    {
+      "id": "technical",
+      "query": "Kā SQLite WAL palīdz vienlaicīgiem lasītājiem?",
+      "expected_sources": [
+        "sqlite"
+      ],
+      "queries": [
+        "Kā SQLite WAL palīdz vienlaicīgiem lasītājiem?",
+        "SQLite WAL vienlaicīgi lasītāji concurrent readers"
+      ],
+      "planner_status": "success",
+      "provider_error": null,
+      "elapsed_seconds": 3.47,
+      "actual_sources": [
+        "sqlite"
+      ],
+      "expected_found": true,
+      "unexpected_sources": []
+    }
+  ]
+}
