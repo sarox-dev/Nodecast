@@ -231,3 +231,25 @@ def test_cache_keys_include_resolved_filter_scope():
     from app.services.recall_cache import cache_key
     args=('Docker',[],1,{}, {},'auto','auto')
     assert cache_key(*args,filters={'sources':['github.com']}) != cache_key(*args,filters={'sources':['youtube.com']})
+
+
+def test_saved_text_renders_current_evidence_and_keeps_account_scope(library):
+    client,uid,other,add=library
+    add('readable-source',text='Docker SQLite original fragment. <script>unsafe()</script>')
+    add('private-readable-source',user=other,text='Private fragment must stay private.')
+    response=client.get('/api/capture/readable-source/render/markdown')
+    assert response.status_code==200
+    assert 'Docker SQLite original fragment.' in response.text
+    assert '<script>' not in response.text and '&lt;script&gt;' in response.text
+    assert client.get('/api/capture/private-readable-source/render/markdown').status_code==404
+
+
+@pytest.mark.parametrize('query',['Docker before yesterday','Docker since yesterday','Docker released yesterday'])
+def test_other_time_relations_are_not_misread_as_saved_day(query):
+    context=prepare_filter_context(query,now=NOW)
+    assert context['filters']['period']=='any'
+    assert context['search_text']==query
+
+
+def test_explicit_calendar_week_can_request_the_bounded_planner():
+    assert prepare_filter_context('Docker saved last calendar week',now=NOW)['needs_ai']

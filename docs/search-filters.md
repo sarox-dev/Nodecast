@@ -67,7 +67,7 @@ Ask still uses up to eight evidence cards within its token budget. Below it,
 matches, the same metadata/content predicates, total count, stable date/ID sorting
 and explicit pagination (20 per UI page; API maximum 50). Metadata-only bookmarks
 can match titles or filter-only browsing. Saved text uses the existing Markdown
-renderer; original URLs remain accessible. This list is local lexical browsing,
+renderer, including current `content` evidence as escaped text; original URLs remain accessible. This list is local lexical browsing,
 not a claim of exhaustive semantic recall or a list of all AI-expanded matches.
 
 ## API

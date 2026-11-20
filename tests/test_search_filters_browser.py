@@ -57,6 +57,11 @@ def test_apply_before_typing_cancel_persistence_next_query_clear_and_paging(brow
     page.get_by_role('button',name='Load more saved items').click()
     playwright.expect(page.locator('#saved-browse-count')).to_have_text('25 of 25')
     playwright.expect(page.locator('#saved-browse-more')).to_be_hidden()
+    with page.expect_popup() as popup:
+        page.locator('#saved-browse-items .saved-snapshot-link').first.click()
+    saved_text = popup.value
+    playwright.expect(saved_text.locator('body')).to_contain_text('Docker SQLite container setup and recovery.')
+    saved_text.close()
     page.locator('#workspace-results-query').fill('SQLite')
     page.locator('#workspace-results-query').press('Enter')
     playwright.expect(page.locator('#filter-bar')).to_contain_text('github.com')

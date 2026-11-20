@@ -59,6 +59,19 @@ class MarkdownRenderer(BaseRenderer):
         for ko in sorted_objects:
             props = ko.get("properties", {})
             ko_type = ko.get("type", "unknown")
+            # Current atomics store the original evidence in content, while
+            # older objects used type-specific properties.text/code fields.
+            if ko.get("role"):
+                if ko["role"] != "evidence" or ko.get("status") == "rejected":
+                    continue
+                content = ko.get("content")
+                if isinstance(content, str) and content:
+                    escaped = self._esc(content)
+                    if ko_type == "code_block":
+                        lines.append(f"<pre><code>{escaped}</code></pre>")
+                    else:
+                        lines.append("<p>" + escaped.replace("\n", "<br>") + "</p>")
+                    continue
 
             if ko_type == "metadata":
                 lines.append("<section class='ko-section'>")

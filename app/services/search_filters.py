@@ -116,6 +116,8 @@ def prepare_filter_context(query, filters=None, timezone_name="UTC", interpret=T
     def add(match, patch):
         if re.search(r"\b(?:not|except|excluding|ne|izņemot|bez)\s*$", masked[max(0, match.start()-24):match.start()], re.I):
             return
+        if "period" in patch and re.search(r"\b(?:since|before|after|until|from|kopš|pirms|pēc|līdz|published|released|updated|publicēts|izlaists|atjaunināts)\s*$", masked[max(0,match.start()-30):match.start()],re.I):
+            return
         if any(match.start() < b and match.end() > a for a,b in spans): return
         spans.append(match.span()); updates.update(patch)
         if "period" in patch: time_matches.append((match.span(),patch))
@@ -165,7 +167,7 @@ def prepare_filter_context(query, filters=None, timezone_name="UTC", interpret=T
     remaining = list(masked)
     for start,end in spans: remaining[start:end] = " " * (end-start)
     remaining = ''.join(remaining)
-    ai_hint = r"\b(?:pagājuš\w*|iepriekšēj\w*|aizpagājuš\w*|last\s+(?:week|month)|previous\s+(?:week|month))\b"
+    ai_hint = r"\b(?:pagājuš\w*|iepriekšēj\w*|aizpagājuš\w*|(?:last|previous)\s+(?:calendar\s+)?(?:week|month))\b"
     needs_ai = interpret and any(not re.search(r"\b(?:not|except|excluding|ne|izņemot|bez)\s*$",remaining[max(0,m.start()-24):m.start()],re.I) for m in re.finditer(ai_hint,remaining,re.I))
     return {"filters": selected, "resolved": resolve_filters(selected, timezone_name, now),
             "search_text": text.strip(), "timezone": timezone_name,
